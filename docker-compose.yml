@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tdkb-backend
+    environment:
+      TDKB_DATA_DIR: /app/backend/data/runs
+      TDKB_HOST: 0.0.0.0
+      TDKB_PORT: 8000
+      TDKB_JOB_MODE: process
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_runs:/app/backend/data/runs
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  backend_runs:
