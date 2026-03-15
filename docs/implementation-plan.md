@@ -346,17 +346,43 @@ frontend で直接扱うデータは、
 - backend テストで TDHFB 一致が確認できる
 - frontend で run サマリーと主要観測量を表示できる
 
-### Phase E: KBE + second Born
+### Phase E1: fixed-grid KBE + second Born
 
-- memory self-energy
-- 自己無撞着反復
+- uniform time grid 上の memory self-energy
+- 新しい行・列に対する自己無撞着固定点反復
 - 緩和過程の出力
+- 保存則残差、収束履歴、\(\Delta t\) 回帰の記録
+
+完了条件:
+
+- HFB 極限への連続接続が backend テストで確認できる
+- 保存則残差と収束情報を run ごとに記録できる
+- 少なくとも 1 種の相関効果付き run が UI から可視化できる
+
+### Phase E2: adaptive full-KBE integrator
+
+- 可変 time step / method order
+- history integral order の適応
+- variable-step history storage と補間重みの管理
 - 長時間 run 向けの結果取得最適化
 
 完了条件:
 
-- 保存則残差と収束情報を run ごとに記録できる
-- 少なくとも 1 種の相関効果付き run が UI から可視化できる
+- fixed-grid 参照解に対して同等精度を維持できる
+- adaptive step / order / iteration の診断量を run ごとに記録できる
+- 長時間 run で fixed-grid より有利な計算条件を示せる
+
+### Phase E3: thermal branch / Matsubara 初期化
+
+- Matsubara および mixed 成分
+- 相関した熱平衡初期状態
+- factorized 初期化との比較基準整備
+
+完了条件:
+
+- thermal branch 付き run を backend で安定実行できる
+- factorized 初期化との差分を比較できる
+- finite-temperature superconducting benchmark を再現できる
 
 ---
 
@@ -370,6 +396,10 @@ frontend で直接扱うデータは、
 - run 状態モデル
 - 観測量レスポンス形式
 - 結果保存形式
+
+特に Phase E1 では `dt` 固定の schema を維持し、
+variable-step 用の tolerances や order 制御パラメーターは
+Phase E2 で追加する。
 
 これらを先に固定することで、
 frontend と backend を並行開発できる。

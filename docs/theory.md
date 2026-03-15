@@ -243,7 +243,7 @@ KBE 側に採用する自己エネルギーはまず HFB、
 
 **Generalized Kadanoff-Baym Ansatz (GKBA)** は、
 二時刻グリーン関数を等時密度行列
-\(\rho(t)\equiv -iG^<(t,t)\)
+$\rho(t)\equiv -iG^<(t,t)$
 と retarded/advanced propagator から近似的に再構成する
 単時間近似である。例えば lesser 成分は
 $$
@@ -321,8 +321,8 @@ GKBA はその上に載る **計算軽量化の将来拡張**
 例えば
 
 - 拡張 Hubbard の HFB
-- 局所 Hubbard \(U\) の second Born
-- 遅延有効相互作用 \(V_{\rm eff}(t,t')\)
+- 局所 Hubbard $U$ の second Born
+- 遅延有効相互作用 $V_{\rm eff}(t,t')$
 - electron-phonon 由来の自己エネルギー
 
 を実装する。
@@ -341,8 +341,8 @@ electron-phonon サブプロジェクトのために、
 この層には少なくとも三段階がある。
 
 - なし
-- 古典格子変位 \(X(t)\) を持つ Ehrenfest 型
-- 量子フォノン Green 関数 \(D(z,z')\) を持つ NEGF 型
+- 古典格子変位 $X(t)$ を持つ Ehrenfest 型
+- 量子フォノン Green 関数 $D(z,z')$ を持つ NEGF 型
 
 初期段階では boson 層を空実装または古典場として設計し、
 将来の量子フォノン拡張に備える。
@@ -357,7 +357,7 @@ electron-phonon サブプロジェクトのために、
 - 電流
 - エネルギー
 - オンサイトおよび bond pairing
-- form factor 射影した \(s\)-wave / \(d\)-wave 成分
+- form factor 射影した $s$-wave / $d$-wave 成分
 - ペア相関関数
 - フォノン変位やそのエネルギー
 
@@ -378,15 +378,15 @@ $$
 
 ここで
 
-- \(H_{\rm el}^{(1)}\): 電子の時間依存一体部分
-- \(H_{\rm int}^{\rm (el)}\): 電子間相互作用
-- \(H_{\rm bos}\): 格子や他のボース自由度
-- \(H_{\rm el\text{-}bos}\): 電子-ボース結合
+- $H_{\rm el}^{(1)}$: 電子の時間依存一体部分
+- $H_{\rm int}^{\rm (el)}$: 電子間相互作用
+- $H_{\rm bos}$: 格子や他のボース自由度
+- $H_{\rm el\text{-}bos}$: 電子-ボース結合
 
 である。
 
 このうち baseline の拡張 Hubbard では
-\(H_{\rm bos}=H_{\rm el\text{-}bos}=0\) となる。
+$H_{\rm bos}=H_{\rm el\text{-}bos}=0$ となる。
 
 ---
 
@@ -404,7 +404,7 @@ $$
 
 とする。
 
-ここで \(T_{ij}(t)\) は
+ここで $T_{ij}(t)$ は
 
 - 外場による Peierls 位相
 - 必要なら格子歪みによるホッピング変調
@@ -490,7 +490,7 @@ $$
 
 である。
 
-Holstein 型は自然には on-site \(s\)-wave pairing に結びつきやすい。
+Holstein 型は自然には on-site $s$-wave pairing に結びつきやすい。
 
 ### SSH 型
 
@@ -536,7 +536,7 @@ A から B までの接続を視野に入れる。
 
 ただし平均場だけでは、
 完全に対称性を保った有限系から
-\(\Delta\) が厳密に自発形成するとは限らない。
+$\Delta$ が厳密に自発形成するとは限らない。
 実務上は
 
 - 微小 seed を入れる
@@ -549,8 +549,8 @@ A から B までの接続を視野に入れる。
 
 # 6. 光照射の導入
 
-外場は時間ゲージ \(\phi=0\) を仮定し、
-空間一様なベクトルポテンシャル \(\mathbf A(t)\) を
+外場は時間ゲージ $\phi=0$ を仮定し、
+空間一様なベクトルポテンシャル $\mathbf A(t)$ を
 Peierls 置換で導入する。
 
 $$
@@ -564,9 +564,9 @@ t_{ij}
 \right)
 $$
 
-ここで \(e>0\) は電荷素量であり、
+ここで $e>0$ は電荷素量であり、
 一様場では積分は
-\(\mathbf A(t)\cdot(\mathbf r_i-\mathbf r_j)\) に簡約される。
+$\mathbf A(t)\cdot(\mathbf r_i-\mathbf r_j)$ に簡約される。
 電場は
 
 $$
@@ -613,12 +613,12 @@ $$
 \mathcal C=\mathcal C_+\cup\mathcal C_-\cup\mathcal C_{\rm M}
 $$
 
-ここで \(\mathcal C_+\) と \(\mathcal C_-\) は実時間の往復枝、
-\(\mathcal C_{\rm M}\) は熱初期状態
-\(\rho_0\propto e^{-\beta(H-\mu N)}\)
+ここで $\mathcal C_+$ と $\mathcal C_-$ は実時間の往復枝、
+$\mathcal C_{\rm M}$ は熱初期状態
+$\rho_0\propto e^{-\beta(H-\mu N)}$
 を表す虚時間枝である。
 
-相関した熱平衡初期状態を使う場合には \(\mathcal C_{\rm M}\) を含める。
+相関した熱平衡初期状態を使う場合には $\mathcal C_{\rm M}$ を含める。
 一方、初期実装では
 
 - factorized 初期状態
@@ -626,7 +626,7 @@ $$
 
 から開始する Keldysh-only の計算も許す。
 この場合、second Born や将来の electron-phonon 自己エネルギーは
-\(t_0\) 以降の相関生成を記述するが、
+$t_0$ 以降の相関生成を記述するが、
 相互作用を含んだ厳密熱平衡初期状態とは一致しない。
 
 ---
@@ -738,7 +738,7 @@ $$
 $$
 を満たす。
 
-異常成分 \(F_{ij}\) と異常自己エネルギー \(\Delta_{ij}\) は、
+異常成分 $F_{ij}$ と異常自己エネルギー $\Delta_{ij}$ は、
 模型と closure に応じて
 
 - オンサイト
@@ -754,7 +754,7 @@ pairing channel を on-site にも bond にも固定しない。
 ## 7.4 将来のボース Green 関数
 
 electron-phonon の量子的取り扱いに進む場合には、
-フォノン変位演算子 \(X_i\) に対して
+フォノン変位演算子 $X_i$ に対して
 
 $$
 D_{ij}(z,z')
@@ -801,9 +801,13 @@ $$
 と書く。
 
 ここで
-\((\mathbf A\circ\mathbf B)(z,z')
+
+$$
+(\mathbf A\circ\mathbf B)(z,z')
 =
-\int_{\mathcal C}d\bar z\,\mathbf A(z,\bar z)\mathbf B(\bar z,z')\)
+\int_{\mathcal C}d\bar z\,\mathbf A(z,\bar z)\mathbf B(\bar z,z')
+$$
+
 であり、
 標準的な Nambu 一体ハミルトニアンは
 
@@ -863,7 +867,7 @@ $$
 
 を満たす。
 
-ここで \(I^{\rceil},I^{\lceil}\) は虚時間枝に由来する初期相関項であり、
+ここで $I^{\rceil},I^{\lceil}$ は虚時間枝に由来する初期相関項であり、
 factorized 初期状態や平均場初期化では消える。
 
 ---
@@ -871,7 +875,7 @@ factorized 初期状態や平均場初期化では消える。
 ## 8.3 将来のボース Dyson 方程式
 
 量子フォノンまで扱う場合には、
-boson Green 関数 \(D\) に対しても contour Dyson 方程式
+boson Green 関数 $D$ に対しても contour Dyson 方程式
 
 $$
 D=D_0+D_0\circ\Pi\circ D
@@ -879,13 +883,13 @@ $$
 
 を解く必要がある。
 
-ここで \(\Pi\) はフォノン自己エネルギーである。
+ここで $\Pi$ はフォノン自己エネルギーである。
 この段階では
 
-- 電子 Green 関数 \(G\)
-- フォノン Green 関数 \(D\)
-- 電子自己エネルギー \(\Sigma_{\rm ep}\)
-- フォノン自己エネルギー \(\Pi\)
+- 電子 Green 関数 $G$
+- フォノン Green 関数 $D$
+- 電子自己エネルギー $\Sigma_{\rm ep}$
+- フォノン自己エネルギー $\Pi$
 
 が連成する。
 
@@ -945,7 +949,7 @@ $$
 
 ---
 
-## 9.2 Baseline: 局所 Hubbard \(U\) の second Born
+## 9.2 Baseline: 局所 Hubbard $U$ の second Born
 
 baseline の beyond-mean-field 第一段階では
 
@@ -953,16 +957,16 @@ $$
 \Sigma=\Sigma^{\rm HFB}+\Sigma^{(2)}
 $$
 
-とし、\(\Sigma^{(2)}[G]\) は
+とし、$\Sigma^{(2)}[G]$ は
 二次の骨格図から得られる時間非局所なメモリー自己エネルギーとする。
 自己無撞着に解けば conserving approximation になる。
 
-ここでは \(\Sigma^{(2)}\) は
-局所 Hubbard 相互作用 \(U\) に由来する図のみを採用する。
+ここでは $\Sigma^{(2)}$ は
+局所 Hubbard 相互作用 $U$ に由来する図のみを採用する。
 したがって baseline では
 
-- \(V_{ij}\) はまず HFB レベルで pairing を担う
-- \(V_{ij}\) に由来する二次図は入れない
+- $V_{ij}$ はまず HFB レベルで pairing を担う
+- $V_{ij}$ に由来する二次図は入れない
 - 非局所スクリーニングや GW 型補正は守備範囲外
 
 とする。
@@ -982,6 +986,26 @@ $$
 
 この近似が信頼できるのは、
 少なくとも deep Mott 極限から離れた弱〜中間結合領域である。
+
+実装順序としては、以下の三段階を採用する。
+
+1. まず、Keldysh-only・等間隔時間格子・固定刻みの second Born を実装する。
+   ここで確認すべきなのは
+   - Nambu 行列表式
+   - memory self-energy
+   - history integral
+   - 固定点反復
+   - 保存則と $\Delta t$ 収束
+   である。
+2. 次に、固定刻み版を参照解として adaptive full KBE integrator を導入する。
+   可変刻み・可変次数の積分器および history integration order の適応には、
+   [Blommel et al., "Adaptive Time Stepping for the Two-Time Integro-Differential Kadanoff-Baym Equations"](../pdfs/2405.08737v2.pdf)
+   を主な数値実装上の参照とする。
+3. 相関した熱平衡初期状態が必要になった段階で、
+   Matsubara 枝と mixed 成分を加える。
+
+したがって、この論文は second Born 実装の前提条件ではなく、
+fixed-grid baseline を検証した後の数値基盤強化として位置づける。
 
 ---
 
@@ -1003,12 +1027,12 @@ $$
 - コヒーレントフォノン
 - 電子分布の格子応答
 - 既存の超伝導状態の増幅・抑制
-- 光照射後の \(\Delta(t)\) と \(X(t)\) の連成振動
+- 光照射後の $\Delta(t)$ と $X(t)$ の連成振動
 
 である。
 
 ただし重要なのは、
-**古典格子変位 \(X_i(t)\) が対角密度結合にしか入らない場合、
+**古典格子変位 $X_i(t)$ が対角密度結合にしか入らない場合、
 それだけでは phonon-mediated pairing の起源を完全には表現しない**
 という点である。
 
@@ -1063,8 +1087,8 @@ $$
 さらに本格的に進む場合には、
 量子フォノンを保持して
 
-- 電子自己エネルギー \(\Sigma_{\rm ep}\sim g^2 D G\)
-- フォノン自己エネルギー \(\Pi\)
+- 電子自己エネルギー $\Sigma_{\rm ep}\sim g^2 D G$
+- フォノン自己エネルギー $\Pi$
 - 必要に応じて異常自己エネルギー
 
 を二時刻で扱う必要がある。
@@ -1090,7 +1114,7 @@ $$
 $$
 
 とすると、Dyson 方程式は時間局所な有効 BdG ハミルトニアン
-\(\mathcal H_{\rm BdG}(z)=h(z)+\Sigma^{\rm HFB}(z)\)
+$\mathcal H_{\rm BdG}(z)=h(z)+\Sigma^{\rm HFB}(z)$
 で閉じる。
 その等時一般化密度行列
 
@@ -1107,6 +1131,44 @@ i\partial_t \mathcal R(t)
 $$
 
 を満たし、これが TDHFB 方程式である。
+
+ここで、一般化密度行列と BdG ハミルトニアンを
+
+$$
+\mathcal R
+=
+\begin{pmatrix}
+\rho & \kappa\\
+\kappa^\dagger & 1-\rho^*
+\end{pmatrix},
+\qquad
+\mathcal H_{\rm BdG}
+=
+\begin{pmatrix}
+h & \Delta\\
+\Delta^\dagger & -h^*
+\end{pmatrix}
+$$
+
+とブロック表示すると、$\rho$ は normal density、$\kappa$ は anomalous density
+すなわち pairing tensor を表す。
+このとき TDHFB 方程式は
+
+$$
+i\partial_t \rho
+=
+[h,\rho]+\Delta\kappa^\dagger-\kappa\Delta^\dagger
+$$
+
+$$
+i\partial_t \kappa
+=
+h\kappa+\kappa h^*+\Delta(1-\rho^*)-\rho\Delta
+$$
+
+に分解できる。
+したがって、超伝導状態では $\rho$ 単体の運動方程式は閉じず、
+基本変数は $(\rho,\kappa)$ あるいはそれらをまとめた $\mathcal R$ である。
 
 したがって
 
@@ -1150,16 +1212,16 @@ $$
 \partial_t n_i(t)+\sum_j J_{i\to j}(t)=0
 $$
 を満たす。
-電荷電流は \(j^{\rm ch}_{i\to j}(t)=-e\,J_{i\to j}(t)\) である。
+電荷電流は $j^{\rm ch}_{i\to j}(t)=-e\,J_{i\to j}(t)$ である。
 
 ここで重要なのは、
-Peierls 位相を含む \(T_{ij}(t)\) と
+Peierls 位相を含む $T_{ij}(t)$ と
 equal-time lesser Green 関数の組
-\(T_{ij}(t)G_{ji}^<(t,t)\) が
+$T_{ij}(t)G_{ji}^<(t,t)$ が
 ゲージ整合的な組み合わせになっていることである。
 したがって、実装上の電流評価は
 
-- ベアな \(\langle c_i^\dagger c_j\rangle\) 単体ではなく
+- ベアな $\langle c_i^\dagger c_j\rangle$ 単体ではなく
 - 必ず hopping 位相を含んだ bond current
 
 として行う。
@@ -1196,11 +1258,11 @@ $$
 時間依存外場が存在する区間では、
 一般にはエネルギーは保存せず、
 外場のする仕事
-\(\langle \partial_t H(t)\rangle\)
+$\langle \partial_t H(t)\rangle$
 と整合する必要がある。
-一方、パルス終了後に \(\mathbf A(t)\) が時間一定となる区間では、
+一方、パルス終了後に $\mathbf A(t)$ が時間一定となる区間では、
 近似に応じた意味で
-\(E_{\rm tot}(t)\) が数値誤差の範囲で保存することを
+$E_{\rm tot}(t)$ が数値誤差の範囲で保存することを
 必須検証項目とする。
 
 ---
@@ -1233,7 +1295,7 @@ $$
 
 ### Form factor 射影
 
-\(d\)-wave 成分は例えば
+$d$-wave 成分は例えば
 
 $$
 \Delta_d(i,t)
@@ -1248,7 +1310,7 @@ $$
 
 のような線形結合として定義する。
 
-共通基盤では、\(s\)-wave / \(d\)-wave / bond / on-site を
+共通基盤では、$s$-wave / $d$-wave / bond / on-site を
 観測量レベルで柔軟に切り替えられるようにする。
 
 ---
@@ -1260,7 +1322,7 @@ electron-phonon サブプロジェクトでは、
 
 - pair correlation
 - pairing susceptibility
-- 格子変位 \(X_i(t)\)
+- 格子変位 $X_i(t)$
 - フォノンエネルギー
 
 も重要な観測量である。
@@ -1340,9 +1402,9 @@ $$
 
 ## 13.3 構造保存則
 
-- 因果律 \(G^R(t,t')=0\ (t<t')\)
-- エルミート性 \([G^<(t,t')]^\dagger=-G^<(t',t)\)
-- スペクトル和則 \(G^R(t,t^+)-G^A(t,t^-)=-i\)
+- 因果律 $G^R(t,t')=0\ (t<t')$
+- エルミート性 $[G^<(t,t')]^\dagger=-G^<(t',t)$
+- スペクトル和則 $G^R(t,t^+)-G^A(t,t^-)=-i$
 - conserving approximation における粒子数保存
 - ゲージ整合的な bond current の連続の式との整合
 - パルス終了後かつ時間依存外場が無い区間での全エネルギー保存
@@ -1358,7 +1420,7 @@ $$
 
 駆動中については、単純な保存則ではなく
 外場の仕事率との整合
-\(dE_{\rm tot}/dt=\langle \partial_t H(t)\rangle\)
+$dE_{\rm tot}/dt=\langle \partial_t H(t)\rangle$
 を確認対象とする。
 
 electron-phonon サブプロジェクトでは、
@@ -1391,7 +1453,7 @@ second Born を自己無撞着に解いた結果が、
 
 ### 有効相互作用段階
 
-- 適切な極限で有効 \(-U\) 模型に還元されること
+- 適切な極限で有効 $-U$ 模型に還元されること
 - seed に対する pairing 増幅の再現
 
 ### 量子フォノン段階
@@ -1430,13 +1492,13 @@ $$
 
 KBE でも、相関した平衡初期状態を用いる場合には
 時間並進対称性
-\(G(t,t')=G(t-t')\)
+$G(t,t')=G(t-t')$
 への接続を確認する。
 一方、Keldysh-only の factorized 初期化で second Born を開始する場合には、
 厳密な静止性は要求せず、
 
 - 初期スリップの大きさ
-- \(\Delta t\) を変えたときの収束
+- $\Delta t$ を変えたときの収束
 - Matsubara 枝実装後との比較基準
 
 として記録する。
@@ -1447,12 +1509,12 @@ KBE でも、相関した平衡初期状態を用いる場合には
 数値解でも保たれる必要がある。
 例えば
 
-- \(0\le n_{i\sigma}(t)\le 1\)
-- \(\mathcal R(t)=\mathcal R^\dagger(t)\)
-- TDHFB の純粋状態極限では \(\mathcal R^2=\mathcal R\)
-- スピン対称条件下で \(n_{i\uparrow}=n_{i\downarrow}\)
+- $0\le n_{i\sigma}(t)\le 1$
+- $\mathcal R(t)=\mathcal R^\dagger(t)$
+- TDHFB の純粋状態極限では $\mathcal R^2=\mathcal R$
+- スピン対称条件下で $n_{i\uparrow}=n_{i\downarrow}$
 - 正常相の対称初期条件から出発した場合に、明示的 seed 無しでは異常成分が機械誤差以上に自発発生しない
-- 正方格子と駆動が \(C_4\) や鏡映対称性を保つ場合、それに対応する密度・電流・bond pairing の対称性が破れない
+- 正方格子と駆動が $C_4$ や鏡映対称性を保つ場合、それに対応する密度・電流・bond pairing の対称性が破れない
 
 をチェックする。
 
@@ -1485,8 +1547,8 @@ Peierls 位相を含む実装になって初めて
 second Born を含む baseline の結果を物理的に採用してよいのは、
 少なくとも以下が成り立つ範囲に限る。
 
-- \(U\) や散乱率が帯域幅と同程度以上になっていない
-- HFB から second Born への補正が連続的で、\(\Delta t\) や系サイズを変えても質的結論が安定
+- $U$ や散乱率が帯域幅と同程度以上になっていない
+- HFB から second Born への補正が連続的で、$\Delta t$ や系サイズを変えても質的結論が安定
 - occupation の範囲逸脱や大きなエネルギードリフトなど、明白な非物理性が現れない
 - 深い Mott 極限に特徴的な非摂動的現象を説明対象にしていない
 
@@ -1572,9 +1634,9 @@ HFB 極限・保存則・既知極限の一致が取れてから着手する。
 TDHFB / BdG
 
 - HFB 平衡状態の自己無撞着解法
-- 一般化密度行列 \(\mathcal R(t)\) の時間発展
+- 一般化密度行列 $\mathcal R(t)$ の時間発展
 - on-site / bond pairing の両対応
-- \(s\)-wave / \(d\)-wave 射影観測量
+- $s$-wave / $d$-wave 射影観測量
 
 を追加する。
 
@@ -1597,7 +1659,7 @@ KBE + HFB
 
 KBE + second Born
 
-- 局所 Hubbard \(U\) の二次骨格自己エネルギー
+- 局所 Hubbard $U$ の二次骨格自己エネルギー
 - 自己無撞着反復
 - メモリー積分
 - 緩和・散乱の確認
@@ -1610,8 +1672,8 @@ KBE + second Born
 
 拡張 Hubbard baseline の完成
 
-- 最近接引力 \(V_1\) による bond pairing
-- \(d\)-wave form factor 観測量
+- 最近接引力 $V_1$ による bond pairing
+- $d$-wave form factor 観測量
 - パラメータ走査
 - finite-size / finite-time の切り分け
 
@@ -1634,19 +1696,19 @@ Ehrenfest + TDHFB / BdG
 
 ### Subproject B
 
-遅延有効相互作用 \(V_{\rm eff}(t,t')\) を持つ pairing kernel
+遅延有効相互作用 $V_{\rm eff}(t,t')$ を持つ pairing kernel
 
 主目的
 
 - phonon-mediated attraction の時間遅れ
-- 有効 \(-U\) 極限との接続
+- 有効 $-U$ 極限との接続
 - pairing 起源の明示化
 
 ---
 
 ### Subproject C
 
-電子 Green 関数 \(G\) とフォノン Green 関数 \(D\) を
+電子 Green 関数 $G$ とフォノン Green 関数 $D$ を
 同時に扱う非平衡 electron-phonon KBE
 
 主目的
@@ -1669,23 +1731,23 @@ second Born や electron-phonon 自己エネルギーを含む
 ## 14.3 推奨データ構造
 
 実装上は、空間サイトと Nambu 指標をまとめた
-複合添字 \(\alpha=(i,a)\) を導入し、
+複合添字 $\alpha=(i,a)$ を導入し、
 行列を
-\((N_{\rm site}\times N_{\rm Nambu})\)
+$(N_{\rm site}\times N_{\rm Nambu})$
 次元の複素行列として扱うのが最も単純である。
 
 初期版で持つべき主要オブジェクトは
 
-- \(\mathbf h_{\alpha\beta}(t_n)\): one-body Hamiltonian
-- \(\mathcal R_{\alpha\beta}(t_n)\): TDHFB 用の等時一般化密度行列
-- \(\mathbf G^R_{\alpha\beta}(t_n,t_m)\): retarded Green 関数
-- \(\mathbf G^<_{\alpha\beta}(t_n,t_m)\): lesser Green 関数
-- \(\mathbf\Sigma^{\rm inst}(t_n)\), \(\mathbf\Sigma^{\rm mem}(t_n,t_m)\): 時間局所・時間非局所自己エネルギー
+- $\mathbf h_{\alpha\beta}(t_n)$: one-body Hamiltonian
+- $\mathcal R_{\alpha\beta}(t_n)$: TDHFB 用の等時一般化密度行列
+- $\mathbf G^R_{\alpha\beta}(t_n,t_m)$: retarded Green 関数
+- $\mathbf G^<_{\alpha\beta}(t_n,t_m)$: lesser Green 関数
+- $\mathbf\Sigma^{\rm inst}(t_n)$, $\mathbf\Sigma^{\rm mem}(t_n,t_m)$: 時間局所・時間非局所自己エネルギー
 
 である。
 
 KBE では
-\(n\ge m\) の三角領域だけを格納し、
+$n\ge m$ の三角領域だけを格納し、
 Hermiticity と advanced / retarded 関係で残りを再構成する。
 これにより保存則チェックとメモリー削減を同時に行える。
 
@@ -1699,13 +1761,17 @@ i\partial_t\mathcal R=[\mathcal H_{\rm BdG}[\mathcal R],\mathcal R]
 $$
 を直接解く。
 
+実装上も、時間発展させる基本変数は $\mathcal R$ であり、
+その上左ブロックを normal density、右上ブロックを pairing tensor として取り出し、
+それらから $h$ と $\Delta$ を再構成して次の時刻へ伝播する。
+
 実装順序としては、
 
-1. 静的 HFB 方程式を反復して \(\mathcal R_0\) を得る
-2. \(\mathcal R_n\) から \(\Sigma^{\rm HFB}_n\) を構成する
-3. 中点ハミルトニアン \(\mathcal H_{n+1/2}\) を予測する
-4. 行列指数または Crank-Nicolson 型で \(\mathcal R_n\to\mathcal R_{n+1}\) を伝播する
-5. 新しい \(\mathcal R_{n+1}\) で \(\Sigma^{\rm HFB}\) を更新し、必要なら predictor-corrector を 1-2 回回す
+1. 静的 HFB 方程式を反復して $\mathcal R_0$ を得る
+2. $\mathcal R_n$ から $\Sigma^{\rm HFB}_n$ を構成する
+3. 中点ハミルトニアン $\mathcal H_{n+1/2}$ を予測する
+4. 行列指数または Crank-Nicolson 型で $\mathcal R_n\to\mathcal R_{n+1}$ を伝播する
+5. 新しい $\mathcal R_{n+1}$ で $\Sigma^{\rm HFB}$ を更新し、必要なら predictor-corrector を 1-2 回回す
 
 という流れにするのが扱いやすい。
 
@@ -1721,7 +1787,7 @@ $$
 
 ## 14.5 full two-time KBE ソルバーの実装手順
 
-KBE では、新しい時刻 \(t_{n+1}\) に対して
+KBE では、新しい時刻 $t_{n+1}$ に対して
 Green 関数の新しい行と列を順次埋める
 **causal marching**
 を採用する。
@@ -1729,29 +1795,34 @@ Green 関数の新しい行と列を順次埋める
 初期版の手順は以下で十分である。
 
 1. 初期条件
-   \( \mathbf G^<(t_0,t_0)=i\mathcal R_0 \),
-   \( \mathbf G^R(t_0,t_0)=-i\mathbf 1 \)
+   $ \mathbf G^<(t_0,t_0)=i\mathcal R_0 $,
+   $ \mathbf G^R(t_0,t_0)=-i\mathbf 1 $
    を与える
-2. \(t_{n+1}\) での one-body Hamiltonian と instantaneous self-energy を構成する
-3. 既知の過去時刻 \(t_m\le t_{n+1}\) に対して
-   \(\mathbf G^R(t_{n+1},t_m)\) を Volterra 型積分方程式として解く
+2. $t_{n+1}$ での one-body Hamiltonian と instantaneous self-energy を構成する
+3. 既知の過去時刻 $t_m\le t_{n+1}$ に対して
+   $\mathbf G^R(t_{n+1},t_m)$ を Volterra 型積分方程式として解く
 4. 同じ履歴を使って
-   \(\mathbf G^<(t_{n+1},t_m)\) を更新する
+   $\mathbf G^<(t_{n+1},t_m)$ を更新する
 5. Hermiticity から列成分
-   \(\mathbf G^<(t_m,t_{n+1})\)
+   $\mathbf G^<(t_m,t_{n+1})$
    を再構成する
-6. 等時成分から \(\mathcal R(t_{n+1})\) と観測量を評価する
+6. 等時成分から $\mathcal R(t_{n+1})$ と観測量を評価する
 7. 保存則残差と対称性残差を毎ステップ記録する
 
 時間積分は最初は台形則で十分であり、
 長時間伝播の位相誤差が問題になってから
 Gregory 型や高次 predictor-corrector に進めばよい。
 
+ここで優先すべきなのは、
+まず uniform grid 上で second Born の正しさと保存則を固めることである。
+`2405.08737v2.pdf` に対応する adaptive step / order 導入は、
+その後に solver state と history storage を再設計して行う。
+
 ---
 
 ## 14.6 second Born 実装時の反復戦略
 
-second Born は \(\Sigma^{(2)}[G]\) が
+second Born は $\Sigma^{(2)}[G]$ が
 二時刻 Green 関数全体に依存するため、
 各時刻ステップでの自己無撞着反復が必要になる。
 
@@ -1760,11 +1831,21 @@ second Born は \(\Sigma^{(2)}[G]\) が
 - HFB 解を初期推定に使う
 - 新しい行・列に対してのみ固定点反復を回す
 - 発散を避けるために自己エネルギー更新へ mixing を入れる
-- 収束判定は \(\|\Delta G\|\) と \(\|\Delta \Sigma\|\) の双方で行う
+- 収束判定は $\|\Delta G\|$ と $\|\Delta \Sigma\|$ の双方で行う
 
 のが現実的である。
 
-また、局所 Hubbard \(U\) の second Born から始めることで、
+この反復戦略も、まずは等間隔時間格子で実装するのが妥当である。
+可変刻み化では
+
+- 非一様格子上の history integral 重み
+- 補間と predictor state
+- step / order 変更時の履歴管理
+
+が別問題として加わるため、
+second Born 初期受け入れ条件からは切り分ける。
+
+また、局所 Hubbard $U$ の second Born から始めることで、
 
 - Nambu 行列表式の実装確認
 - メモリー積分の実装確認
@@ -1774,10 +1855,17 @@ second Born は \(\Sigma^{(2)}[G]\) が
 
 相関した熱平衡初期状態が必要になった段階で、
 Matsubara 枝を導入して
-\(I^{\rceil},I^{\lceil}\) を含む版へ拡張する。
+$I^{\rceil},I^{\lceil}$ を含む版へ拡張する。
 したがって、Matsubara 初期化は
 second Born 実装後の補助マイルストーンとして
 明示的に計画に入れておくべきである。
+
+adaptive integrator の導入は、
+Matsubara 拡張とは独立に進められるが、
+実装順序としてはまず adaptive 化を行い、
+その後に thermal branch へ進む。
+理由は、Keldysh-only の問題設定でも
+可変刻み・可変次数の有効性と正確性を十分に検証できるからである。
 
 ---
 
@@ -1797,7 +1885,7 @@ second Born 実装後の補助マイルストーンとして
 
 - 最大保存則残差
 - 最大対称性残差
-- \(\Delta t\) 収束性
+- $\Delta t$ 収束性
 - 系サイズ依存性
 
 をメタデータとして必ず保存する。
@@ -1807,7 +1895,7 @@ second Born 実装後の補助マイルストーンとして
 ## 14.8 計算量と拡張戦略
 
 full two-time KBE のメモリー量は概ね
-\(O(N_t^2 N_{\rm orb}^2)\)
+$O(N_t^2 N_{\rm orb}^2)$
 で増大するため、
 初期実装では
 

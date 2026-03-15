@@ -24,7 +24,8 @@
 - backend は run 管理 API、非相互作用ソルバー、TDHFB / BdG、KBE + HFB、two-time Green 関数コンテナ、等時極限一致検証まで実装済み。
 - frontend は solver 切替、pairing channel / seed 入力、pairing 系列表示、KBE 診断量表示まで動作する。
 - `pairing`, `pairing_s`, `pairing_d` を backend / API / frontend の共通 observable として扱える。
-- 未着手の主要項目は KBE + second Born、cancel UI、E2E である。
+- 未着手の主要項目は Phase E であり、fixed-grid second Born、adaptive full-KBE integrator、Matsubara 枝の順で進める。
+- adaptive integrator の主参照として `pdfs/2405.08737v2.pdf` を採用する。
 
 ---
 
@@ -36,7 +37,9 @@
 | Phase B: 非相互作用ソルバー統合 | 完了 | 受け入れ条件を満たす | one-body Hamiltonian、非相互作用時間発展、`save_every` 付き観測量保存、UI 実行、外場仕事率とエネルギー変化の整合診断および自動テストを実装済み |
 | Phase C: TDHFB / BdG 統合 | 完了 | 受け入れ条件を満たす | HFB 平衡初期化、一般化密度行列の時間発展、`pairing/pairing_s/pairing_d`、frontend の solver 切替と pairing 表示を実装済み |
 | Phase D: KBE + HFB 統合 | 完了 | 受け入れ条件を満たす | two-time Green 関数コンテナ、HFB self-energy 極限、TDHFB 一致の backend 回帰、frontend で run summary / 主要観測量 / KBE 診断量表示を実装済み |
-| Phase E: KBE + second Born | 未着手 | memory self-energy 未実装 | second Born 関連コードなし |
+| Phase E1: fixed-grid KBE + second Born | 未着手 | memory self-energy 未実装 | second Born 関連コードなし |
+| Phase E2: adaptive full-KBE integrator | 未着手 | variable-step 基盤未実装 | adaptive 用 state/history 管理コードなし |
+| Phase E3: thermal branch / Matsubara | 未着手 | thermal branch 未実装 | mixed / Matsubara 成分コードなし |
 
 ---
 
@@ -44,7 +47,7 @@
 
 | 項目 | 状態 | 現状 | 次に必要なこと |
 | --- | --- | --- | --- |
-| API / schema | 完了 | `/health`, `/schema/simulation`, `/presets`, `/runs`, `/runs/{id}`, `/runs/{id}/observables` が実装済みで、`SolverKind` に `tdhfb` / `kbe_hfb`、pairing channel / observables を追加済み | Phase E 向けに second Born 関連設定を段階拡張 |
+| API / schema | 完了 | `/health`, `/schema/simulation`, `/presets`, `/runs`, `/runs/{id}`, `/runs/{id}/observables` が実装済みで、`SolverKind` に `tdhfb` / `kbe_hfb`、pairing channel / observables を追加済み | Phase E1 では fixed-grid second Born 設定を先行し、Phase E2 で variable-step 設定を追加 |
 | run 管理 | 完了 | `queued/running/succeeded/failed/cancelled` を保持し、run ごとに JSON/NPZ を保存 | ログ取得 API とより詳細な診断 API を追加 |
 | ジョブ実行 | 完了 | `process` と `inline` の 2 モードあり。通常は別プロセス実行 | 再起動後の cancel 継続性、プロセスモードのテスト追加 |
 | cancel 機能 | 部分完了 | backend API は存在するが frontend から操作できない | UI 実装と、PID ベースの再接続方針を決める |
@@ -52,11 +55,11 @@
 | 格子・一体 Hamiltonian | 完了 | 2 次元 square lattice、open/periodic 境界、Peierls 位相付き hopping に加え、Nambu / BdG 生成と HFB self-energy を実装 | second Born / memory self-energy に再利用 |
 | 非相互作用ソルバー | 完了 | 密度行列の時間発展、密度・電流・エネルギー・ベクトルポテンシャルを出力し、`save_every` と外場仕事率診断を反映済み | paired solver の基準解として維持 |
 | TDHFB / BdG ソルバー | 完了 | HFB 平衡初期化、一般化密度行列の中点時間発展、`pairing_s` / `pairing_d` 射影を実装 | 長時間安定化とより高次の積分器を検討 |
-| KBE + HFB ソルバー | 完了 | cumulative propagator から two-time Green 関数を構成し、等時極限の TDHFB 一致と Green 関数拘束条件を診断化 | memory self-energy を導入する Phase E へ接続 |
+| KBE + HFB ソルバー | 完了 | cumulative propagator から two-time Green 関数を構成し、等時極限の TDHFB 一致と Green 関数拘束条件を診断化 | Phase E1 の初期推定・等時参照として再利用し、Phase E2 の adaptive 化前の検証基準にする |
 | 観測量 | 完了 | `density/current_x/current_y/energy/vector_potential/pairing/pairing_s/pairing_d` を返却 | second Born 向けに緩和・散乱診断を追加 |
-| 診断量 | 部分完了 | HFB 収束履歴、stationarity、pairing 振幅、KBE の `two_time_grid_shape` と TDHFB 一致指標を保存 | Phase E で保存則残差と収束履歴を拡張 |
+| 診断量 | 部分完了 | HFB 収束履歴、stationarity、pairing 振幅、KBE の `two_time_grid_shape` と TDHFB 一致指標を保存 | Phase E1 で保存則残差と収束履歴、Phase E2 で step/order/iteration 指標、Phase E3 で thermal branch 診断を追加 |
 | frontend UI | 部分完了 | 設定入力、solver 切替、pairing channel / seed、run 一覧、polling、診断量、時系列プロットを実装 | cancel、比較表示、preset 選択、schema 駆動フォーム |
-| テスト | 部分完了 | backend 17 件、frontend 4 件が通過し、TDHFB の pairing 射影と KBE-HFB の TDHFB 一致回帰を追加 | E2E、プロセスジョブ、cancel、保存データ回帰の追加 |
+| テスト | 部分完了 | backend 20 件、frontend 4 件が通過し、TDHFB の pairing 射影・一般化密度行列拘束、KBE-HFB の TDHFB 一致、paired solver の非相互作用厳密極限回帰を追加 | 2x2 小サイズ全体角化 benchmark、\(\Delta t\) 収束、E2E、プロセスジョブ、cancel、保存データ回帰の追加 |
 | デプロイ / 起動系 | 完了 | `docker compose up --build` とローカル起動手順あり | 永続データ運用とジョブ監視の整理 |
 
 ---
@@ -68,6 +71,15 @@
 - `backend/app/solvers/registry.py` から `noninteracting`, `tdhfb`, `kbe_hfb` を呼び分けられる。
 - paired solver は HFB self-energy を時間局所 closure とした基盤である。
 - beyond-mean-field の memory self-energy はまだ未実装であり、Phase E の対象である。
+
+### 1.1 Phase E は三段階で進める
+
+- Phase E1: Keldysh-only・fixed-grid の second Born を先に実装する
+- Phase E2: `pdfs/2405.08737v2.pdf` を参照して adaptive time step / order と history integration order を導入する
+- Phase E3: Matsubara 枝と mixed 成分を追加する
+
+理由は、現行の `kbe_hfb` が full KBE integrator ではなく、
+adaptive 化には solver state と history storage の再設計が必要だからである。
 
 ### 2. schema / UI にある一部設定はまだ Phase E 以降向け
 
@@ -90,13 +102,15 @@
 
 - `save_every` は solver / storage / API で反映され、最終ステップが必ず保存される。
 - driven case に対して `max_energy_work_mismatch` と `final_energy_work_mismatch` を保存し、エネルギー変化と外場仕事率の整合を自動テストで確認している。
-- TDHFB では paired stationary state と `pairing_d` 射影を回帰化した。
+- TDHFB では paired stationary state、`pairing_d` 射影、一般化密度行列の Hermiticity / idempotency / occupation 境界を回帰化した。
+- TDHFB / KBE + HFB では、相互作用ゼロ・`pairing_channel=none` の駆動 case が非相互作用厳密一体時間発展に一致することを回帰化した。
 - KBE + HFB では `max_equal_time_tdhfb_mismatch` と Green 関数拘束条件を回帰化した。
 
 ### 5. テストは主に最小動線の確認
 
 - backend API テストは `InlineJobRunner` を用いており、プロセスモードを直接検証していない。
 - frontend テストは API モック下での表示確認が中心で、E2E は未整備である。
+- solver unit test には厳密極限と構造保存の回帰を追加したが、長時間安定性、\(\Delta t\) 収束、系サイズ依存、2x2 小サイズ全体角化による短時間 benchmark、独立 benchmark との比較は未整備である。
 
 ---
 
@@ -126,15 +140,25 @@
 
 少なくとも現時点で、Phase C の TDHFB / BdG 動線と、Phase D の KBE + HFB 一致検証および frontend 表示動線は自動テストと build で破綻していない。
 
+- `uv run python -m pytest backend/tests`
+  - 20 件すべて成功
+  - TDHFB / KBE-HFB の非相互作用厳密極限回帰と、TDHFB 一般化密度行列の構造保存回帰を追加
+- `cd frontend && npm test -- --run`
+  - 4 件すべて成功
+
+少なくとも現時点で、Phase C / D については最小動線確認に加えて、paired solver の非相互作用厳密極限と TDHFB の構造保存に関する backend 回帰が追加されている。
+
 ---
 
 ## 次の優先作業
 
 ### 優先度 A
 
-- KBE + second Born の memory self-energy と自己無撞着反復を追加する
-- Green 関数保存形式と部分取得 API を Phase E 向けに拡張する
-- HFB / KBE の長時間安定化と higher-order marching を検討する
+- fixed-grid KBE + second Born の memory self-energy と自己無撞着反復を追加する
+- second Born 用の保存則残差、収束履歴、\(\Delta t\) 回帰を記録する
+- Green 関数保存形式と部分取得 API を Phase E1 / E2 向けに拡張する
+- adaptive full-KBE integrator 向けの variable-step state/history 設計を進める
+- 2x2 小サイズ系で Fock 空間の全体角化を用意し、非相互作用・TDHFB・KBE-HFB の短時間 benchmark を追加する
 
 ### 優先度 B
 
@@ -159,7 +183,11 @@
 
 ## 次回更新時のチェック項目
 
-- second Born self-energy と memory integral が追加されたか
+- fixed-grid second Born self-energy、memory integral、固定点反復が追加されたか
+- second Born の保存則残差と \(\Delta t\) 収束が run ごとに記録されたか
+- 2x2 小サイズ全体角化 benchmark が追加され、少なくとも短時間ダイナミクスで TDHFB / KBE-HFB の比較基準になっているか
+- adaptive step / order 導入のための state/history 設計が固まったか
 - two-time Green 関数の保存 / 部分取得 API 方針が固まったか
+- Matsubara 枝の補助マイルストーンが明文化されたか
 - cancel が UI から操作でき、期待どおり止まるか
 - プロセスモードと E2E の自動テストが追加されたか
