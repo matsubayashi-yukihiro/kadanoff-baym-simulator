@@ -36,3 +36,17 @@ def test_schema_and_presets_endpoints(client):
     assert presets_response.status_code == 200
     preset = presets_response.json()[0]
     assert preset["solver"] == "noninteracting"
+
+
+def test_cors_preflight_for_runs_endpoint(client):
+    response = client.options(
+        "/api/v1/runs",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "POST",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+    assert "POST" in response.headers["access-control-allow-methods"]

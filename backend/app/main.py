@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api.routes.health import router as health_router
 from backend.app.api.routes.presets import router as presets_router
@@ -30,6 +31,13 @@ def create_app(
     app = FastAPI(title="TDKB Backend", version="0.1.0")
     app.state.settings = resolved_settings
     app.state.run_service = run_service
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(resolved_settings.cors_origins),
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     app.include_router(health_router, prefix="/api/v1")
     app.include_router(schema_router, prefix="/api/v1")

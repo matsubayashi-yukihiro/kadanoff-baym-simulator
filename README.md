@@ -12,6 +12,7 @@ docker compose up --build
 
 - `http://localhost:8000/api/v1/health`
 - `http://localhost:8000/docs`
+- `http://localhost:3000`
 
 停止:
 
@@ -26,4 +27,13 @@ run データは Docker volume `tdkb_backend_runs` に保存されます。
 ```bash
 uv run python -m pytest backend/tests
 uv run python main.py
+```
+
+frontend:
+
+```bash
+cd frontend
+npm install
+npm test
+npm run build
 ```
