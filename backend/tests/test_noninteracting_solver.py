@@ -15,3 +15,39 @@ def test_noninteracting_solver_conserves_particle_number_without_drive():
     assert artifacts.diagnostics["particle_number_drift"] < 1e-10
     assert artifacts.diagnostics["energy_drift"] < 1e-10
     assert artifacts.diagnostics["max_hermiticity_error"] < 1e-12
+
+
+def test_noninteracting_solver_respects_save_every_and_keeps_final_point():
+    config = SimulationConfig(
+        lattice={"nx": 2, "ny": 2, "boundary": "periodic", "hopping": 1.0},
+        time={"t_final": 0.5, "dt": 0.1, "save_every": 2},
+        drive={"amplitude_x": 0.0, "amplitude_y": 0.0, "width": 1.0},
+    )
+
+    artifacts = solve(config)
+    density = artifacts.observables["density"]
+
+    assert density.time.tolist() == [0.0, 0.2, 0.4, 0.5]
+    assert artifacts.diagnostics["saved_samples"] == 4
+    assert all(len(series.values) == 4 for series in density.series)
+
+
+def test_noninteracting_solver_tracks_energy_work_balance_under_drive():
+    config = SimulationConfig(
+        lattice={"nx": 2, "ny": 2, "boundary": "periodic", "hopping": 1.0},
+        time={"t_final": 0.6, "dt": 0.01},
+        drive={
+            "amplitude_x": 0.3,
+            "amplitude_y": 0.15,
+            "frequency": 2.0,
+            "phase": 0.25,
+            "center": 0.3,
+            "width": 0.12,
+        },
+    )
+
+    artifacts = solve(config)
+
+    assert artifacts.diagnostics["energy_drift"] > 1e-3
+    assert artifacts.diagnostics["max_energy_work_mismatch"] < 1e-4
+    assert artifacts.diagnostics["final_energy_work_mismatch"] < 1e-5

@@ -1,7 +1,12 @@
 import type { ReactNode } from "react";
 
 import type { SimulationConfigInput } from "../api/types";
-import { createDefaultConfig, SUPPORTED_OBSERVABLES } from "../lib/defaultConfig";
+import {
+  createDefaultConfig,
+  SUPPORTED_OBSERVABLES,
+  SUPPORTED_PAIRING_CHANNELS,
+  SUPPORTED_SOLVERS,
+} from "../lib/defaultConfig";
 
 type ConfigPanelProps = {
   config: SimulationConfigInput;
@@ -28,6 +33,32 @@ export function ConfigPanel(props: ConfigPanelProps) {
     onConfigChange({
       ...config,
       [key]: value,
+    });
+  }
+
+  function updateSolver(value: SimulationConfigInput["solver"]) {
+    const nextObservables = new Set(observables);
+    const nextInteraction = { ...interaction };
+    const nextInitialState = { ...initialState };
+
+    if (value !== "noninteracting") {
+      nextObservables.add("pairing");
+      nextObservables.add("pairing_s");
+      nextObservables.add("pairing_d");
+      if ((nextInteraction.pairing_channel ?? "none") === "none") {
+        nextInteraction.pairing_channel = "bond_d";
+      }
+      if ((nextInitialState.seed_pairing ?? 0) === 0) {
+        nextInitialState.seed_pairing = 0.2;
+      }
+    }
+
+    onConfigChange({
+      ...config,
+      solver: value,
+      interaction: nextInteraction,
+      initial_state: nextInitialState,
+      observables: SUPPORTED_OBSERVABLES.filter((name) => nextObservables.has(name)),
     });
   }
 
@@ -125,6 +156,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
       <div className="panel-grid">
         <Field label="Run Name">
           <input
+            aria-label="Run Name"
             value={config.name ?? ""}
             onChange={(event) => updateTopLevel("name", event.target.value || null)}
             disabled={disabled}
@@ -133,11 +165,16 @@ export function ConfigPanel(props: ConfigPanelProps) {
         </Field>
         <Field label="Solver" hint="Current backend implementation">
           <select
+            aria-label="Solver"
             value={config.solver ?? "noninteracting"}
-            onChange={(event) => updateTopLevel("solver", event.target.value as SimulationConfigInput["solver"])}
+            onChange={(event) => updateSolver(event.target.value as SimulationConfigInput["solver"])}
             disabled={disabled}
           >
-            <option value="noninteracting">noninteracting</option>
+            {SUPPORTED_SOLVERS.map((solver) => (
+              <option key={solver} value={solver}>
+                {solver}
+              </option>
+            ))}
           </select>
         </Field>
       </div>
@@ -328,12 +365,21 @@ export function ConfigPanel(props: ConfigPanelProps) {
               disabled={disabled}
             />
           </Field>
-          <Field label="Pairing Channel">
-            <input
+          <Field label="Pairing Channel" hint="TDHFB / KBE-HFB selection">
+            <select
+              aria-label="Pairing Channel"
               value={interaction.pairing_channel ?? "none"}
-              onChange={(event) => updateInteraction("pairing_channel", event.target.value)}
+              onChange={(event) =>
+                updateInteraction("pairing_channel", event.target.value as NonNullable<SimulationConfigInput["interaction"]>["pairing_channel"])
+              }
               disabled={disabled}
-            />
+            >
+              {SUPPORTED_PAIRING_CHANNELS.map((channel) => (
+                <option key={channel} value={channel}>
+                  {channel}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="Filling">
             <input
@@ -360,8 +406,9 @@ export function ConfigPanel(props: ConfigPanelProps) {
               disabled={disabled}
             />
           </Field>
-          <Field label="Seed Pairing">
+          <Field label="Seed Pairing" hint="Weak source field for paired solvers">
             <input
+              aria-label="Seed Pairing"
               type="number"
               step="0.01"
               value={initialState.seed_pairing ?? 0}

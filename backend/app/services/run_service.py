@@ -30,6 +30,40 @@ def build_default_preset() -> SimulationConfig:
     )
 
 
+def build_tdhfb_preset() -> SimulationConfig:
+    return SimulationConfig(
+        name="square-4x4-bond-d-tdhfb",
+        solver="tdhfb",
+        lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
+        time={"t_final": 1.0, "dt": 0.1},
+        drive={"amplitude_x": 0.0, "amplitude_y": 0.0, "frequency": 0.0, "center": 0.0, "width": 1.0},
+        interaction={
+            "onsite_u": -4.0,
+            "nearest_neighbor_v": -2.5,
+            "pairing_channel": "bond_d",
+        },
+        initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.2},
+        observables=["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    )
+
+
+def build_kbe_hfb_preset() -> SimulationConfig:
+    return SimulationConfig(
+        name="square-4x4-bond-d-kbe-hfb",
+        solver="kbe_hfb",
+        lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
+        time={"t_final": 1.0, "dt": 0.1},
+        drive={"amplitude_x": 0.0, "amplitude_y": 0.0, "frequency": 0.0, "center": 0.0, "width": 1.0},
+        interaction={
+            "onsite_u": -4.0,
+            "nearest_neighbor_v": -2.5,
+            "pairing_channel": "bond_d",
+        },
+        initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.2},
+        observables=["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    )
+
+
 class RunService:
     def __init__(self, storage: FileRunStorage, runner: JobRunner) -> None:
         self.storage = storage
@@ -66,7 +100,7 @@ class RunService:
         return self.storage.read_observable(run_id, name)
 
     def get_presets(self) -> list[SimulationConfig]:
-        return [build_default_preset()]
+        return [build_default_preset(), build_tdhfb_preset(), build_kbe_hfb_preset()]
 
     def get_schema(self) -> dict[str, Any]:
         return SimulationConfig.model_json_schema()

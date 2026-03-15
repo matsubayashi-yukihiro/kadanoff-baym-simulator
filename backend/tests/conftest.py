@@ -35,6 +35,40 @@ def sample_config() -> dict:
 
 
 @pytest.fixture
+def paired_config() -> dict:
+    return {
+        "name": "paired-run",
+        "solver": "tdhfb",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.0,
+            "amplitude_y": 0.0,
+            "frequency": 0.0,
+            "center": 0.0,
+            "width": 1.0,
+        },
+        "interaction": {
+            "onsite_u": -4.0,
+            "nearest_neighbor_v": -2.5,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.2,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+
+@pytest.fixture
 def client(tmp_path):
     app = create_app(
         settings=AppSettings(data_dir=tmp_path / "runs", job_mode="inline"),

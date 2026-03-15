@@ -12,6 +12,15 @@ class BoundaryCondition(str, Enum):
 
 class SolverKind(str, Enum):
     NONINTERACTING = "noninteracting"
+    TDHFB = "tdhfb"
+    KBE_HFB = "kbe_hfb"
+
+
+class PairingChannel(str, Enum):
+    NONE = "none"
+    ONSITE = "onsite"
+    BOND_S = "bond_s"
+    BOND_D = "bond_d"
 
 
 class LatticeConfig(BaseModel):
@@ -63,7 +72,7 @@ class InteractionConfig(BaseModel):
 
     onsite_u: float = 0.0
     nearest_neighbor_v: float = 0.0
-    pairing_channel: str = "none"
+    pairing_channel: PairingChannel = PairingChannel.NONE
 
 
 class InitialStateConfig(BaseModel):
@@ -96,15 +105,49 @@ class SimulationConfig(BaseModel):
 
     @property
     def supported_observables(self) -> set[str]:
-        return {"density", "current_x", "current_y", "energy", "vector_potential"}
+        return {
+            "density",
+            "current_x",
+            "current_y",
+            "energy",
+            "vector_potential",
+            "pairing",
+            "pairing_s",
+            "pairing_d",
+        }
 
     @field_validator("observables")
     @classmethod
     def validate_observables(cls, value: list[str]) -> list[str]:
         if len(value) != len(set(value)):
             raise ValueError("observables must be unique")
-        supported = {"density", "current_x", "current_y", "energy", "vector_potential"}
+        supported = {
+            "density",
+            "current_x",
+            "current_y",
+            "energy",
+            "vector_potential",
+            "pairing",
+            "pairing_s",
+            "pairing_d",
+        }
         unknown = sorted(set(value) - supported)
         if unknown:
             raise ValueError(f"unsupported observables: {', '.join(unknown)}")
         return value
+
+    @field_validator("interaction", mode="before")
+    @classmethod
+    def normalize_pairing_channel(cls, value: InteractionConfig | dict[str, object]) -> InteractionConfig | dict[str, object]:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        pairing_channel = normalized.get("pairing_channel")
+        aliases = {
+            "s": PairingChannel.BOND_S,
+            "bond": PairingChannel.BOND_S,
+            "d": PairingChannel.BOND_D,
+        }
+        if isinstance(pairing_channel, str) and pairing_channel in aliases:
+            normalized["pairing_channel"] = aliases[pairing_channel]
+        return normalized

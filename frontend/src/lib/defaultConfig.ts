@@ -1,11 +1,18 @@
 import type { SimulationConfigInput } from "../api/types";
 
+export const SUPPORTED_SOLVERS = ["noninteracting", "tdhfb", "kbe_hfb"] as const;
+
+export const SUPPORTED_PAIRING_CHANNELS = ["none", "onsite", "bond_s", "bond_d"] as const;
+
 export const SUPPORTED_OBSERVABLES = [
   "density",
   "current_x",
   "current_y",
   "energy",
   "vector_potential",
+  "pairing",
+  "pairing_s",
+  "pairing_d",
 ] as const;
 
 export function createDefaultConfig(): SimulationConfigInput {

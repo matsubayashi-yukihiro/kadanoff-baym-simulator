@@ -264,8 +264,8 @@ export default function App() {
         <p className="hero-kicker">TDKB Minimal Research UI</p>
         <h1>FastAPI-backed lab console for solver runs and observable traces.</h1>
         <p className="hero-copy">
-          This frontend targets the currently implemented noninteracting backend path and keeps the run loop visible end to end:
-          config edit, submission, polling, diagnostics, and time-series inspection.
+          This frontend keeps the full run loop visible end to end across noninteracting, TDHFB, and KBE-HFB paths:
+          config edit, submission, polling, diagnostics, and observable inspection on one screen.
         </p>
       </section>
 

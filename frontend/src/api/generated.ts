@@ -118,11 +118,8 @@ export interface components {
        * @default 0
        */
       nearest_neighbor_v?: number;
-      /**
-       * Pairing Channel
-       * @default none
-       */
-      pairing_channel?: string;
+      /** @default none */
+      pairing_channel?: components["schemas"]["PairingChannel"];
     };
     /** LatticeConfig */
     LatticeConfig: {
@@ -199,6 +196,11 @@ export interface components {
       /** Key */
       key: string;
     };
+    /**
+     * PairingChannel
+     * @enum {string}
+     */
+    PairingChannel: "none" | "onsite" | "bond_s" | "bond_d";
     /** RunDetail */
     RunDetail: {
       /** Run Id */
@@ -321,7 +323,7 @@ export interface components {
      * SolverKind
      * @enum {string}
      */
-    SolverKind: "noninteracting";
+    SolverKind: "noninteracting" | "tdhfb" | "kbe_hfb";
     /** TimeGridConfig */
     TimeGridConfig: {
       /** T Final */

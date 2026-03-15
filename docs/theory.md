@@ -271,7 +271,7 @@ GKBA はその上に載る **計算軽量化の将来拡張**
 特に second Born や将来の electron-phonon 自己エネルギーを用いた
 長時間・大規模計算が必要になった段階で導入候補とする。
 
-参考: [Hermanns, Balzer, Bonitz, "Non-equilibrium Green's function approach to inhomogeneous quantum many-body systems using the Generalized Kadanoff Baym Ansatz"](1205.4427v1.pdf)
+参考: [Hermanns, Balzer, Bonitz, "Non-equilibrium Green's function approach to inhomogeneous quantum many-body systems using the Generalized Kadanoff Baym Ansatz"](../pdfs/1205.4427v1.pdf)
 
 ---
 
