@@ -1,6 +1,7 @@
 # TDKB
 
-非平衡超伝導ソルバー基盤の backend-first プロトタイプです。
+This is a highly incomplete prototype experimenting with whether a nonequilibrium quantum many-body solver can be built with vibe coding.
+It is being developed backend-first as a foundation for a nonequilibrium superconductivity solver.
 
 ## Docker Compose
 
@@ -8,19 +9,19 @@
 docker compose up --build
 ```
 
-起動後の API:
+Available endpoints after startup:
 
 - `http://localhost:8000/api/v1/health`
 - `http://localhost:8000/docs`
 - `http://localhost:3000`
 
-停止:
+Stop the services:
 
 ```bash
 docker compose down
 ```
 
-run データは Docker volume `tdkb_backend_runs` に保存されます。
+Run data is stored in the Docker volume `tdkb_backend_runs`.
 
 ## Local
 
@@ -29,7 +30,7 @@ uv run python -m pytest backend/tests
 uv run python main.py
 ```
 
-frontend:
+Frontend:
 
 ```bash
 cd frontend
