@@ -1,7 +1,6 @@
 import type { components, paths } from "./generated";
 
-export type SimulationConfigInput =
-  paths["/api/v1/runs"]["post"]["requestBody"]["content"]["application/json"];
+export type SimulationConfigInput = components["schemas"]["SimulationConfig-Input"];
 export type RunSummary = paths["/api/v1/runs"]["get"]["responses"][200]["content"]["application/json"][number];
 export type RunDetail = paths["/api/v1/runs"]["post"]["responses"][202]["content"]["application/json"];
 export type ObservableCatalogResponse =

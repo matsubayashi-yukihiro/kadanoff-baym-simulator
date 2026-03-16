@@ -38,9 +38,13 @@ class HFBEquilibriumState:
 
 
 def saved_step_indices(config: SimulationConfig) -> NDArray[np.int64]:
-    indices = np.arange(0, config.time.n_steps + 1, config.time.save_every, dtype=np.int64)
-    if indices[-1] != config.time.n_steps:
-        indices = np.append(indices, config.time.n_steps)
+    return saved_step_indices_from_count(config.time.n_steps + 1, config.time.save_every)
+
+
+def saved_step_indices_from_count(sample_count: int, save_every: int) -> NDArray[np.int64]:
+    indices = np.arange(0, sample_count, save_every, dtype=np.int64)
+    if len(indices) == 0 or indices[-1] != sample_count - 1:
+        indices = np.append(indices, sample_count - 1)
     return indices
 
 

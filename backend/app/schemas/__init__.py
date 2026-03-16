@@ -12,21 +12,28 @@ from backend.app.schemas.runs import (
     RunSummary,
 )
 from backend.app.schemas.simulation import (
+    AdaptiveConfig,
     BoundaryCondition,
     DriveConfig,
     InitialStateConfig,
     InteractionConfig,
+    KBEConfig,
+    KBESelfEnergyMode,
     LatticeConfig,
     PairingChannel,
     SimulationConfig,
     SolverKind,
+    ThermalBranchConfig,
     TimeGridConfig,
 )
 
 __all__ = [
+    "AdaptiveConfig",
     "DriveConfig",
     "InitialStateConfig",
     "InteractionConfig",
+    "KBEConfig",
+    "KBESelfEnergyMode",
     "LatticeConfig",
     "BoundaryCondition",
     "ObservableCatalogResponse",
@@ -41,5 +48,6 @@ __all__ = [
     "RunSummary",
     "SimulationConfig",
     "SolverKind",
+    "ThermalBranchConfig",
     "TimeGridConfig",
 ]

@@ -16,6 +16,11 @@ class SolverKind(str, Enum):
     KBE_HFB = "kbe_hfb"
 
 
+class KBESelfEnergyMode(str, Enum):
+    HFB = "hfb"
+    SECOND_BORN = "second_born"
+
+
 class PairingChannel(str, Enum):
     NONE = "none"
     ONSITE = "onsite"
@@ -83,6 +88,43 @@ class InitialStateConfig(BaseModel):
     seed_pairing: float = 0.0
 
 
+class KBEConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    self_energy: KBESelfEnergyMode = KBESelfEnergyMode.HFB
+    max_fixed_point_iterations: int = Field(default=6, ge=1, le=64)
+    tolerance: float = Field(default=1e-7, gt=0.0)
+    mixing: float = Field(default=0.35, gt=0.0, le=1.0)
+    memory_window: int | None = Field(default=None, ge=1)
+
+
+class AdaptiveConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    atol: float = Field(default=1e-7, gt=0.0)
+    rtol: float = Field(default=1e-5, gt=0.0)
+    min_dt: float | None = Field(default=None, gt=0.0)
+    max_dt: float | None = Field(default=None, gt=0.0)
+    max_growth: float = Field(default=2.0, gt=1.0, le=8.0)
+    min_shrink: float = Field(default=0.25, gt=0.0, lt=1.0)
+
+    @model_validator(mode="after")
+    def validate_step_bounds(self) -> "AdaptiveConfig":
+        if self.min_dt is not None and self.max_dt is not None and self.min_dt > self.max_dt:
+            raise ValueError("adaptive.min_dt must be <= adaptive.max_dt")
+        return self
+
+
+class ThermalBranchConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    n_tau: int = Field(default=16, ge=4)
+    max_iterations: int = Field(default=8, ge=1, le=64)
+    mixing: float = Field(default=0.3, gt=0.0, le=1.0)
+
+
 class SimulationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -93,6 +135,9 @@ class SimulationConfig(BaseModel):
     drive: DriveConfig = Field(default_factory=DriveConfig)
     interaction: InteractionConfig = Field(default_factory=InteractionConfig)
     initial_state: InitialStateConfig = Field(default_factory=InitialStateConfig)
+    kbe: KBEConfig = Field(default_factory=KBEConfig)
+    adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
+    thermal_branch: ThermalBranchConfig = Field(default_factory=ThermalBranchConfig)
     observables: list[str] = Field(
         default_factory=lambda: [
             "density",
@@ -151,3 +196,9 @@ class SimulationConfig(BaseModel):
         if isinstance(pairing_channel, str) and pairing_channel in aliases:
             normalized["pairing_channel"] = aliases[pairing_channel]
         return normalized
+
+    @model_validator(mode="after")
+    def validate_extended_kbe_options(self) -> "SimulationConfig":
+        if self.thermal_branch.enabled and self.initial_state.temperature <= 0.0:
+            raise ValueError("thermal_branch.enabled requires initial_state.temperature > 0")
+        return self

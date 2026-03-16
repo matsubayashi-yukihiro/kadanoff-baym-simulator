@@ -21,6 +21,7 @@ from backend.app.solvers.nambu import (
     pairing_projections,
     propagate_generalized_density,
     saved_step_indices,
+    saved_step_indices_from_count,
     solve_hfb_equilibrium,
 )
 from backend.app.solvers.observables import average_current, particle_density_statistics
@@ -42,14 +43,16 @@ class HFBDynamicsResult:
 def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
     lattice = build_square_lattice(config.lattice)
     equilibrium = solve_hfb_equilibrium(config, lattice)
-    times = np.asarray(config.time.time_points(), dtype=np.float64)
-    saved_indices = saved_step_indices(config)
-
-    generalized_densities, cumulative_propagators = _propagate_generalized_densities(
+    (
+        times,
+        saved_indices,
+        generalized_densities,
+        cumulative_propagators,
+        propagation_diagnostics,
+    ) = _propagate_generalized_densities(
         config,
         lattice,
         equilibrium,
-        times,
     )
 
     density_mean: list[float] = []
@@ -124,7 +127,7 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
 
     diagnostics = {
         "site_count": lattice.site_count,
-        "time_steps": config.time.n_steps,
+        "time_steps": int(len(times) - 1),
         "saved_samples": int(len(saved_indices)),
         "particle_target": float(config.initial_state.filling * lattice.site_count),
         "effective_chemical_potential": float(equilibrium.effective_chemical_potential),
@@ -142,6 +145,7 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
         "max_pairing_d_magnitude": float(np.max(np.abs(pairing_d_array))),
         "final_pairing_magnitude": float(np.abs(pairing_primary_array[-1])),
     }
+    diagnostics.update(propagation_diagnostics)
     summary_excerpt = {
         "final_energy": float(energy_array[-1]),
         "final_density": float(density_mean_array[-1]),
@@ -149,6 +153,7 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
         "pairing_s_final": float(np.abs(pairing_s_array[-1])),
         "pairing_d_final": float(np.abs(pairing_d_array[-1])),
         "particle_number_drift": diagnostics["particle_number_drift"],
+        "time_grid_mode": diagnostics["time_grid_mode"],
     }
     return HFBDynamicsResult(
         lattice=lattice,
@@ -176,33 +181,165 @@ def _propagate_generalized_densities(
     config: SimulationConfig,
     lattice: SquareLattice,
     equilibrium: HFBEquilibriumState,
-    times: NDArray[np.float64],
-) -> tuple[list[ComplexMatrix], list[ComplexMatrix]]:
+    ) -> tuple[
+    NDArray[np.float64],
+    NDArray[np.int64],
+    list[ComplexMatrix],
+    list[ComplexMatrix],
+    dict[str, Any],
+]:
+    if not config.adaptive.enabled:
+        times = np.asarray(config.time.time_points(), dtype=np.float64)
+        generalized_densities = [equilibrium.generalized_density]
+        cumulative_propagators = [np.eye(2 * lattice.site_count, dtype=np.complex128)]
+        for time in times[:-1]:
+            next_density, propagator = _advance_generalized_density_step(
+                config=config,
+                lattice=lattice,
+                equilibrium=equilibrium,
+                current_density=generalized_densities[-1],
+                time=float(time),
+                dt=config.time.dt,
+            )
+            generalized_densities.append(next_density)
+            cumulative_propagators.append(propagator @ cumulative_propagators[-1])
+        return (
+            times,
+            saved_step_indices(config),
+            generalized_densities,
+            cumulative_propagators,
+            {
+                "requested_time_steps": config.time.n_steps,
+                "accepted_time_steps": config.time.n_steps,
+                "rejected_time_steps": 0,
+                "time_grid_mode": "uniform",
+                "adaptive_enabled": False,
+                "time_step_history": [float(config.time.dt)] * config.time.n_steps,
+                "adaptive_error_estimate_history": [],
+                "adaptive_max_error_estimate": 0.0,
+            },
+        )
+
+    times = [0.0]
     generalized_densities = [equilibrium.generalized_density]
     cumulative_propagators = [np.eye(2 * lattice.site_count, dtype=np.complex128)]
-    for time in times[:-1]:
+    error_estimates: list[float] = []
+    time_step_history: list[float] = []
+    rejected_steps = 0
+    current_time = 0.0
+    min_dt = config.adaptive.min_dt if config.adaptive.min_dt is not None else config.time.dt / 32.0
+    max_dt = config.adaptive.max_dt if config.adaptive.max_dt is not None else config.time.dt
+    next_dt = min(config.time.dt, max_dt, config.time.t_final)
+
+    while current_time < config.time.t_final - 1e-12:
         current_density = generalized_densities[-1]
-        _, _, _, bdg_hamiltonian = build_bdg_hamiltonian(
-            config,
-            lattice,
-            time,
-            current_density,
-            equilibrium.effective_chemical_potential,
+        trial_dt = min(next_dt, config.time.t_final - current_time)
+        if trial_dt <= 0.0:
+            break
+
+        full_density, _ = _advance_generalized_density_step(
+            config=config,
+            lattice=lattice,
+            equilibrium=equilibrium,
+            current_density=current_density,
+            time=current_time,
+            dt=trial_dt,
         )
-        predicted_density, _ = propagate_generalized_density(current_density, bdg_hamiltonian, config.time.dt)
-        midpoint_density = 0.5 * (current_density + predicted_density)
-        midpoint_density = 0.5 * (midpoint_density + midpoint_density.conjugate().T)
-        _, _, _, midpoint_hamiltonian = build_bdg_hamiltonian(
-            config,
-            lattice,
-            time + 0.5 * config.time.dt,
-            midpoint_density,
-            equilibrium.effective_chemical_potential,
+        half_density, half_propagator_left = _advance_generalized_density_step(
+            config=config,
+            lattice=lattice,
+            equilibrium=equilibrium,
+            current_density=current_density,
+            time=current_time,
+            dt=0.5 * trial_dt,
         )
-        next_density, propagator = propagate_generalized_density(current_density, midpoint_hamiltonian, config.time.dt)
-        generalized_densities.append(next_density)
-        cumulative_propagators.append(propagator @ cumulative_propagators[-1])
-    return generalized_densities, cumulative_propagators
+        accepted_density, half_propagator_right = _advance_generalized_density_step(
+            config=config,
+            lattice=lattice,
+            equilibrium=equilibrium,
+            current_density=half_density,
+            time=current_time + 0.5 * trial_dt,
+            dt=0.5 * trial_dt,
+        )
+        accepted_propagator = half_propagator_right @ half_propagator_left
+
+        scale = config.adaptive.atol + config.adaptive.rtol * max(
+            1.0,
+            float(np.max(np.abs(current_density))),
+            float(np.max(np.abs(accepted_density))),
+        )
+        error_estimate = float(np.max(np.abs(accepted_density - full_density)) / scale)
+
+        if error_estimate <= 1.0 or trial_dt <= min_dt * (1.0 + 1e-12):
+            current_time += trial_dt
+            times.append(float(current_time))
+            generalized_densities.append(accepted_density)
+            cumulative_propagators.append(accepted_propagator @ cumulative_propagators[-1])
+            time_step_history.append(float(trial_dt))
+            error_estimates.append(error_estimate)
+            next_dt = min(
+                max_dt,
+                max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config)),
+            )
+        else:
+            rejected_steps += 1
+            next_dt = max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config))
+
+    times_array = np.asarray(times, dtype=np.float64)
+    return (
+        times_array,
+        saved_step_indices_from_count(len(times_array), config.time.save_every),
+        generalized_densities,
+        cumulative_propagators,
+        {
+            "requested_time_steps": config.time.n_steps,
+            "accepted_time_steps": int(len(times_array) - 1),
+            "rejected_time_steps": rejected_steps,
+            "time_grid_mode": "adaptive",
+            "adaptive_enabled": True,
+            "time_step_history": time_step_history,
+            "adaptive_error_estimate_history": error_estimates,
+            "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
+            "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
+            "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
+        },
+    )
+
+
+def _advance_generalized_density_step(
+    *,
+    config: SimulationConfig,
+    lattice: SquareLattice,
+    equilibrium: HFBEquilibriumState,
+    current_density: ComplexMatrix,
+    time: float,
+    dt: float,
+) -> tuple[ComplexMatrix, ComplexMatrix]:
+    _, _, _, bdg_hamiltonian = build_bdg_hamiltonian(
+        config,
+        lattice,
+        time,
+        current_density,
+        equilibrium.effective_chemical_potential,
+    )
+    predicted_density, _ = propagate_generalized_density(current_density, bdg_hamiltonian, dt)
+    midpoint_density = 0.5 * (current_density + predicted_density)
+    midpoint_density = 0.5 * (midpoint_density + midpoint_density.conjugate().T)
+    _, _, _, midpoint_hamiltonian = build_bdg_hamiltonian(
+        config,
+        lattice,
+        time + 0.5 * dt,
+        midpoint_density,
+        equilibrium.effective_chemical_potential,
+    )
+    return propagate_generalized_density(current_density, midpoint_hamiltonian, dt)
+
+
+def _adaptive_step_factor(error_estimate: float, config: SimulationConfig) -> float:
+    if error_estimate <= 1e-16:
+        return config.adaptive.max_growth
+    proposed = 0.9 * error_estimate ** (-1.0 / 3.0)
+    return min(config.adaptive.max_growth, max(config.adaptive.min_shrink, proposed))
 
 
 def _build_observables(

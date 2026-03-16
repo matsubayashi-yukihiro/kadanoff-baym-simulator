@@ -45,6 +45,38 @@ export type webhooks = Record<string, never>;
 
 export interface components {
   schemas: {
+    /** AdaptiveConfig */
+    AdaptiveConfig: {
+      /**
+       * Enabled
+       * @default false
+       */
+      enabled?: boolean;
+      /**
+       * Atol
+       * @default 1e-7
+       */
+      atol?: number;
+      /**
+       * Rtol
+       * @default 0.00001
+       */
+      rtol?: number;
+      /** Min Dt */
+      min_dt?: number | null;
+      /** Max Dt */
+      max_dt?: number | null;
+      /**
+       * Max Growth
+       * @default 2
+       */
+      max_growth?: number;
+      /**
+       * Min Shrink
+       * @default 0.25
+       */
+      min_shrink?: number;
+    };
     /**
      * BoundaryCondition
      * @enum {string}
@@ -121,6 +153,33 @@ export interface components {
       /** @default none */
       pairing_channel?: components["schemas"]["PairingChannel"];
     };
+    /** KBEConfig */
+    KBEConfig: {
+      /** @default hfb */
+      self_energy?: components["schemas"]["KBESelfEnergyMode"];
+      /**
+       * Max Fixed Point Iterations
+       * @default 6
+       */
+      max_fixed_point_iterations?: number;
+      /**
+       * Tolerance
+       * @default 1e-7
+       */
+      tolerance?: number;
+      /**
+       * Mixing
+       * @default 0.35
+       */
+      mixing?: number;
+      /** Memory Window */
+      memory_window?: number | null;
+    };
+    /**
+     * KBESelfEnergyMode
+     * @enum {string}
+     */
+    KBESelfEnergyMode: "hfb" | "second_born";
     /** LatticeConfig */
     LatticeConfig: {
       /**
@@ -302,6 +361,9 @@ export interface components {
       drive?: components["schemas"]["DriveConfig"];
       interaction?: components["schemas"]["InteractionConfig"];
       initial_state?: components["schemas"]["InitialStateConfig"];
+      kbe?: components["schemas"]["KBEConfig"];
+      adaptive?: components["schemas"]["AdaptiveConfig"];
+      thermal_branch?: components["schemas"]["ThermalBranchConfig"];
       /** Observables */
       observables?: string[];
     };
@@ -316,6 +378,9 @@ export interface components {
       drive?: components["schemas"]["DriveConfig"];
       interaction?: components["schemas"]["InteractionConfig"];
       initial_state?: components["schemas"]["InitialStateConfig"];
+      kbe?: components["schemas"]["KBEConfig"];
+      adaptive?: components["schemas"]["AdaptiveConfig"];
+      thermal_branch?: components["schemas"]["ThermalBranchConfig"];
       /** Observables */
       observables?: string[];
     };
@@ -324,6 +389,29 @@ export interface components {
      * @enum {string}
      */
     SolverKind: "noninteracting" | "tdhfb" | "kbe_hfb";
+    /** ThermalBranchConfig */
+    ThermalBranchConfig: {
+      /**
+       * Enabled
+       * @default false
+       */
+      enabled?: boolean;
+      /**
+       * N Tau
+       * @default 16
+       */
+      n_tau?: number;
+      /**
+       * Max Iterations
+       * @default 8
+       */
+      max_iterations?: number;
+      /**
+       * Mixing
+       * @default 0.3
+       */
+      mixing?: number;
+    };
     /** TimeGridConfig */
     TimeGridConfig: {
       /** T Final */

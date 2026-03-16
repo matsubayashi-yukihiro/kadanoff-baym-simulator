@@ -29,3 +29,31 @@ def test_simulation_config_normalizes_legacy_pairing_channel_aliases():
     )
 
     assert config.interaction.pairing_channel.value == "bond_d"
+
+
+def test_simulation_config_accepts_phase_e_extensions():
+    config = SimulationConfig(
+        solver="kbe_hfb",
+        lattice={"nx": 2, "ny": 2, "boundary": "periodic", "hopping": 1.0},
+        time={"t_final": 0.2, "dt": 0.1},
+        interaction={"onsite_u": -2.0},
+        initial_state={"temperature": 0.2},
+        kbe={"self_energy": "second_born", "max_fixed_point_iterations": 8, "mixing": 0.5},
+        adaptive={"enabled": True, "min_dt": 0.05, "max_dt": 0.1},
+        thermal_branch={"enabled": True, "n_tau": 8},
+        observables=["density", "energy"],
+    )
+
+    assert config.kbe.self_energy.value == "second_born"
+    assert config.adaptive.enabled is True
+    assert config.thermal_branch.n_tau == 8
+
+
+def test_simulation_config_requires_positive_temperature_for_thermal_branch():
+    with pytest.raises(ValidationError):
+        SimulationConfig(
+            solver="kbe_hfb",
+            lattice={"nx": 2, "ny": 2, "boundary": "periodic", "hopping": 1.0},
+            time={"t_final": 0.2, "dt": 0.1},
+            thermal_branch={"enabled": True, "n_tau": 8},
+        )

@@ -1,6 +1,7 @@
 import type { SimulationConfigInput } from "../api/types";
 
 export const SUPPORTED_SOLVERS = ["noninteracting", "tdhfb", "kbe_hfb"] as const;
+export const SUPPORTED_KBE_SELF_ENERGIES = ["hfb", "second_born"] as const;
 
 export const SUPPORTED_PAIRING_CHANNELS = ["none", "onsite", "bond_s", "bond_d"] as const;
 
@@ -49,6 +50,28 @@ export function createDefaultConfig(): SimulationConfigInput {
       filling: 0.5,
       temperature: 0.0,
       seed_pairing: 0.0,
+    },
+    kbe: {
+      self_energy: "hfb",
+      max_fixed_point_iterations: 6,
+      tolerance: 1e-7,
+      mixing: 0.35,
+      memory_window: null,
+    },
+    adaptive: {
+      enabled: false,
+      atol: 1e-7,
+      rtol: 1e-5,
+      min_dt: null,
+      max_dt: null,
+      max_growth: 2.0,
+      min_shrink: 0.25,
+    },
+    thermal_branch: {
+      enabled: false,
+      n_tau: 16,
+      max_iterations: 8,
+      mixing: 0.3,
     },
     observables: [...SUPPORTED_OBSERVABLES],
   };

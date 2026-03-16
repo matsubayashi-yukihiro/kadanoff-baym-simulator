@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { SimulationConfigInput } from "../api/types";
 import {
   createDefaultConfig,
+  SUPPORTED_KBE_SELF_ENERGIES,
   SUPPORTED_OBSERVABLES,
   SUPPORTED_PAIRING_CHANNELS,
   SUPPORTED_SOLVERS,
@@ -27,7 +28,11 @@ export function ConfigPanel(props: ConfigPanelProps) {
   const drive = { ...defaults.drive, ...config.drive };
   const interaction = { ...defaults.interaction, ...config.interaction };
   const initialState = { ...defaults.initial_state, ...config.initial_state };
+  const kbe = { ...defaults.kbe, ...config.kbe };
+  const adaptive = { ...defaults.adaptive, ...config.adaptive };
+  const thermalBranch = { ...defaults.thermal_branch, ...config.thermal_branch };
   const observables = new Set(config.observables ?? defaults.observables ?? []);
+  const showKbeControls = (config.solver ?? "noninteracting") === "kbe_hfb";
 
   function updateTopLevel<K extends keyof SimulationConfigInput>(key: K, value: SimulationConfigInput[K]) {
     onConfigChange({
@@ -138,6 +143,45 @@ export function ConfigPanel(props: ConfigPanelProps) {
     onConfigChange({
       ...config,
       observables: Array.from(next),
+    });
+  }
+
+  function updateKbe<K extends keyof NonNullable<SimulationConfigInput["kbe"]>>(
+    key: K,
+    value: NonNullable<SimulationConfigInput["kbe"]>[K],
+  ) {
+    onConfigChange({
+      ...config,
+      kbe: {
+        ...kbe,
+        [key]: value,
+      },
+    });
+  }
+
+  function updateAdaptive<K extends keyof NonNullable<SimulationConfigInput["adaptive"]>>(
+    key: K,
+    value: NonNullable<SimulationConfigInput["adaptive"]>[K],
+  ) {
+    onConfigChange({
+      ...config,
+      adaptive: {
+        ...adaptive,
+        [key]: value,
+      },
+    });
+  }
+
+  function updateThermalBranch<K extends keyof NonNullable<SimulationConfigInput["thermal_branch"]>>(
+    key: K,
+    value: NonNullable<SimulationConfigInput["thermal_branch"]>[K],
+  ) {
+    onConfigChange({
+      ...config,
+      thermal_branch: {
+        ...thermalBranch,
+        [key]: value,
+      },
     });
   }
 
@@ -440,6 +484,125 @@ export function ConfigPanel(props: ConfigPanelProps) {
           })}
         </div>
       </div>
+
+      {showKbeControls ? (
+        <div className="section-block">
+          <div className="section-title">KBE Extensions</div>
+          <div className="panel-grid panel-grid-3">
+            <Field label="KBE Self-Energy" hint="Phase E1 closure">
+              <select
+                aria-label="KBE Self-Energy"
+                value={kbe.self_energy ?? "hfb"}
+                onChange={(event) =>
+                  updateKbe(
+                    "self_energy",
+                    event.target.value as NonNullable<SimulationConfigInput["kbe"]>["self_energy"],
+                  )
+                }
+                disabled={disabled}
+              >
+                {SUPPORTED_KBE_SELF_ENERGIES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Fixed-Point Iterations">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={kbe.max_fixed_point_iterations ?? 6}
+                onChange={(event) =>
+                  updateKbe(
+                    "max_fixed_point_iterations",
+                    parseInteger(event.target.value, kbe.max_fixed_point_iterations ?? 6),
+                  )
+                }
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Fixed-Point Mixing">
+              <input
+                type="number"
+                min={0.01}
+                max={1}
+                step="0.05"
+                value={kbe.mixing ?? 0.35}
+                onChange={(event) => updateKbe("mixing", parseNumber(event.target.value, kbe.mixing ?? 0.35))}
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Tolerance">
+              <input
+                type="number"
+                min={0}
+                step="0.0000001"
+                value={kbe.tolerance ?? 1e-7}
+                onChange={(event) =>
+                  updateKbe("tolerance", parseNumber(event.target.value, kbe.tolerance ?? 1e-7))
+                }
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Adaptive Step" hint="Phase E2 grid control">
+              <input
+                aria-label="Adaptive Step"
+                type="checkbox"
+                checked={adaptive.enabled ?? false}
+                onChange={(event) => updateAdaptive("enabled", event.target.checked)}
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Thermal Branch" hint="Phase E3 Matsubara seed">
+              <input
+                aria-label="Thermal Branch"
+                type="checkbox"
+                checked={thermalBranch.enabled ?? false}
+                onChange={(event) => updateThermalBranch("enabled", event.target.checked)}
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Adaptive Min dt">
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={adaptive.min_dt ?? ""}
+                onChange={(event) =>
+                  updateAdaptive("min_dt", parseNullableNumber(event.target.value, adaptive.min_dt ?? null))
+                }
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Adaptive Max dt">
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={adaptive.max_dt ?? ""}
+                onChange={(event) =>
+                  updateAdaptive("max_dt", parseNullableNumber(event.target.value, adaptive.max_dt ?? null))
+                }
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Matsubara Points">
+              <input
+                type="number"
+                min={4}
+                step={1}
+                value={thermalBranch.n_tau ?? 16}
+                onChange={(event) =>
+                  updateThermalBranch("n_tau", parseInteger(event.target.value, thermalBranch.n_tau ?? 16))
+                }
+                disabled={disabled}
+              />
+            </Field>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -462,5 +625,13 @@ function parseNumber(value: string, fallback: number): number {
 
 function parseInteger(value: string, fallback: number): number {
   const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseNullableNumber(value: string, fallback: number | null): number | null {
+  if (value.trim() === "") {
+    return null;
+  }
+  const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
