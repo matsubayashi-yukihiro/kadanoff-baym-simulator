@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import App from "./App";
@@ -13,23 +13,22 @@ describe("App workspace", () => {
     cleanup();
   });
 
-  it("duplicates jobs, edits the summary table, and overlays two successful runs", async () => {
+  it("duplicates jobs, edits the compact editor, switches tabs, and overlays successful runs", async () => {
     const fetchMock = createWorkspaceFetchMock();
     vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
 
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByText("Editable Summary Table");
+    await screen.findByText("Editable DataFrame");
 
-    await user.click(screen.getByRole("button", { name: "Duplicate" }));
-    await user.click(screen.getByRole("checkbox", { name: /Only differing columns/i }));
+    await user.click(screen.getByRole("button", { name: /square-4x4-baseline duplicate/i }));
+    await user.click(screen.getByRole("button", { name: /Core/i }));
 
     const rows = screen.getAllByTestId(/job-row-/);
     expect(rows).toHaveLength(2);
 
-    const secondRow = rows[1];
-    const secondDtInput = within(secondRow).getByLabelText(/Time Dt/);
+    const secondDtInput = screen.getByLabelText(/square-4x4-baseline copy Time Dt/i);
     await user.clear(secondDtInput);
     await user.type(secondDtInput, "0.2");
     await user.tab();
@@ -40,13 +39,13 @@ describe("App workspace", () => {
       expect(screen.getAllByText("run-001").length).toBeGreaterThan(0);
     });
 
-    await user.click(within(rows[0]).getByDisplayValue("square-4x4-baseline"));
+    await user.click(screen.getAllByRole("tab")[0]);
     await user.click(screen.getByRole("button", { name: "Register Run" }));
     await waitFor(() => {
       expect(screen.getAllByText("run-002").length).toBeGreaterThan(0);
     });
 
-    await screen.findByRole("img", { name: "compare-chart-density" });
+    await screen.findByRole("img", { name: "compare-chart-1-density" });
     await waitFor(() => {
       expect(screen.getAllByText("square-4x4-baseline").length).toBeGreaterThan(0);
       expect(screen.getAllByText("square-4x4-baseline copy").length).toBeGreaterThan(0);
@@ -59,14 +58,13 @@ describe("App workspace", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByText("Editable Summary Table");
-    await user.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByText("Editable DataFrame");
+    await user.click(screen.getByRole("button", { name: /square-4x4-baseline duplicate/i }));
 
     let rows = screen.getAllByTestId(/job-row-/);
     expect(rows).toHaveLength(2);
 
-    const secondRow = rows[1];
-    const secondTitleInput = within(secondRow).getByLabelText(/Job Name/);
+    const secondTitleInput = screen.getByLabelText(/square-4x4-baseline copy Job Name/i);
     await user.clear(secondTitleInput);
     await user.type(secondTitleInput, "pulseA");
     await user.tab();
@@ -74,7 +72,7 @@ describe("App workspace", () => {
     expect(secondTitleInput).toHaveValue("pulseA");
     expect(screen.getByRole("tab", { name: /pulseA/i })).toBeInTheDocument();
 
-    await user.click(within(secondRow).getByRole("button", { name: "Delete" }));
+    await user.click(screen.getByRole("button", { name: /pulseA delete/i }));
 
     rows = screen.getAllByTestId(/job-row-/);
     expect(rows).toHaveLength(1);

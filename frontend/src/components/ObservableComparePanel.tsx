@@ -12,117 +12,159 @@ const COMPARE_COLORS = [
   "#3a506b",
 ];
 
-export type ObservableCompareEntry = {
+export type ComparePlotSelection = {
+  observable: string | null;
+  series: string | null;
+};
+
+type ObservableCompareEntry = {
   jobId: string;
   jobTitle: string;
   runId: string;
-  data: ObservableResponse;
 };
 
 type ObservableComparePanelProps = {
   observableOptions: string[];
-  selectedObservable: string | null;
-  onSelectObservable: (value: string) => void;
-  selectedSeries: string | null;
-  onSelectSeries: (value: string) => void;
-  seriesOptions: string[];
+  plots: ComparePlotSelection[];
+  onSelectObservable: (plotIndex: number, value: string) => void;
+  onSelectSeries: (plotIndex: number, value: string) => void;
   entries: ObservableCompareEntry[];
+  dataByKey: Record<string, ObservableResponse>;
   loading: boolean;
   error: string | null;
+};
+
+type ResolvedPlotEntry = ObservableCompareEntry & {
+  data: ObservableResponse;
+  series: ObservableResponse["series"][number];
 };
 
 export function ObservableComparePanel(props: ObservableComparePanelProps) {
   const {
     observableOptions,
-    selectedObservable,
+    plots,
     onSelectObservable,
-    selectedSeries,
     onSelectSeries,
-    seriesOptions,
     entries,
+    dataByKey,
     loading,
     error,
   } = props;
 
-  const plottedEntries = entries
-    .map((entry) => ({
-      ...entry,
-      series:
-        entry.data.series.find((series) => series.label === selectedSeries) ??
-        entry.data.series[0] ??
-        null,
-    }))
-    .filter((entry) => entry.series !== null);
-
   return (
-    <section className="panel">
+    <section className="panel compare-panel">
       <div className="panel-header">
         <div>
           <p className="eyebrow">Compare</p>
-          <h2>Observable Overlay</h2>
+          <h2>Observable Plot Wall</h2>
         </div>
-        <div className="compare-toolbar">
-          <label className="field compact-field">
-            <span className="field-label">Observable</span>
-            <select
-              aria-label="Compare Observable"
-              value={selectedObservable ?? ""}
-              onChange={(event) => onSelectObservable(event.target.value)}
-            >
-              {observableOptions.map((option) => (
-                <option key={option} value={option}>
-                  {formatLabel(option)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field compact-field">
-            <span className="field-label">Series</span>
-            <select
-              aria-label="Compare Series"
-              value={selectedSeries ?? ""}
-              onChange={(event) => onSelectSeries(event.target.value)}
-              disabled={seriesOptions.length === 0}
-            >
-              {seriesOptions.map((option) => (
-                <option key={option} value={option}>
-                  {formatLabel(option)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <span className="compare-grid-meta">{plots.length} charts</span>
       </div>
+
+      <p className="summary-note">
+        Each plot card keeps its own observable selector so you can build a custom three-column comparison layout.
+      </p>
+
+      {entries.length === 0 ? (
+        <div className="empty-card">
+          <p>No completed jobs are selected for plotting.</p>
+          <p>Enable plot on a job card and register at least one successful run.</p>
+        </div>
+      ) : null}
+
+      {entries.length > 0 && observableOptions.length === 0 ? (
+        <div className="empty-card">
+          <p>No saved observables are available yet.</p>
+          <p>Successful runs will populate plot choices automatically.</p>
+        </div>
+      ) : null}
 
       {loading ? <p className="state-banner">Loading observable traces...</p> : null}
       {error ? <p className="state-banner state-error">{error}</p> : null}
 
-      {plottedEntries.length === 0 ? (
-        <div className="empty-card">
-          <p>No completed jobs are selected for plotting.</p>
-          <p>Toggle `plot` in the table and register at least one successful run.</p>
+      {entries.length > 0 && observableOptions.length > 0 ? (
+        <div className="compare-grid">
+          {plots.map((plot, plotIndex) => {
+            const plotData = buildPlotData(plot, entries, dataByKey);
+            const plotTitle = plot.observable ? formatLabel(plot.observable) : "Select observable";
+
+            return (
+              <article key={`plot-${plotIndex}`} className="compare-card">
+                <div className="compare-card-header">
+                  <div>
+                    <p className="eyebrow">Plot {String(plotIndex + 1).padStart(2, "0")}</p>
+                    <h3>{plotTitle}</h3>
+                  </div>
+                  <span className="compare-card-count">{plotData.entries.length} runs</span>
+                </div>
+
+                <div className="plot-button-row" role="toolbar" aria-label={`Plot ${plotIndex + 1} observable selector`}>
+                  {observableOptions.map((option) => (
+                    <button
+                      key={`${plotIndex}-${option}`}
+                      type="button"
+                      className={`chip ${plot.observable === option ? "chip-active" : ""}`}
+                      onClick={() => onSelectObservable(plotIndex, option)}
+                    >
+                      {formatLabel(option)}
+                    </button>
+                  ))}
+                </div>
+
+                {plotData.seriesOptions.length > 1 ? (
+                  <div className="plot-series-row" role="toolbar" aria-label={`Plot ${plotIndex + 1} series selector`}>
+                    {plotData.seriesOptions.map((series) => (
+                      <button
+                        key={`${plotIndex}-${series}`}
+                        type="button"
+                        className={`chip chip-secondary ${plotData.selectedSeries === series ? "chip-active" : ""}`}
+                        onClick={() => onSelectSeries(plotIndex, series)}
+                      >
+                        {formatLabel(series)}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+
+                {!plot.observable ? (
+                  <div className="empty-card">
+                    <p>Select an observable for this slot.</p>
+                    <p>The card will overlay the same physical quantity across the selected runs.</p>
+                  </div>
+                ) : plotData.entries.length === 0 ? (
+                  <div className="empty-card">
+                    <p>No samples are loaded for this observable yet.</p>
+                    <p>Wait for the run to finish or choose another observable.</p>
+                  </div>
+                ) : (
+                  <ObservableOverlayChart
+                    plotIndex={plotIndex}
+                    entries={plotData.entries}
+                    selectedObservable={plot.observable}
+                    selectedSeries={plotData.selectedSeries ?? "series"}
+                  />
+                )}
+              </article>
+            );
+          })}
         </div>
-      ) : (
-        <ObservableOverlayChart entries={plottedEntries} selectedObservable={selectedObservable ?? "observable"} />
-      )}
+      ) : null}
     </section>
   );
 }
 
 type ObservableOverlayChartProps = {
-  entries: Array<
-    ObservableCompareEntry & {
-      series: ObservableResponse["series"][number];
-    }
-  >;
+  plotIndex: number;
+  entries: ResolvedPlotEntry[];
   selectedObservable: string;
+  selectedSeries: string;
 };
 
 function ObservableOverlayChart(props: ObservableOverlayChartProps) {
-  const { entries, selectedObservable } = props;
-  const width = 960;
-  const height = 320;
-  const padding = { top: 20, right: 18, bottom: 36, left: 60 };
+  const { plotIndex, entries, selectedObservable, selectedSeries } = props;
+  const width = 720;
+  const height = 260;
+  const padding = { top: 18, right: 18, bottom: 34, left: 56 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
   const times = entries.flatMap((entry) => entry.data.time);
@@ -154,7 +196,7 @@ function ObservableOverlayChart(props: ObservableOverlayChartProps) {
     return padding.top + (1 - (value - yMin) / (yMax - yMin)) * plotHeight;
   }
 
-  const xTicks = buildTicks(minTime, maxTime, 6);
+  const xTicks = buildTicks(minTime, maxTime, 5);
   const yTicks = buildTicks(yMin, yMax, 5);
 
   return (
@@ -163,7 +205,7 @@ function ObservableOverlayChart(props: ObservableOverlayChartProps) {
         className="chart"
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label={`compare-chart-${selectedObservable}`}
+        aria-label={`compare-chart-${plotIndex + 1}-${selectedObservable}`}
       >
         <rect x={0} y={0} width={width} height={height} rx={18} className="chart-frame" />
         {yTicks.map((tick) => {
@@ -220,16 +262,93 @@ function ObservableOverlayChart(props: ObservableOverlayChartProps) {
 
       <div className="chart-legend compare-legend">
         {entries.map((entry, index) => (
-          <div key={entry.jobId} className="legend-item">
+          <div key={`${entry.jobId}-${entry.series.label}`} className="legend-item">
             <span className="legend-swatch" style={{ backgroundColor: COMPARE_COLORS[index % COMPARE_COLORS.length] }} />
             <span>{entry.jobTitle}</span>
-            <span className="legend-stat">{entry.series.label}</span>
+            <span className="legend-stat">{formatLabel(selectedSeries)}</span>
             <span className="legend-stat">final {formatNumber(entry.series.values[entry.series.values.length - 1], 4)}</span>
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+function buildPlotData(
+  plot: ComparePlotSelection,
+  entries: ObservableCompareEntry[],
+  dataByKey: Record<string, ObservableResponse>,
+): {
+  entries: ResolvedPlotEntry[];
+  seriesOptions: string[];
+  selectedSeries: string | null;
+} {
+  if (!plot.observable) {
+    return {
+      entries: [],
+      seriesOptions: [],
+      selectedSeries: null,
+    };
+  }
+
+  const loadedEntries = entries
+    .map((entry) => {
+      const data = dataByKey[buildObservableCacheKey(entry.runId, plot.observable!)];
+      if (!data) {
+        return null;
+      }
+      return {
+        ...entry,
+        data,
+      };
+    })
+    .filter((entry): entry is ObservableCompareEntry & { data: ObservableResponse } => entry !== null);
+
+  const seriesOptions = Array.from(
+    new Set(loadedEntries.flatMap((entry) => entry.data.series.map((series) => series.label))),
+  );
+  const selectedSeries = resolveSeriesLabel(plot.series, seriesOptions);
+  const plottedEntries = loadedEntries
+    .map((entry) => {
+      const series = entry.data.series.find((item) => item.label === selectedSeries) ?? entry.data.series[0] ?? null;
+      if (!series) {
+        return null;
+      }
+      return {
+        ...entry,
+        series,
+      };
+    })
+    .filter((entry): entry is ResolvedPlotEntry => entry !== null);
+
+  return {
+    entries: plottedEntries,
+    seriesOptions,
+    selectedSeries,
+  };
+}
+
+function resolveSeriesLabel(requested: string | null, seriesOptions: string[]): string | null {
+  if (seriesOptions.length === 0) {
+    return null;
+  }
+  if (requested && seriesOptions.includes(requested)) {
+    return requested;
+  }
+  if (seriesOptions.includes("magnitude")) {
+    return "magnitude";
+  }
+  if (seriesOptions.includes("total")) {
+    return "total";
+  }
+  if (seriesOptions.includes("mean")) {
+    return "mean";
+  }
+  return seriesOptions[0];
+}
+
+function buildObservableCacheKey(runId: string, observable: string): string {
+  return `${runId}::${observable}`;
 }
 
 function buildTicks(minValue: number, maxValue: number, count: number): number[] {

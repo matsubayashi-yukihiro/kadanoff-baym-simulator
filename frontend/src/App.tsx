@@ -23,7 +23,7 @@ import { JobTabsBar } from "./components/JobTabsBar";
 import { JobWorkbenchPanel } from "./components/JobWorkbenchPanel";
 import {
   ObservableComparePanel,
-  type ObservableCompareEntry,
+  type ComparePlotSelection,
 } from "./components/ObservableComparePanel";
 import {
   applyJobColumnValue,
@@ -36,10 +36,16 @@ import {
   type JobColumn,
   type WorkspaceJob,
 } from "./lib/workspace";
-import { createDefaultConfig } from "./lib/defaultConfig";
+import { createDefaultConfig, SUPPORTED_OBSERVABLES } from "./lib/defaultConfig";
 
 const POLL_INTERVAL_MS = 1500;
 const WORKSPACE_STORAGE_KEY = "tdkb.workspace.v2";
+
+type CompareObservableRequest = {
+  cacheKey: string;
+  runId: string;
+  observable: string;
+};
 
 export default function App() {
   const [jobs, setJobs] = useState<WorkspaceJob[]>(() => {
@@ -52,7 +58,7 @@ export default function App() {
       typeof window !== "undefined" ? restoreWorkspaceSnapshot(window.localStorage.getItem(WORKSPACE_STORAGE_KEY)) : null;
     return snapshot?.activeJobId ?? snapshot?.jobs[0]?.id ?? null;
   });
-  const [showDifferentOnly, setShowDifferentOnly] = useState(true);
+  const [showDifferentOnly, setShowDifferentOnly] = useState(false);
 
   const [runsById, setRunsById] = useState<Record<string, RunDetail>>({});
   const [runErrors, setRunErrors] = useState<Record<string, string>>({});
@@ -61,9 +67,8 @@ export default function App() {
   const [submittingJobId, setSubmittingJobId] = useState<string | null>(null);
   const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({});
 
-  const [selectedObservable, setSelectedObservable] = useState<string | null>("density");
-  const [selectedSeries, setSelectedSeries] = useState<string | null>(null);
-  const [compareDataByRunId, setCompareDataByRunId] = useState<Record<string, ObservableResponse>>({});
+  const [comparePlots, setComparePlots] = useState<ComparePlotSelection[]>([]);
+  const [compareDataByKey, setCompareDataByKey] = useState<Record<string, ObservableResponse>>({});
   const [compareLoading, setCompareLoading] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
 
@@ -111,21 +116,19 @@ export default function App() {
 
   const observableOptions = useMemo(() => {
     const options = new Set<string>();
-    for (const job of jobs) {
-      for (const name of job.config.observables ?? []) {
-        options.add(name);
+    for (const job of compareJobs) {
+      if (!job.lastRunId) {
+        continue;
       }
-      if (job.lastRunId) {
-        const run = runsById[job.lastRunId];
-        for (const descriptor of run?.available_observables ?? []) {
-          options.add(descriptor.name);
-        }
+      const run = runsById[job.lastRunId];
+      for (const descriptor of run?.available_observables ?? []) {
+        options.add(descriptor.name);
       }
     }
-    return Array.from(options);
-  }, [jobs, runsById]);
+    return sortObservableNames(Array.from(options));
+  }, [compareJobs, runsById]);
 
-  const compareEntries = useMemo<ObservableCompareEntry[]>(
+  const compareEntries = useMemo(
     () =>
       compareJobs
         .map((job) => {
@@ -133,34 +136,50 @@ export default function App() {
           if (!runId) {
             return null;
           }
-          const data = compareDataByRunId[runId];
-          if (!data) {
-            return null;
-          }
           return {
             jobId: job.id,
             jobTitle: job.title,
             runId,
-            data,
           };
         })
-        .filter((entry): entry is ObservableCompareEntry => entry !== null),
-    [compareJobs, compareDataByRunId],
+        .filter((entry): entry is { jobId: string; jobTitle: string; runId: string } => entry !== null),
+    [compareJobs],
   );
 
-  const seriesOptions = useMemo(() => {
-    const options = new Set<string>();
-    for (const entry of compareEntries) {
-      for (const series of entry.data.series) {
-        options.add(series.label);
-      }
-    }
-    return Array.from(options);
-  }, [compareEntries]);
-
   const parameterColumns = useMemo(
-    () => computeVisibleParameterColumns(jobs, showDifferentOnly),
-    [jobs, showDifferentOnly],
+    () => computeVisibleParameterColumns(jobs, showDifferentOnly, activeJobId),
+    [jobs, showDifferentOnly, activeJobId],
+  );
+
+  const compareRequests = useMemo<CompareObservableRequest[]>(
+    () =>
+      compareEntries.flatMap((entry) =>
+        comparePlots.flatMap((plot) => {
+          if (!plot.observable) {
+            return [];
+          }
+
+          return [
+            {
+              cacheKey: buildObservableCacheKey(entry.runId, plot.observable),
+              runId: entry.runId,
+              observable: plot.observable,
+            },
+          ];
+        }),
+      ),
+    [compareEntries, comparePlots],
+  );
+
+  const missingCompareRequests = useMemo(
+    () =>
+      compareRequests.filter((request, index, allRequests) => {
+        if (compareDataByKey[request.cacheKey]) {
+          return false;
+        }
+        return allRequests.findIndex((candidate) => candidate.cacheKey === request.cacheKey) === index;
+      }),
+    [compareDataByKey, compareRequests],
   );
 
   useEffect(() => {
@@ -248,24 +267,23 @@ export default function App() {
 
   useEffect(() => {
     if (observableOptions.length === 0) {
-      setSelectedObservable(null);
+      setComparePlots([]);
+      setCompareLoading(false);
+      setCompareError(null);
       return;
     }
 
-    setSelectedObservable((current) => {
-      if (current && observableOptions.includes(current)) {
-        return current;
-      }
-      if (observableOptions.includes("density")) {
-        return "density";
-      }
-      return observableOptions[0];
-    });
+    setComparePlots((current) => reconcileComparePlots(current, observableOptions));
   }, [observableOptions]);
 
   useEffect(() => {
-    if (!selectedObservable || compareJobs.length === 0) {
-      setCompareDataByRunId({});
+    if (compareEntries.length === 0 || comparePlots.length === 0) {
+      setCompareLoading(false);
+      setCompareError(null);
+      return;
+    }
+
+    if (missingCompareRequests.length === 0) {
       setCompareLoading(false);
       setCompareError(null);
       return;
@@ -276,13 +294,12 @@ export default function App() {
     setCompareError(null);
 
     Promise.all(
-      compareJobs.map(async (job) => {
-        const runId = job.lastRunId!;
+      missingCompareRequests.map(async (request) => {
         try {
-          const data = await getObservable(runId, selectedObservable);
-          return { runId, data };
+          const data = await getObservable(request.runId, request.observable);
+          return { ...request, data };
         } catch (error) {
-          return { runId, error: toErrorMessage(error) };
+          return { ...request, error: toErrorMessage(error) };
         }
       }),
     )
@@ -291,18 +308,20 @@ export default function App() {
           return;
         }
 
-        const nextData: Record<string, ObservableResponse> = {};
-        const errors: string[] = [];
-        for (const result of results) {
-          if ("data" in result && result.data) {
-            nextData[result.runId] = result.data;
-          } else {
-            errors.push(`${result.runId}: ${result.error ?? "Failed to load observable"}`);
+        setCompareDataByKey((current) => {
+          const next = { ...current };
+          for (const result of results) {
+            if ("data" in result && result.data) {
+              next[result.cacheKey] = result.data;
+            }
           }
-        }
+          return next;
+        });
 
-        setCompareDataByRunId(nextData);
-        setCompareError(errors.length > 0 ? errors.join(" | ") : null);
+        const errors = results
+          .filter((result) => "error" in result)
+          .map((result) => `${result.runId}:${result.observable}`);
+        setCompareError(errors.length > 0 ? `Failed to load ${errors.join(" | ")}` : null);
       })
       .finally(() => {
         if (active) {
@@ -313,35 +332,7 @@ export default function App() {
     return () => {
       active = false;
     };
-  }, [
-    compareJobs
-      .map((job) => `${job.id}:${job.lastRunId ?? ""}`)
-      .join("|"),
-    selectedObservable,
-  ]);
-
-  useEffect(() => {
-    if (seriesOptions.length === 0) {
-      setSelectedSeries(null);
-      return;
-    }
-
-    setSelectedSeries((current) => {
-      if (current && seriesOptions.includes(current)) {
-        return current;
-      }
-      if (seriesOptions.includes("magnitude")) {
-        return "magnitude";
-      }
-      if (seriesOptions.includes("total")) {
-        return "total";
-      }
-      if (seriesOptions.includes("mean")) {
-        return "mean";
-      }
-      return seriesOptions[0];
-    });
-  }, [seriesOptions]);
+  }, [compareEntries, comparePlots.length, missingCompareRequests]);
 
   useEffect(() => {
     if (!activeRun || activeRun.state !== "succeeded" || activeRun.solver !== "kbe_hfb") {
@@ -608,16 +599,66 @@ export default function App() {
     }));
   }
 
+  function handleSelectPlotObservable(plotIndex: number, observable: string) {
+    startTransition(() => {
+      setComparePlots((current) =>
+        current.map((plot, index) =>
+          index === plotIndex
+            ? {
+                observable,
+                series: null,
+              }
+            : plot,
+        ),
+      );
+    });
+  }
+
+  function handleSelectPlotSeries(plotIndex: number, series: string) {
+    startTransition(() => {
+      setComparePlots((current) =>
+        current.map((plot, index) =>
+          index === plotIndex
+            ? {
+                ...plot,
+                series,
+              }
+            : plot,
+        ),
+      );
+    });
+  }
+
   return (
     <main className="app-shell">
       <div className="app-backdrop" />
       <section className="hero">
-        <p className="hero-kicker">TDKB Workspace</p>
-        <h1>Register jobs in tabs, edit parameters in a matrix, and overlay time evolution across runs.</h1>
-        <p className="hero-copy">
-          Each tab is a job draft. Duplicate a draft to branch parameters, edit the job table directly, register runs
-          from the active tab, and compare successful trajectories on one chart.
-        </p>
+        <div className="hero-main">
+          <p className="hero-kicker">TDKB Workspace</p>
+          <h1>Build, edit, and compare TDKB runs without losing the full parameter view.</h1>
+          <p className="hero-copy">
+            Switch drafts from tabs, edit every parameter inside compact cards, and pin time-evolution plots into a
+            three-column comparison wall.
+          </p>
+        </div>
+        <div className="hero-summary">
+          <div className="hero-stat-card">
+            <span className="hero-stat-label">Active Job</span>
+            <strong>{activeJob?.title ?? "-"}</strong>
+          </div>
+          <div className="hero-stat-card">
+            <span className="hero-stat-label">Solver</span>
+            <strong>{activeJob?.config.solver ?? "-"}</strong>
+          </div>
+          <div className="hero-stat-card">
+            <span className="hero-stat-label">Drafts</span>
+            <strong>{jobs.length}</strong>
+          </div>
+          <div className="hero-stat-card">
+            <span className="hero-stat-label">Compared Runs</span>
+            <strong>{compareEntries.length}</strong>
+          </div>
+        </div>
       </section>
 
       <JobTabsBar
@@ -690,20 +731,11 @@ export default function App() {
         <div className="workspace-main">
           <ObservableComparePanel
             observableOptions={observableOptions}
-            selectedObservable={selectedObservable}
-            onSelectObservable={(value) => {
-              startTransition(() => {
-                setSelectedObservable(value);
-              });
-            }}
-            selectedSeries={selectedSeries}
-            onSelectSeries={(value) => {
-              startTransition(() => {
-                setSelectedSeries(value);
-              });
-            }}
-            seriesOptions={seriesOptions}
+            plots={comparePlots}
+            onSelectObservable={handleSelectPlotObservable}
+            onSelectSeries={handleSelectPlotSeries}
             entries={compareEntries}
+            dataByKey={compareDataByKey}
             loading={compareLoading}
             error={compareError}
           />
@@ -743,4 +775,49 @@ function toErrorMessage(error: unknown): string {
 
 function clampIndex(value: number, upper: number): number {
   return Math.min(Math.max(value, 0), upper);
+}
+
+function buildObservableCacheKey(runId: string, observable: string): string {
+  return `${runId}::${observable}`;
+}
+
+function reconcileComparePlots(current: ComparePlotSelection[], observableOptions: string[]): ComparePlotSelection[] {
+  const slotCount = Math.max(observableOptions.length, 3);
+  const next = Array.from({ length: slotCount }, (_, index) => {
+    const currentPlot = current[index];
+    const observable =
+      currentPlot?.observable && observableOptions.includes(currentPlot.observable)
+        ? currentPlot.observable
+        : (observableOptions[index] ?? null);
+    const series = currentPlot?.observable === observable ? currentPlot.series : null;
+    return { observable, series };
+  });
+
+  if (
+    current.length === next.length &&
+    current.every((plot, index) => plot.observable === next[index]?.observable && plot.series === next[index]?.series)
+  ) {
+    return current;
+  }
+
+  return next;
+}
+
+function sortObservableNames(names: string[]): string[] {
+  const order = new Map<string, number>(SUPPORTED_OBSERVABLES.map((name, index) => [name, index]));
+  return [...names].sort((left, right) => {
+    const leftIndex = order.get(left);
+    const rightIndex = order.get(right);
+
+    if (leftIndex !== undefined && rightIndex !== undefined) {
+      return leftIndex - rightIndex;
+    }
+    if (leftIndex !== undefined) {
+      return -1;
+    }
+    if (rightIndex !== undefined) {
+      return 1;
+    }
+    return left.localeCompare(right);
+  });
 }

@@ -218,12 +218,16 @@ export function renameJob(job: WorkspaceJob, rawTitle: string): WorkspaceJob {
   };
 }
 
-export function computeVisibleParameterColumns(jobs: WorkspaceJob[], showDifferentOnly: boolean): JobColumn[] {
+export function computeVisibleParameterColumns(
+  jobs: WorkspaceJob[],
+  showDifferentOnly: boolean,
+  baselineJobId?: string | null,
+): JobColumn[] {
   if (!showDifferentOnly || jobs.length <= 1) {
     return JOB_PARAMETER_COLUMNS;
   }
 
-  const baselineJob = jobs[0];
+  const baselineJob = jobs.find((job) => job.id === baselineJobId) ?? jobs[0];
   if (!baselineJob) {
     return JOB_PARAMETER_COLUMNS;
   }

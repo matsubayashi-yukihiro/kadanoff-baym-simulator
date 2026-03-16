@@ -20,7 +20,7 @@ export function JobTabsBar(props: JobTabsBarProps) {
           <h2>Job Tabs</h2>
         </div>
         <button type="button" className="primary-button" onClick={onCreateJob}>
-          New Job
+          New Draft
         </button>
       </div>
 
@@ -36,7 +36,9 @@ export function JobTabsBar(props: JobTabsBarProps) {
               className={`tab-button ${job.id === activeJobId ? "tab-button-active" : ""}`}
               onClick={() => onSelectJob(job.id)}
             >
+              <span className="tab-kicker">{job.id === activeJobId ? "Active Draft" : "Draft"}</span>
               <span className="tab-title">{job.title}</span>
+              <span className="tab-caption">{job.config.solver}</span>
               <span className="tab-meta">
                 <span className={`status-pill status-${run?.state ?? "queued"}`}>{run?.state ?? "draft"}</span>
                 {job.plotEnabled ? <span className="tab-plot-flag">plot</span> : null}
