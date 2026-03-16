@@ -39,6 +39,30 @@ export interface paths {
     /** Get Observable */
     get: operations["get_observable_api_v1_runs__run_id__observables__name__get"];
   };
+  "/api/v1/runs/{run_id}/green-functions": {
+    /** List Green Functions */
+    get: operations["list_green_functions_api_v1_runs__run_id__green_functions_get"];
+  };
+  "/api/v1/runs/{run_id}/green-functions/{component}": {
+    /** Get Green Function Slice */
+    get: operations["get_green_function_slice_api_v1_runs__run_id__green_functions__component__get"];
+  };
+  "/api/v1/runs/{run_id}/thermal-branch": {
+    /** List Thermal Branch */
+    get: operations["list_thermal_branch_api_v1_runs__run_id__thermal_branch_get"];
+  };
+  "/api/v1/runs/{run_id}/thermal-branch/{component}": {
+    /** Get Thermal Branch Slice */
+    get: operations["get_thermal_branch_slice_api_v1_runs__run_id__thermal_branch__component__get"];
+  };
+  "/api/v1/runs/{run_id}/mixed-green-functions": {
+    /** List Mixed Green Functions */
+    get: operations["list_mixed_green_functions_api_v1_runs__run_id__mixed_green_functions_get"];
+  };
+  "/api/v1/runs/{run_id}/mixed-green-functions/{component}": {
+    /** Get Mixed Green Function Slice */
+    get: operations["get_mixed_green_function_slice_api_v1_runs__run_id__mixed_green_functions__component__get"];
+  };
 }
 
 export type webhooks = Record<string, never>;
@@ -114,6 +138,38 @@ export interface components {
        * @default 1
        */
       width?: number;
+    };
+    /** GreenFunctionCatalogResponse */
+    GreenFunctionCatalogResponse: {
+      /** Run Id */
+      run_id: string;
+      /** Components */
+      components: string[];
+      /** Shape */
+      shape: number[];
+      /** Time Point Count */
+      time_point_count: number;
+      /** Nambu Dimension */
+      nambu_dimension: number;
+    };
+    /** GreenFunctionSliceResponse */
+    GreenFunctionSliceResponse: {
+      /** Component */
+      component: string;
+      /** Times Row */
+      times_row: number[];
+      /** Times Col */
+      times_col: number[];
+      /** Nambu Start */
+      nambu_start: number;
+      /** Nambu Stop */
+      nambu_stop: number;
+      /** Shape */
+      shape: number[];
+      /** Real */
+      real: number[][][][];
+      /** Imag */
+      imag: number[][][][];
     };
     /** HTTPValidationError */
     HTTPValidationError: {
@@ -203,6 +259,40 @@ export interface components {
        * @default 0
        */
       chemical_potential?: number;
+    };
+    /** MixedGreenFunctionCatalogResponse */
+    MixedGreenFunctionCatalogResponse: {
+      /** Run Id */
+      run_id: string;
+      /** Components */
+      components: string[];
+      /** Shape */
+      shape: number[];
+      /** Time Point Count */
+      time_point_count: number;
+      /** Tau Point Count */
+      tau_point_count: number;
+      /** Nambu Dimension */
+      nambu_dimension: number;
+    };
+    /** MixedGreenFunctionSliceResponse */
+    MixedGreenFunctionSliceResponse: {
+      /** Component */
+      component: string;
+      /** Times */
+      times: number[];
+      /** Tau */
+      tau: number[];
+      /** Nambu Start */
+      nambu_start: number;
+      /** Nambu Stop */
+      nambu_stop: number;
+      /** Shape */
+      shape: number[];
+      /** Real */
+      real: number[][][][];
+      /** Imag */
+      imag: number[][][][];
     };
     /** ObservableCatalogResponse */
     ObservableCatalogResponse: {
@@ -389,6 +479,19 @@ export interface components {
      * @enum {string}
      */
     SolverKind: "noninteracting" | "tdhfb" | "kbe_hfb";
+    /** ThermalBranchCatalogResponse */
+    ThermalBranchCatalogResponse: {
+      /** Run Id */
+      run_id: string;
+      /** Components */
+      components: string[];
+      /** Shape */
+      shape: number[];
+      /** Tau Point Count */
+      tau_point_count: number;
+      /** Nambu Dimension */
+      nambu_dimension: number;
+    };
     /** ThermalBranchConfig */
     ThermalBranchConfig: {
       /**
@@ -411,6 +514,23 @@ export interface components {
        * @default 0.3
        */
       mixing?: number;
+    };
+    /** ThermalBranchSliceResponse */
+    ThermalBranchSliceResponse: {
+      /** Component */
+      component: string;
+      /** Tau */
+      tau: number[];
+      /** Nambu Start */
+      nambu_start: number;
+      /** Nambu Stop */
+      nambu_stop: number;
+      /** Shape */
+      shape: number[];
+      /** Real */
+      real: number[][][];
+      /** Imag */
+      imag: number[][][];
     };
     /** TimeGridConfig */
     TimeGridConfig: {
@@ -600,6 +720,163 @@ export interface operations {
       200: {
         content: {
           "application/json": components["schemas"]["ObservableResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** List Green Functions */
+  list_green_functions_api_v1_runs__run_id__green_functions_get: {
+    parameters: {
+      path: {
+        run_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GreenFunctionCatalogResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Get Green Function Slice */
+  get_green_function_slice_api_v1_runs__run_id__green_functions__component__get: {
+    parameters: {
+      query?: {
+        row_start?: number | null;
+        row_stop?: number | null;
+        col_start?: number | null;
+        col_stop?: number | null;
+        nambu_start?: number | null;
+        nambu_stop?: number | null;
+      };
+      path: {
+        run_id: string;
+        component: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["GreenFunctionSliceResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** List Thermal Branch */
+  list_thermal_branch_api_v1_runs__run_id__thermal_branch_get: {
+    parameters: {
+      path: {
+        run_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["ThermalBranchCatalogResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Get Thermal Branch Slice */
+  get_thermal_branch_slice_api_v1_runs__run_id__thermal_branch__component__get: {
+    parameters: {
+      query?: {
+        tau_start?: number | null;
+        tau_stop?: number | null;
+        nambu_start?: number | null;
+        nambu_stop?: number | null;
+      };
+      path: {
+        run_id: string;
+        component: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["ThermalBranchSliceResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** List Mixed Green Functions */
+  list_mixed_green_functions_api_v1_runs__run_id__mixed_green_functions_get: {
+    parameters: {
+      path: {
+        run_id: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["MixedGreenFunctionCatalogResponse"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  /** Get Mixed Green Function Slice */
+  get_mixed_green_function_slice_api_v1_runs__run_id__mixed_green_functions__component__get: {
+    parameters: {
+      query?: {
+        time_start?: number | null;
+        time_stop?: number | null;
+        tau_start?: number | null;
+        tau_stop?: number | null;
+        nambu_start?: number | null;
+        nambu_stop?: number | null;
+      };
+      path: {
+        run_id: string;
+        component: string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        content: {
+          "application/json": components["schemas"]["MixedGreenFunctionSliceResponse"];
         };
       };
       /** @description Validation Error */

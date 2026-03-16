@@ -1,313 +1,209 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import App from "./App";
 import { createDefaultConfig } from "./lib/defaultConfig";
 
-type SubmittedConfig = {
-  solver?: string;
-  interaction?: { pairing_channel?: string };
-  initial_state?: { seed_pairing?: number };
-};
-
-describe("App", () => {
+describe("App workspace", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    window.localStorage.clear();
+    cleanup();
   });
 
-  it("creates a run and loads density, energy, and current_x plots", async () => {
-    const runId = "run-e2e-001";
-    let listRunsCallCount = 0;
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = new URL(String(input));
-        const method = init?.method ?? "GET";
-
-        if (url.pathname === "/api/v1/runs" && method === "GET") {
-          listRunsCallCount += 1;
-          return Promise.resolve(jsonResponse(200, listRunsCallCount === 1 ? [] : [buildRunSummary(runId)]));
-        }
-
-        if (url.pathname === "/api/v1/runs" && method === "POST") {
-          return Promise.resolve(jsonResponse(202, buildRunDetail(runId)));
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}` && method === "GET") {
-          return Promise.resolve(jsonResponse(200, buildRunDetail(runId)));
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              run_id: runId,
-              observables: ["density", "energy", "current_x"],
-            }),
-          );
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables/density` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              name: "density",
-              time: [0, 0.1, 0.2],
-              series: [
-                { label: "mean", values: [0.5, 0.5, 0.5] },
-                { label: "min", values: [0.48, 0.48, 0.48] },
-                { label: "max", values: [0.52, 0.52, 0.52] },
-              ],
-              units: null,
-              metadata: { solver: "noninteracting" },
-            }),
-          );
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables/energy` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              name: "energy",
-              time: [0, 0.1, 0.2],
-              series: [{ label: "total", values: [-2.0, -1.95, -1.9] }],
-              units: null,
-              metadata: { solver: "noninteracting" },
-            }),
-          );
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables/current_x` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              name: "current_x",
-              time: [0, 0.1, 0.2],
-              series: [{ label: "total", values: [0.0, 0.05, 0.04] }],
-              units: null,
-              metadata: { solver: "noninteracting" },
-            }),
-          );
-        }
-
-        throw new Error(`unexpected fetch ${method} ${url.pathname}`);
-      }) as unknown as typeof fetch,
-    );
+  it("duplicates jobs, edits the summary table, and overlays two successful runs", async () => {
+    const fetchMock = createWorkspaceFetchMock();
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
 
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByText("No saved runs yet.");
-    await user.click(screen.getByRole("button", { name: "Create Run" }));
+    await screen.findByText("Editable Summary Table");
 
-    await screen.findByText(runId);
-    await screen.findByRole("img", { name: "observable-chart-density" });
-    await screen.findByText("Site Count");
-    expect(screen.getByRole("button", { name: "Energy" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Current X" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
+    await user.click(screen.getByRole("checkbox", { name: /Only differing columns/i }));
 
-    await user.click(screen.getByRole("button", { name: "Energy" }));
-    await screen.findByRole("img", { name: "observable-chart-energy" });
+    const rows = screen.getAllByTestId(/job-row-/);
+    expect(rows).toHaveLength(2);
 
-    await user.click(screen.getByRole("button", { name: "Current X" }));
-    await screen.findByRole("img", { name: "observable-chart-current_x" });
+    const secondRow = rows[1];
+    const secondDtInput = within(secondRow).getByLabelText(/Time Dt/);
+    await user.clear(secondDtInput);
+    await user.type(secondDtInput, "0.2");
+    await user.tab();
+    expect(secondDtInput).toHaveValue("0.2");
 
+    await user.click(screen.getByRole("button", { name: "Register Run" }));
     await waitFor(() => {
-      expect(screen.getByText("0.0025")).toBeInTheDocument();
+      expect(screen.getAllByText("run-001").length).toBeGreaterThan(0);
+    });
+
+    await user.click(within(rows[0]).getByDisplayValue("square-4x4-baseline"));
+    await user.click(screen.getByRole("button", { name: "Register Run" }));
+    await waitFor(() => {
+      expect(screen.getAllByText("run-002").length).toBeGreaterThan(0);
+    });
+
+    await screen.findByRole("img", { name: "compare-chart-density" });
+    await waitFor(() => {
+      expect(screen.getAllByText("square-4x4-baseline").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("square-4x4-baseline copy").length).toBeGreaterThan(0);
     });
   });
 
-  it("submits a kbe-hfb run and loads the pairing_d trace", async () => {
-    const runId = "run-kbe-001";
-    let listRunsCallCount = 0;
-    let submittedBody = "";
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-        const url = new URL(String(input));
-        const method = init?.method ?? "GET";
-
-        if (url.pathname === "/api/v1/runs" && method === "GET") {
-          listRunsCallCount += 1;
-          return Promise.resolve(jsonResponse(200, listRunsCallCount === 1 ? [] : [buildRunSummary(runId, { solver: "kbe_hfb" })]));
-        }
-
-        if (url.pathname === "/api/v1/runs" && method === "POST") {
-          submittedBody = String(init?.body ?? "{}");
-          return Promise.resolve(jsonResponse(202, buildRunDetail(runId, { solver: "kbe_hfb" })));
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}` && method === "GET") {
-          return Promise.resolve(jsonResponse(200, buildRunDetail(runId, { solver: "kbe_hfb" })));
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              run_id: runId,
-              observables: ["density", "pairing", "pairing_s", "pairing_d", "energy"],
-            }),
-          );
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables/density` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              name: "density",
-              time: [0, 0.1, 0.2],
-              series: [
-                { label: "mean", values: [0.5, 0.5, 0.5] },
-                { label: "min", values: [0.48, 0.48, 0.48] },
-                { label: "max", values: [0.52, 0.52, 0.52] },
-              ],
-              units: null,
-              metadata: { solver: "kbe_hfb", pairing_channel: "bond_d" },
-            }),
-          );
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables/pairing` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              name: "pairing",
-              time: [0, 0.1, 0.2],
-              series: [
-                { label: "real", values: [0.06, 0.061, 0.062] },
-                { label: "imag", values: [0.0, 0.0, 0.0] },
-                { label: "magnitude", values: [0.06, 0.061, 0.062] },
-              ],
-              units: null,
-              metadata: { solver: "kbe_hfb", pairing_channel: "bond_d" },
-            }),
-          );
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables/pairing_s` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              name: "pairing_s",
-              time: [0, 0.1, 0.2],
-              series: [
-                { label: "real", values: [0.006, 0.0061, 0.0062] },
-                { label: "imag", values: [0.0, 0.0, 0.0] },
-                { label: "magnitude", values: [0.006, 0.0061, 0.0062] },
-              ],
-              units: null,
-              metadata: { solver: "kbe_hfb", pairing_channel: "bond_d" },
-            }),
-          );
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables/pairing_d` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              name: "pairing_d",
-              time: [0, 0.1, 0.2],
-              series: [
-                { label: "real", values: [0.06, 0.061, 0.062] },
-                { label: "imag", values: [0.0, 0.0, 0.0] },
-                { label: "magnitude", values: [0.06, 0.061, 0.062] },
-              ],
-              units: null,
-              metadata: { solver: "kbe_hfb", pairing_channel: "bond_d" },
-            }),
-          );
-        }
-
-        if (url.pathname === `/api/v1/runs/${runId}/observables/energy` && method === "GET") {
-          return Promise.resolve(
-            jsonResponse(200, {
-              name: "energy",
-              time: [0, 0.1, 0.2],
-              series: [{ label: "total", values: [-6.82, -6.83, -6.84] }],
-              units: null,
-              metadata: { solver: "kbe_hfb", pairing_channel: "bond_d" },
-            }),
-          );
-        }
-
-        throw new Error(`unexpected fetch ${method} ${url.pathname}`);
-      }) as unknown as typeof fetch,
-    );
+  it("renames and deletes duplicated jobs from the workspace", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("unexpected fetch"))) as unknown as typeof fetch);
 
     const user = userEvent.setup();
     render(<App />);
 
-    await screen.findByText("No saved runs yet.");
-    const solverSelect = screen.getAllByRole("combobox", { name: "Solver" })[0];
-    const pairingChannelSelect = screen.getAllByRole("combobox", { name: "Pairing Channel" })[0];
-    const seedPairingInput = screen.getAllByRole("spinbutton", { name: "Seed Pairing" })[0];
+    await screen.findByText("Editable Summary Table");
+    await user.click(screen.getByRole("button", { name: "Duplicate" }));
 
-    await user.selectOptions(solverSelect, "kbe_hfb");
-    await user.selectOptions(pairingChannelSelect, "bond_d");
-    await user.clear(seedPairingInput);
-    await user.type(seedPairingInput, "0.2");
-    await user.click(screen.getAllByRole("button", { name: "Create Run" })[0]);
+    let rows = screen.getAllByTestId(/job-row-/);
+    expect(rows).toHaveLength(2);
 
-    const createdConfig = JSON.parse(submittedBody) as SubmittedConfig;
-    expect(createdConfig.solver).toBe("kbe_hfb");
-    expect(createdConfig.interaction?.pairing_channel).toBe("bond_d");
-    expect(createdConfig.initial_state?.seed_pairing).toBe(0.2);
+    const secondRow = rows[1];
+    const secondTitleInput = within(secondRow).getByLabelText(/Job Name/);
+    await user.clear(secondTitleInput);
+    await user.type(secondTitleInput, "pulseA");
+    await user.tab();
 
-    await screen.findByText(runId);
-    await screen.findByText("Max Equal Time Tdhfb Mismatch");
-    await user.click(screen.getByRole("button", { name: "Pairing D" }));
-    await screen.findByRole("img", { name: "observable-chart-pairing_d" });
-    await waitFor(() => {
-      expect(screen.getByText("magnitude")).toBeInTheDocument();
-    });
+    expect(secondTitleInput).toHaveValue("pulseA");
+    expect(screen.getByRole("tab", { name: /pulseA/i })).toBeInTheDocument();
+
+    await user.click(within(secondRow).getByRole("button", { name: "Delete" }));
+
+    rows = screen.getAllByTestId(/job-row-/);
+    expect(rows).toHaveLength(1);
+    expect(screen.queryByRole("tab", { name: /pulseA/i })).not.toBeInTheDocument();
   });
 });
 
-function buildRunSummary(runId: string, overrides: Partial<Record<string, unknown>> = {}) {
+function createWorkspaceFetchMock() {
+  const runConfigs = new Map<string, ReturnType<typeof createDefaultConfig>>();
+  let runCount = 0;
+
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost:8000");
+    const method = init?.method ?? "GET";
+
+    if (url.pathname === "/api/v1/runs" && method === "POST") {
+      runCount += 1;
+      const runId = `run-${String(runCount).padStart(3, "0")}`;
+      const submittedConfig = JSON.parse(String(init?.body ?? "{}")) as ReturnType<typeof createDefaultConfig>;
+      runConfigs.set(runId, submittedConfig);
+      return Promise.resolve(jsonResponse(202, buildRunDetail(runId, submittedConfig)));
+    }
+
+    const runMatch = url.pathname.match(/^\/api\/v1\/runs\/([^/]+)$/);
+    if (runMatch && method === "GET") {
+      const runId = runMatch[1];
+      const config = runConfigs.get(runId);
+      if (!config) {
+        return Promise.resolve(jsonResponse(404, { detail: "run not found" }));
+      }
+      return Promise.resolve(jsonResponse(200, buildRunDetail(runId, config)));
+    }
+
+    const observableMatch = url.pathname.match(/^\/api\/v1\/runs\/([^/]+)\/observables\/([^/]+)$/);
+    if (observableMatch && method === "GET") {
+      const [, runId, observable] = observableMatch;
+      const config = runConfigs.get(runId);
+      if (!config) {
+        return Promise.resolve(jsonResponse(404, { detail: "run not found" }));
+      }
+      return Promise.resolve(jsonResponse(200, buildObservablePayload(runId, observable, config)));
+    }
+
+    throw new Error(`unexpected fetch ${method} ${url.pathname}`);
+  });
+}
+
+function buildRunDetail(runId: string, config: ReturnType<typeof createDefaultConfig>) {
   return {
     run_id: runId,
-    name: "square-4x4-baseline",
-    solver: "noninteracting",
+    name: config.name,
+    solver: config.solver,
     state: "succeeded",
-    created_at: "2026-03-15T00:00:00Z",
-    updated_at: "2026-03-15T00:00:02Z",
-    started_at: "2026-03-15T00:00:00Z",
-    finished_at: "2026-03-15T00:00:02Z",
-    status_message: "run finished",
-    lattice: { nx: 4, ny: 4 },
-    time_grid: { dt: 0.1, t_final: 0.2 },
+    created_at: "2026-03-16T00:00:00Z",
+    updated_at: "2026-03-16T00:00:00Z",
+    started_at: "2026-03-16T00:00:00Z",
+    finished_at: "2026-03-16T00:00:01Z",
+    status_message: "completed",
+    lattice: {
+      nx: config.lattice.nx,
+      ny: config.lattice.ny,
+    },
+    time_grid: {
+      dt: config.time.dt,
+      t_final: config.time.t_final,
+    },
     available_observables: [
-      { name: "density", time_key: "density__time", series: [{ label: "mean", key: "density__mean" }], units: null, metadata: {} },
-      { name: "energy", time_key: "energy__time", series: [{ label: "total", key: "energy__total" }], units: null, metadata: {} },
       {
-        name: "current_x",
-        time_key: "current_x__time",
-        series: [{ label: "total", key: "current_x__total" }],
+        name: "density",
+        time_key: "time",
+        series: [{ label: "mean", key: "mean" }],
+        units: null,
+        metadata: {},
+      },
+      {
+        name: "energy",
+        time_key: "time",
+        series: [{ label: "total", key: "total" }],
         units: null,
         metadata: {},
       },
     ],
     diagnostics_excerpt: {
-      final_energy: -1.9,
-      final_density: 0.5,
+      site_count: config.lattice.nx * config.lattice.ny,
     },
-    ...overrides,
+    config,
+    diagnostics: {
+      site_count: config.lattice.nx * config.lattice.ny,
+      dt: config.time.dt,
+    },
   };
 }
 
-function buildRunDetail(
+function buildObservablePayload(
   runId: string,
-  overrides: Partial<Record<string, unknown>> & { diagnostics?: Record<string, unknown> } = {},
+  observable: string,
+  config: ReturnType<typeof createDefaultConfig>,
 ) {
-  const { diagnostics, ...summaryOverrides } = overrides;
-  const summary = buildRunSummary(runId, summaryOverrides);
+  if (observable === "density") {
+    return {
+      name: "density",
+      time: [0, config.time.dt, config.time.dt * 2],
+      series: [
+        {
+          label: "mean",
+          values: [0.5, 0.5 + runOffset(runId), 0.5 + runOffset(runId) * 2],
+        },
+      ],
+      units: null,
+      metadata: { solver: config.solver },
+    };
+  }
+
   return {
-    ...summary,
-    config: createDefaultConfig(),
-    diagnostics:
-      diagnostics ?? {
-        site_count: 16,
-        time_steps: 2,
-        energy_drift: 0.0025,
-        max_equal_time_tdhfb_mismatch: 1e-12,
+    name: "energy",
+    time: [0, config.time.dt, config.time.dt * 2],
+    series: [
+      {
+        label: "total",
+        values: [-2.0, -1.9 + runOffset(runId), -1.8 + runOffset(runId)],
       },
+    ],
+    units: null,
+    metadata: { solver: config.solver },
   };
+}
+
+function runOffset(runId: string): number {
+  return runId.endsWith("1") ? 0.02 : 0.05;
 }
 
 function jsonResponse(status: number, payload: unknown): Response {

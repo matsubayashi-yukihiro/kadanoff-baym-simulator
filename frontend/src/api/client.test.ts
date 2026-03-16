@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, createRun, getObservable, listRuns } from "./client";
+import { ApiError, createRun, getGreenFunctionSlice, getObservable, listGreenFunctions, listRuns } from "./client";
 import { createDefaultConfig } from "../lib/defaultConfig";
 
 describe("api client", () => {
@@ -47,6 +47,35 @@ describe("api client", () => {
           }),
         );
       }
+      if (url.endsWith("/api/v1/runs/run-001/green-functions")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            run_id: "run-001",
+            components: ["retarded", "lesser"],
+            shape: [3, 3, 8, 8],
+            time_point_count: 3,
+            nambu_dimension: 8,
+          }),
+        );
+      }
+      if (
+        url.endsWith(
+          "/api/v1/runs/run-001/green-functions/retarded?row_start=1&row_stop=2&col_start=1&col_stop=2&nambu_start=0&nambu_stop=2",
+        )
+      ) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            component: "retarded",
+            times_row: [0.1],
+            times_col: [0.1],
+            nambu_start: 0,
+            nambu_stop: 2,
+            shape: [1, 1, 2, 2],
+            real: [[[[0, 0], [0, 0]]]],
+            imag: [[[[-1, 0], [0, -1]]]],
+          }),
+        );
+      }
       throw new Error(`unexpected fetch ${url}`);
     });
 
@@ -55,10 +84,21 @@ describe("api client", () => {
     const runs = await listRuns();
     const run = await createRun(createDefaultConfig());
     const observable = await getObservable("run-001", "energy");
+    const greenCatalog = await listGreenFunctions("run-001");
+    const greenSlice = await getGreenFunctionSlice("run-001", "retarded", {
+      row_start: 1,
+      row_stop: 2,
+      col_start: 1,
+      col_stop: 2,
+      nambu_start: 0,
+      nambu_stop: 2,
+    });
 
     expect(runs).toEqual([]);
     expect(run.run_id).toBe("run-001");
     expect(observable.name).toBe("energy");
+    expect(greenCatalog.components).toEqual(["retarded", "lesser"]);
+    expect(greenSlice.component).toBe("retarded");
     expect(fetchMock).toHaveBeenNthCalledWith(1, "http://localhost:8000/api/v1/runs", expect.any(Object));
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
@@ -68,6 +108,16 @@ describe("api client", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
       "http://localhost:8000/api/v1/runs/run-001/observables/energy",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "http://localhost:8000/api/v1/runs/run-001/green-functions",
+      expect.any(Object),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      "http://localhost:8000/api/v1/runs/run-001/green-functions/retarded?row_start=1&row_stop=2&col_start=1&col_stop=2&nambu_start=0&nambu_stop=2",
       expect.any(Object),
     );
   });

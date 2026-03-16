@@ -189,8 +189,8 @@ export function ConfigPanel(props: ConfigPanelProps) {
     <section className="panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Simulation Config</p>
-          <h2>ConfigPanel</h2>
+          <p className="eyebrow">Inspector</p>
+          <h2>Job Config</h2>
         </div>
         <button type="button" className="ghost-button" onClick={onReset} disabled={disabled}>
           Reset

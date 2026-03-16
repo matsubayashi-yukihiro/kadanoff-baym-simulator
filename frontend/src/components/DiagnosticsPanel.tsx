@@ -14,7 +14,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         <div className="panel-header">
           <div>
             <p className="eyebrow">Diagnostics</p>
-            <h2>DiagnosticsPanel</h2>
+            <h2>Run Diagnostics</h2>
           </div>
         </div>
         <div className="empty-card">
@@ -33,7 +33,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
       <div className="panel-header">
         <div>
           <p className="eyebrow">Diagnostics</p>
-          <h2>DiagnosticsPanel</h2>
+          <h2>Run Diagnostics</h2>
         </div>
         <span className={`status-pill status-${run.state}`}>{run.state}</span>
       </div>
