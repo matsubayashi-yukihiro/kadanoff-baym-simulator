@@ -1,3 +1,11 @@
+from backend.app.schemas.green_functions import (
+    GreenFunctionCatalogResponse,
+    GreenFunctionSliceResponse,
+    MixedGreenFunctionCatalogResponse,
+    MixedGreenFunctionSliceResponse,
+    ThermalBranchCatalogResponse,
+    ThermalBranchSliceResponse,
+)
 from backend.app.schemas.observables import (
     ObservableCatalogResponse,
     ObservableResponse,
@@ -30,11 +38,15 @@ from backend.app.schemas.simulation import (
 __all__ = [
     "AdaptiveConfig",
     "DriveConfig",
+    "GreenFunctionCatalogResponse",
+    "GreenFunctionSliceResponse",
     "InitialStateConfig",
     "InteractionConfig",
     "KBEConfig",
     "KBESelfEnergyMode",
     "LatticeConfig",
+    "MixedGreenFunctionCatalogResponse",
+    "MixedGreenFunctionSliceResponse",
     "BoundaryCondition",
     "ObservableCatalogResponse",
     "ObservableDescriptor",
@@ -48,6 +60,8 @@ __all__ = [
     "RunSummary",
     "SimulationConfig",
     "SolverKind",
+    "ThermalBranchCatalogResponse",
+    "ThermalBranchSliceResponse",
     "ThermalBranchConfig",
     "TimeGridConfig",
 ]

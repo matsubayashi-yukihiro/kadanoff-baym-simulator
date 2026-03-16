@@ -4,12 +4,18 @@ from typing import Any
 
 from backend.app.jobs.runner import JobRunner
 from backend.app.schemas import (
+    GreenFunctionCatalogResponse,
+    GreenFunctionSliceResponse,
+    MixedGreenFunctionCatalogResponse,
+    MixedGreenFunctionSliceResponse,
     ObservableCatalogResponse,
     ObservableResponse,
     RunDetail,
     RunState,
     RunSummary,
     SimulationConfig,
+    ThermalBranchCatalogResponse,
+    ThermalBranchSliceResponse,
 )
 from backend.app.storage.file_storage import FileRunStorage
 
@@ -98,6 +104,80 @@ class RunService:
 
     def get_observable(self, run_id: str, name: str) -> ObservableResponse:
         return self.storage.read_observable(run_id, name)
+
+    def list_green_functions(self, run_id: str) -> GreenFunctionCatalogResponse:
+        return self.storage.read_green_function_catalog(run_id)
+
+    def get_green_function_slice(
+        self,
+        run_id: str,
+        component: str,
+        *,
+        row_start: int | None = None,
+        row_stop: int | None = None,
+        col_start: int | None = None,
+        col_stop: int | None = None,
+        nambu_start: int | None = None,
+        nambu_stop: int | None = None,
+    ) -> GreenFunctionSliceResponse:
+        return self.storage.read_green_function_slice(
+            run_id,
+            component,
+            row_start=row_start,
+            row_stop=row_stop,
+            col_start=col_start,
+            col_stop=col_stop,
+            nambu_start=nambu_start,
+            nambu_stop=nambu_stop,
+        )
+
+    def list_thermal_branch(self, run_id: str) -> ThermalBranchCatalogResponse:
+        return self.storage.read_thermal_branch_catalog(run_id)
+
+    def get_thermal_branch_slice(
+        self,
+        run_id: str,
+        component: str,
+        *,
+        tau_start: int | None = None,
+        tau_stop: int | None = None,
+        nambu_start: int | None = None,
+        nambu_stop: int | None = None,
+    ) -> ThermalBranchSliceResponse:
+        return self.storage.read_thermal_branch_slice(
+            run_id,
+            component,
+            tau_start=tau_start,
+            tau_stop=tau_stop,
+            nambu_start=nambu_start,
+            nambu_stop=nambu_stop,
+        )
+
+    def list_mixed_green_functions(self, run_id: str) -> MixedGreenFunctionCatalogResponse:
+        return self.storage.read_mixed_green_function_catalog(run_id)
+
+    def get_mixed_green_function_slice(
+        self,
+        run_id: str,
+        component: str,
+        *,
+        time_start: int | None = None,
+        time_stop: int | None = None,
+        tau_start: int | None = None,
+        tau_stop: int | None = None,
+        nambu_start: int | None = None,
+        nambu_stop: int | None = None,
+    ) -> MixedGreenFunctionSliceResponse:
+        return self.storage.read_mixed_green_function_slice(
+            run_id,
+            component,
+            time_start=time_start,
+            time_stop=time_stop,
+            tau_start=tau_start,
+            tau_stop=tau_stop,
+            nambu_start=nambu_start,
+            nambu_stop=nambu_stop,
+        )
 
     def get_presets(self) -> list[SimulationConfig]:
         return [build_default_preset(), build_tdhfb_preset(), build_kbe_hfb_preset()]

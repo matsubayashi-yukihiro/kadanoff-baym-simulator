@@ -23,7 +23,29 @@ class ObservableData:
 
 
 @dataclass(slots=True)
+class TwoTimeGreenFunctionData:
+    times: NDArray[np.float64]
+    components: dict[str, NDArray[np.complex128]]
+
+
+@dataclass(slots=True)
+class ThermalBranchGreenFunctionData:
+    tau: NDArray[np.float64]
+    components: dict[str, NDArray[np.complex128]]
+
+
+@dataclass(slots=True)
+class MixedGreenFunctionData:
+    times: NDArray[np.float64]
+    tau: NDArray[np.float64]
+    components: dict[str, NDArray[np.complex128]]
+
+
+@dataclass(slots=True)
 class SimulationArtifacts:
     observables: dict[str, ObservableData]
     diagnostics: dict[str, Any]
     summary_excerpt: dict[str, Any]
+    two_time_green_functions: TwoTimeGreenFunctionData | None = None
+    thermal_branch_green_functions: ThermalBranchGreenFunctionData | None = None
+    mixed_green_functions: MixedGreenFunctionData | None = None

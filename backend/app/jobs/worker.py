@@ -24,6 +24,9 @@ def execute_run(run_id: str, config_data: dict, data_dir: str) -> None:
             observables=artifacts.observables,
             diagnostics=artifacts.diagnostics,
             diagnostics_excerpt=artifacts.summary_excerpt,
+            two_time_green_functions=artifacts.two_time_green_functions,
+            thermal_branch_green_functions=artifacts.thermal_branch_green_functions,
+            mixed_green_functions=artifacts.mixed_green_functions,
         )
         storage.update_status(
             run_id,

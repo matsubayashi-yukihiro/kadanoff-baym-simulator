@@ -10,6 +10,10 @@ from uuid import uuid4
 import numpy as np
 
 from backend.app.schemas import (
+    GreenFunctionCatalogResponse,
+    GreenFunctionSliceResponse,
+    MixedGreenFunctionCatalogResponse,
+    MixedGreenFunctionSliceResponse,
     ObservableDescriptor,
     ObservableResponse,
     ObservableSeries,
@@ -19,8 +23,15 @@ from backend.app.schemas import (
     RunStatusRecord,
     RunSummary,
     SimulationConfig,
+    ThermalBranchCatalogResponse,
+    ThermalBranchSliceResponse,
 )
-from backend.app.solvers.base import ObservableData
+from backend.app.solvers.base import (
+    MixedGreenFunctionData,
+    ObservableData,
+    ThermalBranchGreenFunctionData,
+    TwoTimeGreenFunctionData,
+)
 
 
 TERMINAL_STATES = {RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED}
@@ -142,6 +153,9 @@ class FileRunStorage:
         observables: dict[str, ObservableData],
         diagnostics: dict[str, Any],
         diagnostics_excerpt: dict[str, Any],
+        two_time_green_functions: TwoTimeGreenFunctionData | None = None,
+        thermal_branch_green_functions: ThermalBranchGreenFunctionData | None = None,
+        mixed_green_functions: MixedGreenFunctionData | None = None,
     ) -> None:
         arrays: dict[str, np.ndarray] = {}
         descriptors: list[ObservableDescriptor] = []
@@ -165,6 +179,12 @@ class FileRunStorage:
 
         np.savez(self._path(run_id, "observables.npz"), **arrays)
         self._write_json(self._path(run_id, "diagnostics.json"), diagnostics)
+        if two_time_green_functions is not None:
+            self._write_green_functions(run_id, two_time_green_functions)
+        if thermal_branch_green_functions is not None:
+            self._write_thermal_branch(run_id, thermal_branch_green_functions)
+        if mixed_green_functions is not None:
+            self._write_mixed_green_functions(run_id, mixed_green_functions)
 
         summary = self.read_summary(run_id)
         updated_summary = summary.model_copy(
@@ -198,6 +218,183 @@ class FileRunStorage:
                 metadata=descriptor.metadata,
             )
 
+    def read_green_function_catalog(self, run_id: str) -> GreenFunctionCatalogResponse:
+        metadata = self._read_green_function_metadata(run_id)
+        return GreenFunctionCatalogResponse(
+            run_id=run_id,
+            components=list(metadata["components"]),
+            shape=[int(value) for value in metadata["shape"]],
+            time_point_count=int(metadata["time_point_count"]),
+            nambu_dimension=int(metadata["nambu_dimension"]),
+        )
+
+    def read_green_function_slice(
+        self,
+        run_id: str,
+        component: str,
+        *,
+        row_start: int | None = None,
+        row_stop: int | None = None,
+        col_start: int | None = None,
+        col_stop: int | None = None,
+        nambu_start: int | None = None,
+        nambu_stop: int | None = None,
+    ) -> GreenFunctionSliceResponse:
+        metadata = self._read_green_function_metadata(run_id)
+        component_file = metadata["component_files"].get(component)
+        if component_file is None:
+            raise KeyError(component)
+
+        shape = [int(value) for value in metadata["shape"]]
+        time_count = shape[0]
+        nambu_dimension = shape[2]
+        row_start_index, row_stop_index = _normalize_slice_bounds(row_start, row_stop, time_count, axis_name="row")
+        col_start_index, col_stop_index = _normalize_slice_bounds(col_start, col_stop, time_count, axis_name="column")
+        nambu_start_index, nambu_stop_index = _normalize_slice_bounds(
+            nambu_start,
+            nambu_stop,
+            nambu_dimension,
+            axis_name="nambu",
+        )
+
+        times = np.load(self._path(run_id, metadata["times_file"]), mmap_mode="r")
+        values = np.load(self._path(run_id, component_file), mmap_mode="r")
+        selected = values[
+            row_start_index:row_stop_index,
+            col_start_index:col_stop_index,
+            nambu_start_index:nambu_stop_index,
+            nambu_start_index:nambu_stop_index,
+        ]
+        return GreenFunctionSliceResponse(
+            component=component,
+            times_row=times[row_start_index:row_stop_index].astype(float).tolist(),
+            times_col=times[col_start_index:col_stop_index].astype(float).tolist(),
+            nambu_start=nambu_start_index,
+            nambu_stop=nambu_stop_index,
+            shape=[int(value) for value in selected.shape],
+            real=np.real(selected).astype(float).tolist(),
+            imag=np.imag(selected).astype(float).tolist(),
+        )
+
+    def read_thermal_branch_catalog(self, run_id: str) -> ThermalBranchCatalogResponse:
+        metadata = self._read_thermal_branch_metadata(run_id)
+        return ThermalBranchCatalogResponse(
+            run_id=run_id,
+            components=list(metadata["components"]),
+            shape=[int(value) for value in metadata["shape"]],
+            tau_point_count=int(metadata["tau_point_count"]),
+            nambu_dimension=int(metadata["nambu_dimension"]),
+        )
+
+    def read_thermal_branch_slice(
+        self,
+        run_id: str,
+        component: str,
+        *,
+        tau_start: int | None = None,
+        tau_stop: int | None = None,
+        nambu_start: int | None = None,
+        nambu_stop: int | None = None,
+    ) -> ThermalBranchSliceResponse:
+        metadata = self._read_thermal_branch_metadata(run_id)
+        component_file = metadata["component_files"].get(component)
+        if component_file is None:
+            raise KeyError(component)
+
+        shape = [int(value) for value in metadata["shape"]]
+        tau_count = shape[0]
+        nambu_dimension = shape[1]
+        tau_start_index, tau_stop_index = _normalize_slice_bounds(tau_start, tau_stop, tau_count, axis_name="tau")
+        nambu_start_index, nambu_stop_index = _normalize_slice_bounds(
+            nambu_start,
+            nambu_stop,
+            nambu_dimension,
+            axis_name="nambu",
+        )
+
+        tau = np.load(self._path(run_id, metadata["tau_file"]), mmap_mode="r")
+        values = np.load(self._path(run_id, component_file), mmap_mode="r")
+        selected = values[
+            tau_start_index:tau_stop_index,
+            nambu_start_index:nambu_stop_index,
+            nambu_start_index:nambu_stop_index,
+        ]
+        return ThermalBranchSliceResponse(
+            component=component,
+            tau=tau[tau_start_index:tau_stop_index].astype(float).tolist(),
+            nambu_start=nambu_start_index,
+            nambu_stop=nambu_stop_index,
+            shape=[int(value) for value in selected.shape],
+            real=np.real(selected).astype(float).tolist(),
+            imag=np.imag(selected).astype(float).tolist(),
+        )
+
+    def read_mixed_green_function_catalog(self, run_id: str) -> MixedGreenFunctionCatalogResponse:
+        metadata = self._read_mixed_green_function_metadata(run_id)
+        return MixedGreenFunctionCatalogResponse(
+            run_id=run_id,
+            components=list(metadata["components"]),
+            shape=[int(value) for value in metadata["shape"]],
+            time_point_count=int(metadata["time_point_count"]),
+            tau_point_count=int(metadata["tau_point_count"]),
+            nambu_dimension=int(metadata["nambu_dimension"]),
+        )
+
+    def read_mixed_green_function_slice(
+        self,
+        run_id: str,
+        component: str,
+        *,
+        time_start: int | None = None,
+        time_stop: int | None = None,
+        tau_start: int | None = None,
+        tau_stop: int | None = None,
+        nambu_start: int | None = None,
+        nambu_stop: int | None = None,
+    ) -> MixedGreenFunctionSliceResponse:
+        metadata = self._read_mixed_green_function_metadata(run_id)
+        component_file = metadata["component_files"].get(component)
+        if component_file is None:
+            raise KeyError(component)
+
+        shape = [int(value) for value in metadata["shape"]]
+        time_count = shape[0]
+        tau_count = shape[1]
+        nambu_dimension = shape[2]
+        time_start_index, time_stop_index = _normalize_slice_bounds(
+            time_start,
+            time_stop,
+            time_count,
+            axis_name="time",
+        )
+        tau_start_index, tau_stop_index = _normalize_slice_bounds(tau_start, tau_stop, tau_count, axis_name="tau")
+        nambu_start_index, nambu_stop_index = _normalize_slice_bounds(
+            nambu_start,
+            nambu_stop,
+            nambu_dimension,
+            axis_name="nambu",
+        )
+
+        times = np.load(self._path(run_id, metadata["times_file"]), mmap_mode="r")
+        tau = np.load(self._path(run_id, metadata["tau_file"]), mmap_mode="r")
+        values = np.load(self._path(run_id, component_file), mmap_mode="r")
+        selected = values[
+            time_start_index:time_stop_index,
+            tau_start_index:tau_stop_index,
+            nambu_start_index:nambu_stop_index,
+            nambu_start_index:nambu_stop_index,
+        ]
+        return MixedGreenFunctionSliceResponse(
+            component=component,
+            times=times[time_start_index:time_stop_index].astype(float).tolist(),
+            tau=tau[tau_start_index:tau_stop_index].astype(float).tolist(),
+            nambu_start=nambu_start_index,
+            nambu_stop=nambu_stop_index,
+            shape=[int(value) for value in selected.shape],
+            real=np.real(selected).astype(float).tolist(),
+            imag=np.imag(selected).astype(float).tolist(),
+        )
+
     def append_log(self, run_id: str, message: str) -> None:
         log_path = self._path(run_id, "run.log")
         with log_path.open("a", encoding="utf-8") as handle:
@@ -224,6 +421,122 @@ class FileRunStorage:
     def _write_json(path: Path, payload: Any) -> None:
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
+    def _write_green_functions(self, run_id: str, green_functions: TwoTimeGreenFunctionData) -> None:
+        times_file = "green_times.npy"
+        component_files: dict[str, str] = {}
+        shape: list[int] | None = None
+        nambu_dimension: int | None = None
+        np.save(self._path(run_id, times_file), green_functions.times)
+        for component, values in green_functions.components.items():
+            component_file = f"green_{_slug(component)}.npy"
+            np.save(self._path(run_id, component_file), values)
+            component_files[component] = component_file
+            if shape is None:
+                shape = [int(value) for value in values.shape]
+                nambu_dimension = int(values.shape[2])
+
+        if shape is None or nambu_dimension is None:
+            raise ValueError("two_time_green_functions must include at least one component")
+
+        self._write_json(
+            self._path(run_id, "green_functions.json"),
+            {
+                "times_file": times_file,
+                "component_files": component_files,
+                "components": list(green_functions.components),
+                "shape": shape,
+                "time_point_count": int(green_functions.times.shape[0]),
+                "nambu_dimension": nambu_dimension,
+            },
+        )
+
+    def _read_green_function_metadata(self, run_id: str) -> dict[str, Any]:
+        return json.loads(self._path(run_id, "green_functions.json").read_text(encoding="utf-8"))
+
+    def _write_thermal_branch(self, run_id: str, thermal_branch: ThermalBranchGreenFunctionData) -> None:
+        tau_file = "thermal_tau.npy"
+        component_files: dict[str, str] = {}
+        shape: list[int] | None = None
+        nambu_dimension: int | None = None
+        np.save(self._path(run_id, tau_file), thermal_branch.tau)
+        for component, values in thermal_branch.components.items():
+            component_file = f"thermal_{_slug(component)}.npy"
+            np.save(self._path(run_id, component_file), values)
+            component_files[component] = component_file
+            if shape is None:
+                shape = [int(value) for value in values.shape]
+                nambu_dimension = int(values.shape[1])
+
+        if shape is None or nambu_dimension is None:
+            raise ValueError("thermal_branch_green_functions must include at least one component")
+
+        self._write_json(
+            self._path(run_id, "thermal_branch.json"),
+            {
+                "tau_file": tau_file,
+                "component_files": component_files,
+                "components": list(thermal_branch.components),
+                "shape": shape,
+                "tau_point_count": int(thermal_branch.tau.shape[0]),
+                "nambu_dimension": nambu_dimension,
+            },
+        )
+
+    def _read_thermal_branch_metadata(self, run_id: str) -> dict[str, Any]:
+        return json.loads(self._path(run_id, "thermal_branch.json").read_text(encoding="utf-8"))
+
+    def _write_mixed_green_functions(self, run_id: str, mixed_green_functions: MixedGreenFunctionData) -> None:
+        times_file = "mixed_times.npy"
+        tau_file = "mixed_tau.npy"
+        component_files: dict[str, str] = {}
+        shape: list[int] | None = None
+        nambu_dimension: int | None = None
+        np.save(self._path(run_id, times_file), mixed_green_functions.times)
+        np.save(self._path(run_id, tau_file), mixed_green_functions.tau)
+        for component, values in mixed_green_functions.components.items():
+            component_file = f"mixed_{_slug(component)}.npy"
+            np.save(self._path(run_id, component_file), values)
+            component_files[component] = component_file
+            if shape is None:
+                shape = [int(value) for value in values.shape]
+                nambu_dimension = int(values.shape[2])
+
+        if shape is None or nambu_dimension is None:
+            raise ValueError("mixed_green_functions must include at least one component")
+
+        self._write_json(
+            self._path(run_id, "mixed_green_functions.json"),
+            {
+                "times_file": times_file,
+                "tau_file": tau_file,
+                "component_files": component_files,
+                "components": list(mixed_green_functions.components),
+                "shape": shape,
+                "time_point_count": int(mixed_green_functions.times.shape[0]),
+                "tau_point_count": int(mixed_green_functions.tau.shape[0]),
+                "nambu_dimension": nambu_dimension,
+            },
+        )
+
+    def _read_mixed_green_function_metadata(self, run_id: str) -> dict[str, Any]:
+        return json.loads(self._path(run_id, "mixed_green_functions.json").read_text(encoding="utf-8"))
+
 
 def _slug(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "_", value).strip("_").lower()
+
+
+def _normalize_slice_bounds(
+    start: int | None,
+    stop: int | None,
+    upper: int,
+    *,
+    axis_name: str,
+) -> tuple[int, int]:
+    normalized_start = 0 if start is None else start
+    normalized_stop = upper if stop is None else stop
+    if normalized_start < 0 or normalized_start >= upper:
+        raise ValueError(f"{axis_name}_start must satisfy 0 <= start < {upper}")
+    if normalized_stop <= normalized_start or normalized_stop > upper:
+        raise ValueError(f"{axis_name}_stop must satisfy {normalized_start} < stop <= {upper}")
+    return normalized_start, normalized_stop
