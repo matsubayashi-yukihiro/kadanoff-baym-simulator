@@ -296,6 +296,8 @@ def test_kbe_hfb_supports_adaptive_grid_and_matsubara_diagnostics():
     assert artifacts.diagnostics["accepted_time_steps"] > 0
     assert len(artifacts.diagnostics["time_step_history"]) == artifacts.diagnostics["accepted_time_steps"]
     assert artifacts.diagnostics["thermal_branch_enabled"] is True
+    assert artifacts.diagnostics["thermal_branch_reference_implementation"] is False
+    assert artifacts.diagnostics["thermal_branch_implementation_kind"] == "factorized_hfb"
     assert artifacts.diagnostics["matsubara_grid_shape"] == [9, 8, 8]
     assert artifacts.diagnostics["matsubara_zero_plus_error"] < 1e-8
     assert artifacts.diagnostics["matsubara_beta_minus_error"] < 1e-7
@@ -419,10 +421,15 @@ def test_kbe_second_born_builds_correlated_thermal_and_mixed_branches():
 
     assert artifacts.diagnostics["thermal_branch_enabled"] is True
     assert artifacts.diagnostics["thermal_branch_correlated"] is True
+    assert artifacts.diagnostics["kbe_reference_solver_available"] is False
+    assert artifacts.diagnostics["second_born_reference_implementation"] is False
+    assert artifacts.diagnostics["second_born_implementation_kind"] == "heuristic_prototype"
     assert artifacts.diagnostics["thermal_branch_converged"] is True
     assert artifacts.diagnostics["thermal_branch_iterations"] > 1
     assert artifacts.diagnostics["thermal_branch_factorized_difference"] > 0.0
     assert artifacts.diagnostics["thermal_branch_density_shift"] >= 0.0
+    assert artifacts.diagnostics["thermal_branch_reference_implementation"] is False
+    assert artifacts.diagnostics["thermal_branch_implementation_kind"] == "heuristic_prototype"
     assert artifacts.diagnostics["matsubara_zero_plus_error"] < 1e-12
     assert artifacts.diagnostics["matsubara_beta_minus_error"] < 1e-12
     assert artifacts.diagnostics["mixed_components_included"] is True
@@ -430,6 +437,8 @@ def test_kbe_second_born_builds_correlated_thermal_and_mixed_branches():
     assert artifacts.diagnostics["mixed_right_factorized_difference"] > 0.0
     assert artifacts.diagnostics["mixed_left_factorized_difference"] > 0.0
     assert artifacts.diagnostics["max_mixed_branch_memory_norm"] > 0.0
+    assert artifacts.diagnostics["mixed_branch_reference_implementation"] is False
+    assert artifacts.diagnostics["mixed_branch_implementation_kind"] == "heuristic_prototype"
     assert artifacts.diagnostics["second_born_contour_terms_included"] is True
     assert artifacts.diagnostics["second_born_contour_mode"] == "full_contour"
     assert artifacts.diagnostics["second_born_converged"] is True

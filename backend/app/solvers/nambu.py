@@ -6,8 +6,10 @@ import numpy as np
 from numpy.typing import NDArray
 
 from backend.app.schemas import PairingChannel, SimulationConfig
+from backend.app.solvers.equilibrium import occupation_numbers
 from backend.app.solvers.hamiltonian import build_one_body_hamiltonian
 from backend.app.solvers.lattice import Bond, SquareLattice
+from backend.app.solvers.numerics import linear_mix, solve_bracketed_root
 
 
 ComplexMatrix = NDArray[np.complex128]
@@ -257,7 +259,7 @@ def solve_hfb_equilibrium(config: SimulationConfig, lattice: SquareLattice) -> H
         )
 
         self_consistency_error = float(np.max(np.abs(next_density - generalized_density)))
-        mixed_density = mixing * next_density + (1.0 - mixing) * generalized_density
+        mixed_density = linear_mix(generalized_density, next_density, mixing)
         mixed_density = 0.5 * (mixed_density + mixed_density.conjugate().T)
         generalized_density = mixed_density
         if self_consistency_error < 1e-8:
@@ -306,10 +308,18 @@ def _solve_thermal_state_for_particle_target(
         2.0,
         8.0 * config.lattice.hopping + 4.0 * abs(config.interaction.onsite_u) + 8.0 * abs(config.interaction.nearest_neighbor_v),
     )
+
+    evaluated_states: dict[float, tuple[float, float, ComplexMatrix]] = {}
+
+    def evaluate(shift: float) -> tuple[float, float, ComplexMatrix]:
+        if shift not in evaluated_states:
+            evaluated_states[shift] = _thermal_state_for_shift(config, lattice, generalized_density, shift)
+        return evaluated_states[shift]
+
     lower_shift = -search_span
     upper_shift = search_span
-    lower_state = _thermal_state_for_shift(config, lattice, generalized_density, lower_shift)
-    upper_state = _thermal_state_for_shift(config, lattice, generalized_density, upper_shift)
+    lower_state = evaluate(lower_shift)
+    upper_state = evaluate(upper_shift)
 
     for _ in range(18):
         if lower_state[1] <= target <= upper_state[1]:
@@ -317,27 +327,20 @@ def _solve_thermal_state_for_particle_target(
         search_span *= 2.0
         lower_shift = -search_span
         upper_shift = search_span
-        lower_state = _thermal_state_for_shift(config, lattice, generalized_density, lower_shift)
-        upper_state = _thermal_state_for_shift(config, lattice, generalized_density, upper_shift)
+        lower_state = evaluate(lower_shift)
+        upper_state = evaluate(upper_shift)
 
     if target <= lower_state[1]:
         return lower_state[0], lower_state[2]
     if target >= upper_state[1]:
         return upper_state[0], upper_state[2]
 
-    chosen_state = upper_state
-    for _ in range(80):
-        mid_shift = 0.5 * (lower_shift + upper_shift)
-        mid_state = _thermal_state_for_shift(config, lattice, generalized_density, mid_shift)
-        chosen_state = mid_state
-        if abs(mid_state[1] - target) < 1e-9:
-            break
-        if mid_state[1] < target:
-            lower_shift = mid_shift
-            lower_state = mid_state
-        else:
-            upper_shift = mid_shift
-            upper_state = mid_state
+    chosen_shift = solve_bracketed_root(
+        lambda shift: evaluate(shift)[1] - target,
+        lower=lower_shift,
+        upper=upper_shift,
+    )
+    chosen_state = evaluate(chosen_shift)
     return chosen_state[0], chosen_state[2]
 
 
@@ -377,7 +380,7 @@ def _assemble_generalized_density(normal_density: ComplexMatrix, pairing_tensor:
 def _initial_normal_density(config: SimulationConfig, lattice: SquareLattice) -> ComplexMatrix:
     h0 = build_one_body_hamiltonian(config, lattice, time=0.0)
     eigenvalues, eigenvectors = np.linalg.eigh(h0)
-    occupation = _occupation_numbers(
+    occupation = occupation_numbers(
         eigenvalues=eigenvalues,
         particle_target=config.initial_state.filling * lattice.site_count,
         temperature=config.initial_state.temperature,
@@ -385,38 +388,6 @@ def _initial_normal_density(config: SimulationConfig, lattice: SquareLattice) ->
     weighted_vectors = eigenvectors * occupation[np.newaxis, :]
     density_matrix = weighted_vectors @ eigenvectors.conjugate().T
     return 0.5 * (density_matrix + density_matrix.conjugate().T)
-
-
-def _occupation_numbers(
-    eigenvalues: NDArray[np.float64],
-    particle_target: float,
-    temperature: float,
-) -> NDArray[np.float64]:
-    orbital_count = len(eigenvalues)
-    particle_target = min(max(particle_target, 0.0), float(orbital_count))
-    if temperature <= 1e-12:
-        occupation = np.zeros(orbital_count, dtype=np.float64)
-        lower = int(np.floor(particle_target))
-        occupation[:lower] = 1.0
-        if lower < orbital_count:
-            occupation[lower] = particle_target - lower
-        return occupation
-
-    lower_mu = float(eigenvalues.min() - 50.0 * temperature - 1.0)
-    upper_mu = float(eigenvalues.max() + 50.0 * temperature + 1.0)
-    for _ in range(200):
-        mid_mu = 0.5 * (lower_mu + upper_mu)
-        occupation = _fermi_dirac(eigenvalues, mid_mu, temperature)
-        if occupation.sum() > particle_target:
-            upper_mu = mid_mu
-        else:
-            lower_mu = mid_mu
-    return _fermi_dirac(eigenvalues, 0.5 * (lower_mu + upper_mu), temperature)
-
-
-def _fermi_dirac(eigenvalues: NDArray[np.float64], mu: float, temperature: float) -> NDArray[np.float64]:
-    argument = np.clip((eigenvalues - mu) / temperature, -100.0, 100.0)
-    return 1.0 / (np.exp(argument) + 1.0)
 
 
 def _bond_average(bonds: tuple[Bond, ...], matrix: ComplexMatrix) -> complex:

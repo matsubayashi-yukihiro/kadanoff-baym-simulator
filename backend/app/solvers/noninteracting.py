@@ -5,45 +5,15 @@ from numpy.typing import NDArray
 
 from backend.app.schemas import SimulationConfig
 from backend.app.solvers.base import ObservableData, SeriesData, SimulationArtifacts
+from backend.app.solvers.equilibrium import occupation_numbers
 from backend.app.solvers.hamiltonian import (
     build_one_body_hamiltonian,
     build_one_body_hamiltonian_derivative,
     vector_potential,
 )
 from backend.app.solvers.lattice import SquareLattice, build_square_lattice
+from backend.app.solvers.numerics import cumulative_trapezoid
 from backend.app.solvers.observables import average_current, particle_density_statistics, total_energy
-
-
-def _fermi_dirac(eigenvalues: NDArray[np.float64], mu: float, temperature: float) -> NDArray[np.float64]:
-    argument = np.clip((eigenvalues - mu) / temperature, -100.0, 100.0)
-    return 1.0 / (np.exp(argument) + 1.0)
-
-
-def _occupation_numbers(
-    eigenvalues: NDArray[np.float64],
-    particle_target: float,
-    temperature: float,
-) -> NDArray[np.float64]:
-    orbital_count = len(eigenvalues)
-    particle_target = min(max(particle_target, 0.0), float(orbital_count))
-    if temperature <= 1e-12:
-        occupation = np.zeros(orbital_count, dtype=np.float64)
-        lower = int(np.floor(particle_target))
-        occupation[:lower] = 1.0
-        if lower < orbital_count:
-            occupation[lower] = particle_target - lower
-        return occupation
-
-    lower_mu = float(eigenvalues.min() - 50.0 * temperature - 1.0)
-    upper_mu = float(eigenvalues.max() + 50.0 * temperature + 1.0)
-    for _ in range(200):
-        mid_mu = 0.5 * (lower_mu + upper_mu)
-        occupation = _fermi_dirac(eigenvalues, mid_mu, temperature)
-        if occupation.sum() > particle_target:
-            upper_mu = mid_mu
-        else:
-            lower_mu = mid_mu
-    return _fermi_dirac(eigenvalues, 0.5 * (lower_mu + upper_mu), temperature)
 
 
 def _initial_density_matrix(
@@ -52,7 +22,7 @@ def _initial_density_matrix(
 ) -> NDArray[np.complex128]:
     h0 = build_one_body_hamiltonian(config, lattice, time=0.0)
     eigenvalues, eigenvectors = np.linalg.eigh(h0)
-    occupation = _occupation_numbers(
+    occupation = occupation_numbers(
         eigenvalues=eigenvalues,
         particle_target=config.initial_state.filling * lattice.site_count,
         temperature=config.initial_state.temperature,
@@ -86,15 +56,6 @@ def _expectation_value(
     density_matrix: NDArray[np.complex128],
 ) -> float:
     return float(np.real(np.trace(density_matrix @ operator)))
-
-
-def _cumulative_trapezoid(values: NDArray[np.float64], times: NDArray[np.float64]) -> NDArray[np.float64]:
-    cumulative = np.zeros_like(values)
-    if len(values) <= 1:
-        return cumulative
-    increments = 0.5 * (values[1:] + values[:-1]) * np.diff(times)
-    cumulative[1:] = np.cumsum(increments)
-    return cumulative
 
 
 def solve(config: SimulationConfig) -> SimulationArtifacts:
@@ -151,7 +112,7 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
     hermiticity_error_array = np.asarray(hermiticity_error, dtype=np.float64)
     particle_trace_array = np.asarray(particle_trace, dtype=np.float64)
     external_power_array = np.asarray(external_power, dtype=np.float64)
-    cumulative_external_work = _cumulative_trapezoid(external_power_array, times)
+    cumulative_external_work = cumulative_trapezoid(external_power_array, times)
     energy_change = energy_array - energy_array[0]
     energy_work_mismatch = energy_change - cumulative_external_work
 
