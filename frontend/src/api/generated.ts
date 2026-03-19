@@ -312,6 +312,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/job-groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Job Groups */
+        get: operations["list_job_groups_api_v1_job_groups_get"];
+        put?: never;
+        /** Create Job Group */
+        post: operations["create_job_group_api_v1_job_groups_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/job-groups/{group_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Job Group */
+        get: operations["get_job_group_api_v1_job_groups__group_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sweeps": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Sweeps */
+        get: operations["list_sweeps_api_v1_sweeps_get"];
+        put?: never;
+        /** Create Sweep */
+        post: operations["create_sweep_api_v1_sweeps_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sweeps/{sweep_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sweep */
+        get: operations["get_sweep_api_v1_sweeps__sweep_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/decision-notes": {
         parameters: {
             query?: never;
@@ -339,6 +409,41 @@ export interface paths {
         };
         /** Get Decision Note */
         get: operations["get_decision_note_api_v1_decision_notes__note_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/derived-analyses": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Derived Analyses */
+        get: operations["list_derived_analyses_api_v1_derived_analyses_get"];
+        put?: never;
+        /** Create Derived Analysis */
+        post: operations["create_derived_analysis_api_v1_derived_analyses_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/derived-analyses/{analysis_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Derived Analysis */
+        get: operations["get_derived_analysis_api_v1_derived_analyses__analysis_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -418,6 +523,11 @@ export interface components {
              */
             min_shrink: number;
         };
+        /**
+         * ArtifactLifecycleState
+         * @enum {string}
+         */
+        ArtifactLifecycleState: "queued" | "running" | "succeeded" | "failed" | "cancelled";
         /** ArtifactRef */
         ArtifactRef: {
             artifact_kind: components["schemas"]["ArtifactSourceKind"];
@@ -434,6 +544,11 @@ export interface components {
          * @enum {string}
          */
         BoundaryCondition: "periodic" | "open";
+        /**
+         * ComparisonKind
+         * @enum {string}
+         */
+        ComparisonKind: "physics_hypothesis" | "numerical_validation" | "regression";
         /** DecisionNoteCreate */
         DecisionNoteCreate: {
             /** Study Id */
@@ -472,6 +587,89 @@ export interface components {
              */
             created_at: string;
         };
+        /** DerivedAnalysisArtifactCreate */
+        DerivedAnalysisArtifactCreate: {
+            /** Study Id */
+            study_id: string;
+            source_kind: components["schemas"]["DerivedAnalysisSourceKind"];
+            /** Source Id */
+            source_id: string;
+            /** Analysis Type */
+            analysis_type: string;
+            /**
+             * Analysis Version
+             * @default v1
+             */
+            analysis_version: string;
+            /** Cache Key */
+            cache_key: string;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /** @default queued */
+            status: components["schemas"]["ArtifactLifecycleState"];
+            /** Input Surface Ids */
+            input_surface_ids?: string[];
+            /** Result Metadata */
+            result_metadata?: {
+                [key: string]: unknown;
+            };
+            /** Data Refs */
+            data_refs?: string[];
+            /** Supports Bundle Ids */
+            supports_bundle_ids?: string[];
+        };
+        /** DerivedAnalysisArtifactRecord */
+        DerivedAnalysisArtifactRecord: {
+            /** Study Id */
+            study_id: string;
+            source_kind: components["schemas"]["DerivedAnalysisSourceKind"];
+            /** Source Id */
+            source_id: string;
+            /** Analysis Type */
+            analysis_type: string;
+            /**
+             * Analysis Version
+             * @default v1
+             */
+            analysis_version: string;
+            /** Cache Key */
+            cache_key: string;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /** @default queued */
+            status: components["schemas"]["ArtifactLifecycleState"];
+            /** Input Surface Ids */
+            input_surface_ids?: string[];
+            /** Result Metadata */
+            result_metadata?: {
+                [key: string]: unknown;
+            };
+            /** Data Refs */
+            data_refs?: string[];
+            /** Supports Bundle Ids */
+            supports_bundle_ids?: string[];
+            /** Analysis Id */
+            analysis_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /**
+         * DerivedAnalysisSourceKind
+         * @enum {string}
+         */
+        DerivedAnalysisSourceKind: "run" | "job_group" | "sweep";
         /** DriveConfig */
         DriveConfig: {
             /**
@@ -621,6 +819,68 @@ export interface components {
             /** @default none */
             pairing_channel: components["schemas"]["PairingChannel"];
         };
+        /** JobGroupCreate */
+        JobGroupCreate: {
+            /** Study Id */
+            study_id: string;
+            /** Name */
+            name: string;
+            comparison_kind: components["schemas"]["ComparisonKind"];
+            /** Baseline Run Id */
+            baseline_run_id?: string | null;
+            /** Base Config */
+            base_config?: {
+                [key: string]: unknown;
+            };
+            /** Variants */
+            variants?: components["schemas"]["JobGroupVariant"][];
+            /** Child Run Ids */
+            child_run_ids?: string[];
+        };
+        /** JobGroupRecord */
+        JobGroupRecord: {
+            /** Study Id */
+            study_id: string;
+            /** Name */
+            name: string;
+            comparison_kind: components["schemas"]["ComparisonKind"];
+            /** Baseline Run Id */
+            baseline_run_id?: string | null;
+            /** Base Config */
+            base_config?: {
+                [key: string]: unknown;
+            };
+            /** Variants */
+            variants?: components["schemas"]["JobGroupVariant"][];
+            /** Child Run Ids */
+            child_run_ids?: string[];
+            /** Group Id */
+            group_id: string;
+            state: components["schemas"]["ArtifactLifecycleState"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** JobGroupVariant */
+        JobGroupVariant: {
+            /** Label */
+            label: string;
+            /** Description */
+            description?: string | null;
+            /** Config Patch */
+            config_patch?: {
+                [key: string]: unknown;
+            };
+            /** Run Id */
+            run_id?: string | null;
+        };
         /** KBEConfig */
         KBEConfig: {
             /** @default hfb */
@@ -762,6 +1022,38 @@ export interface components {
          * @enum {string}
          */
         PairingChannel: "none" | "onsite" | "bond_s" | "bond_d";
+        /**
+         * ParameterKind
+         * @enum {string}
+         */
+        ParameterKind: "physics" | "numerical" | "analysis";
+        /**
+         * PresetCategory
+         * @enum {string}
+         */
+        PresetCategory: "demo" | "working_baseline" | "mean_field" | "exact_baseline";
+        /**
+         * PresetEntry
+         * @description Enriched preset: config + metadata for display and selection.
+         */
+        PresetEntry: {
+            /** Name */
+            name: string;
+            category: components["schemas"]["PresetCategory"];
+            validation_status: components["schemas"]["PresetValidationStatus"];
+            /** Summary */
+            summary: string;
+            /** Scope Note */
+            scope_note: string;
+            /** Primary Observable */
+            primary_observable?: string | null;
+            config: components["schemas"]["SimulationConfig-Output"];
+        };
+        /**
+         * PresetValidationStatus
+         * @enum {string}
+         */
+        PresetValidationStatus: "validated" | "partial" | "prototype";
         /**
          * ResearchValidationStatus
          * @enum {string}
@@ -1005,6 +1297,63 @@ export interface components {
          * @enum {string}
          */
         StudyStatus: "planning" | "active" | "paused" | "completed" | "archived";
+        /** SweepCreate */
+        SweepCreate: {
+            /** Study Id */
+            study_id: string;
+            /** Name */
+            name: string;
+            parameter_kind: components["schemas"]["ParameterKind"];
+            /** Parameter Path */
+            parameter_path: string;
+            /** Parameter Label */
+            parameter_label: string;
+            /** Values */
+            values?: (string | number | boolean)[];
+            /** Baseline Value */
+            baseline_value?: string | number | boolean | null;
+            /** Fixed Axes */
+            fixed_axes?: {
+                [key: string]: unknown;
+            };
+            /** Child Run Ids */
+            child_run_ids?: string[];
+        };
+        /** SweepRecord */
+        SweepRecord: {
+            /** Study Id */
+            study_id: string;
+            /** Name */
+            name: string;
+            parameter_kind: components["schemas"]["ParameterKind"];
+            /** Parameter Path */
+            parameter_path: string;
+            /** Parameter Label */
+            parameter_label: string;
+            /** Values */
+            values?: (string | number | boolean)[];
+            /** Baseline Value */
+            baseline_value?: string | number | boolean | null;
+            /** Fixed Axes */
+            fixed_axes?: {
+                [key: string]: unknown;
+            };
+            /** Child Run Ids */
+            child_run_ids?: string[];
+            /** Sweep Id */
+            sweep_id: string;
+            state: components["schemas"]["ArtifactLifecycleState"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
         /** ThermalBranchCatalogResponse */
         ThermalBranchCatalogResponse: {
             /** Run Id */
@@ -1151,7 +1500,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SimulationConfig-Output"][];
+                    "application/json": components["schemas"]["PresetEntry"][];
                 };
             };
         };
@@ -1692,6 +2041,196 @@ export interface operations {
             };
         };
     };
+    list_job_groups_api_v1_job_groups_get: {
+        parameters: {
+            query?: {
+                study_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobGroupRecord"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_job_group_api_v1_job_groups_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobGroupCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobGroupRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_group_api_v1_job_groups__group_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobGroupRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_sweeps_api_v1_sweeps_get: {
+        parameters: {
+            query?: {
+                study_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SweepRecord"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_sweep_api_v1_sweeps_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SweepCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SweepRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sweep_api_v1_sweeps__sweep_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                sweep_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SweepRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_decision_notes_api_v1_decision_notes_get: {
         parameters: {
             query?: {
@@ -1776,6 +2315,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DecisionNoteRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_derived_analyses_api_v1_derived_analyses_get: {
+        parameters: {
+            query?: {
+                study_id?: string | null;
+                source_kind?: components["schemas"]["DerivedAnalysisSourceKind"] | null;
+                source_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedAnalysisArtifactRecord"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_derived_analysis_api_v1_derived_analyses_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DerivedAnalysisArtifactCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedAnalysisArtifactRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_derived_analysis_api_v1_derived_analyses__analysis_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedAnalysisArtifactRecord"];
                 };
             };
             /** @description Validation Error */

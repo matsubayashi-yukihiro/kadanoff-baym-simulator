@@ -3,13 +3,16 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api.routes.health import router as health_router
 from backend.app.api.routes.decision_notes import router as decision_notes_router
+from backend.app.api.routes.derived_analyses import router as derived_analyses_router
 from backend.app.api.routes.evidence_bundles import router as evidence_bundles_router
+from backend.app.api.routes.health import router as health_router
+from backend.app.api.routes.job_groups import router as job_groups_router
 from backend.app.api.routes.presets import router as presets_router
 from backend.app.api.routes.runs import router as runs_router
 from backend.app.api.routes.schema import router as schema_router
 from backend.app.api.routes.studies import router as studies_router
+from backend.app.api.routes.sweeps import router as sweeps_router
 from backend.app.core.settings import AppSettings
 from backend.app.jobs.runner import InlineJobRunner, JobRunner, ProcessJobRunner
 from backend.app.services.run_service import RunService
@@ -51,7 +54,10 @@ def create_app(
     app.include_router(presets_router, prefix="/api/v1")
     app.include_router(runs_router, prefix="/api/v1")
     app.include_router(studies_router, prefix="/api/v1")
+    app.include_router(job_groups_router, prefix="/api/v1")
+    app.include_router(sweeps_router, prefix="/api/v1")
     app.include_router(decision_notes_router, prefix="/api/v1")
+    app.include_router(derived_analyses_router, prefix="/api/v1")
     app.include_router(evidence_bundles_router, prefix="/api/v1")
     return app
 

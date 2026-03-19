@@ -1,6 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, createRun, getGreenFunctionSlice, getObservable, listGreenFunctions, listRuns } from "./client";
+import {
+  ApiError,
+  createDecisionNote,
+  createRun,
+  createStudy,
+  getGreenFunctionSlice,
+  getObservable,
+  listDecisionNotes,
+  listEvidenceBundles,
+  listGreenFunctions,
+  listRuns,
+  listStudies,
+  patchRunMetadata,
+} from "./client";
 import { createDefaultConfig } from "../lib/defaultConfig";
 
 describe("api client", () => {
@@ -140,6 +153,138 @@ describe("api client", () => {
         status: 422,
         message: "t_final must be an integer multiple of dt",
       }),
+    );
+  });
+});
+
+const STUDY_FIXTURE = {
+  study_id: "study-001",
+  title: "Higgs test",
+  question: "Does pairing_d respond?",
+  status: "active",
+  created_at: "2026-03-01T00:00:00Z",
+  updated_at: "2026-03-01T00:00:00Z",
+};
+
+const NOTE_FIXTURE = {
+  note_id: "note-001",
+  study_id: "study-001",
+  source_kind: "run",
+  source_id: "run-001",
+  note_kind: "observation",
+  body: "pairing_d oscillates",
+  created_at: "2026-03-01T00:00:00Z",
+};
+
+const BUNDLE_FIXTURE = {
+  bundle_id: "bundle-001",
+  study_id: "study-001",
+  title: "Higgs evidence",
+  claim_candidate: "pairing_d shows Higgs mode",
+  created_at: "2026-03-01T00:00:00Z",
+  updated_at: "2026-03-01T00:00:00Z",
+};
+
+describe("research artifact client", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("listStudies calls GET /api/v1/studies", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(200, [STUDY_FIXTURE])));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const result = await listStudies();
+    expect(result).toEqual([STUDY_FIXTURE]);
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/api/v1/studies", expect.any(Object));
+  });
+
+  it("createStudy calls POST /api/v1/studies with body", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(201, STUDY_FIXTURE)));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const result = await createStudy({ title: "Higgs test", question: "Does pairing_d respond?", status: "active" });
+    expect(result.study_id).toBe("study-001");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/studies",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("listDecisionNotes with source filters builds correct query string", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(200, [NOTE_FIXTURE])));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const result = await listDecisionNotes({ source_kind: "run", source_id: "run-001" });
+    expect(result).toEqual([NOTE_FIXTURE]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/decision-notes?source_kind=run&source_id=run-001",
+      expect.any(Object),
+    );
+  });
+
+  it("listDecisionNotes with no params omits query string", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(200, [])));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    await listDecisionNotes({});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/decision-notes",
+      expect.any(Object),
+    );
+  });
+
+  it("createDecisionNote calls POST /api/v1/decision-notes", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(201, NOTE_FIXTURE)));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const result = await createDecisionNote({
+      study_id: "study-001",
+      source_kind: "run",
+      source_id: "run-001",
+      note_kind: "observation",
+      body: "pairing_d oscillates",
+    });
+    expect(result.note_id).toBe("note-001");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/decision-notes",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("listEvidenceBundles with study_id builds correct query string", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(200, [BUNDLE_FIXTURE])));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const result = await listEvidenceBundles({ study_id: "study-001" });
+    expect(result).toEqual([BUNDLE_FIXTURE]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/evidence-bundles?study_id=study-001",
+      expect.any(Object),
+    );
+  });
+
+  it("patchRunMetadata calls PATCH /api/v1/runs/{run_id}/metadata", async () => {
+    const runFixture = {
+      run_id: "run-001",
+      name: "baseline",
+      solver: "noninteracting",
+      state: "succeeded",
+      created_at: "2026-03-01T00:00:00Z",
+      updated_at: "2026-03-01T00:00:00Z",
+      started_at: null,
+      finished_at: null,
+      status_message: null,
+      lattice: { nx: 4, ny: 4 },
+      time_grid: { dt: 0.1, t_final: 1.0 },
+      available_observables: [],
+      diagnostics_excerpt: {},
+      config: createDefaultConfig(),
+      diagnostics: {},
+      research_metadata: { study_id: "study-001" },
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(200, runFixture)));
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+    const result = await patchRunMetadata("run-001", { study_id: "study-001" });
+    expect(result.run_id).toBe("run-001");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/runs/run-001/metadata",
+      expect.objectContaining({ method: "PATCH" }),
     );
   });
 });

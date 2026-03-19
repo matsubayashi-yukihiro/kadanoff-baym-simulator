@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import type { PresetConfig, SimulationConfigInput } from "../api/types";
+import type { PresetEntry, SimulationConfigInput } from "../api/types";
 import { listPresets } from "../api/client";
 import { createDefaultConfig } from "../lib/defaultConfig";
 import { cloneConfig, createFallbackPresets } from "../lib/workbench";
@@ -10,12 +10,12 @@ import { toErrorMessage } from "../lib/helpers";
 type ConfigState = {
   draftConfig: SimulationConfigInput;
   loadedPresetName: string | null;
-  presets: PresetConfig[];
+  presets: PresetEntry[];
   presetsLoading: boolean;
   presetError: string | null;
 
   setDraftConfig: (config: SimulationConfigInput) => void;
-  loadPreset: (preset: PresetConfig) => void;
+  loadPreset: (preset: PresetEntry) => void;
   resetDraft: () => void;
   setLoadedPresetName: (name: string | null) => void;
   fetchPresets: () => Promise<void>;
@@ -26,7 +26,7 @@ export const useConfigStore = create<ConfigState>()(
     (set) => ({
       draftConfig: createDefaultConfig(),
       loadedPresetName: null,
-      presets: createFallbackPresets() as PresetConfig[],
+      presets: createFallbackPresets(),
       presetsLoading: false,
       presetError: null,
 
@@ -53,7 +53,7 @@ export const useConfigStore = create<ConfigState>()(
           set({ presets: result, presetError: null });
         } catch (error) {
           set({
-            presets: createFallbackPresets() as PresetConfig[],
+            presets: createFallbackPresets(),
             presetError: toErrorMessage(error),
           });
         } finally {

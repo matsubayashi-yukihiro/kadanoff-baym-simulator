@@ -1,7 +1,11 @@
 import type { components, paths } from "./generated";
 
 export type SimulationConfigInput = components["schemas"]["SimulationConfig-Input"];
+/** @deprecated Use PresetEntry instead. Kept for internal config-only usage. */
 export type PresetConfig = components["schemas"]["SimulationConfig-Output"];
+export type PresetEntry = components["schemas"]["PresetEntry"];
+export type PresetCategory = components["schemas"]["PresetCategory"];
+export type PresetValidationStatus = components["schemas"]["PresetValidationStatus"];
 export type RunSummary = paths["/api/v1/runs"]["get"]["responses"][200]["content"]["application/json"][number];
 export type RunDetail = paths["/api/v1/runs"]["post"]["responses"][202]["content"]["application/json"];
 export type PresetListResponse = paths["/api/v1/presets"]["get"]["responses"][200]["content"]["application/json"];
@@ -22,3 +26,12 @@ export type MixedGreenFunctionCatalogResponse =
 export type MixedGreenFunctionSliceResponse =
   paths["/api/v1/runs/{run_id}/mixed-green-functions/{component}"]["get"]["responses"][200]["content"]["application/json"];
 export type RunState = components["schemas"]["RunState"];
+export type RunResearchMetadata = components["schemas"]["RunResearchMetadata"];
+export type RunResearchMetadataPatch = components["schemas"]["RunResearchMetadataPatch"];
+export type StudyRecord = components["schemas"]["StudyRecord"];
+export type StudyCreate = components["schemas"]["StudyCreate"];
+export type StudyStatus = components["schemas"]["StudyStatus"];
+export type DecisionNoteRecord = components["schemas"]["DecisionNoteRecord"];
+export type DecisionNoteCreate = components["schemas"]["DecisionNoteCreate"];
+export type DecisionNoteKind = components["schemas"]["DecisionNoteKind"];
+export type EvidenceBundleRecord = components["schemas"]["EvidenceBundleRecord"];

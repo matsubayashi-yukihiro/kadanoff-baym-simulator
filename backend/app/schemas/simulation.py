@@ -203,3 +203,30 @@ class SimulationConfig(BaseModel):
         if self.thermal_branch.enabled and self.initial_state.temperature <= 0.0:
             raise ValueError("thermal_branch.enabled requires initial_state.temperature > 0")
         return self
+
+
+class PresetCategory(str, Enum):
+    DEMO = "demo"
+    WORKING_BASELINE = "working_baseline"
+    MEAN_FIELD = "mean_field"
+    EXACT_BASELINE = "exact_baseline"
+
+
+class PresetValidationStatus(str, Enum):
+    VALIDATED = "validated"
+    PARTIAL = "partial"
+    PROTOTYPE = "prototype"
+
+
+class PresetEntry(BaseModel):
+    """Enriched preset: config + metadata for display and selection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    category: PresetCategory
+    validation_status: PresetValidationStatus
+    summary: str
+    scope_note: str
+    primary_observable: str | None = None
+    config: SimulationConfig

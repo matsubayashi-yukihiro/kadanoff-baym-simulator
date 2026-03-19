@@ -1,4 +1,7 @@
 import type {
+  DecisionNoteCreate,
+  DecisionNoteRecord,
+  EvidenceBundleRecord,
   GreenFunctionCatalogResponse,
   GreenFunctionSliceResponse,
   MixedGreenFunctionCatalogResponse,
@@ -7,8 +10,11 @@ import type {
   ObservableResponse,
   PresetListResponse,
   RunDetail,
+  RunResearchMetadataPatch,
   RunSummary,
   SimulationConfigInput,
+  StudyCreate,
+  StudyRecord,
   ThermalBranchCatalogResponse,
   ThermalBranchSliceResponse,
 } from "./types";
@@ -157,6 +163,49 @@ export async function getRunLog(runId: string): Promise<string> {
 
 export function listMixedGreenFunctions(runId: string): Promise<MixedGreenFunctionCatalogResponse> {
   return request<MixedGreenFunctionCatalogResponse>(`/runs/${runId}/mixed-green-functions`);
+}
+
+export function listStudies(): Promise<StudyRecord[]> {
+  return request<StudyRecord[]>("/studies");
+}
+
+export function createStudy(data: StudyCreate): Promise<StudyRecord> {
+  return request<StudyRecord>("/studies", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function listDecisionNotes(params: {
+  study_id?: string;
+  source_kind?: string;
+  source_id?: string;
+}): Promise<DecisionNoteRecord[]> {
+  const q = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v != null) as [string, string][],
+  );
+  return request<DecisionNoteRecord[]>(`/decision-notes${q.size ? "?" + q.toString() : ""}`);
+}
+
+export function createDecisionNote(data: DecisionNoteCreate): Promise<DecisionNoteRecord> {
+  return request<DecisionNoteRecord>("/decision-notes", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export function listEvidenceBundles(params: { study_id?: string }): Promise<EvidenceBundleRecord[]> {
+  const q = new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v != null) as [string, string][],
+  );
+  return request<EvidenceBundleRecord[]>(`/evidence-bundles${q.size ? "?" + q.toString() : ""}`);
+}
+
+export function patchRunMetadata(runId: string, patch: RunResearchMetadataPatch): Promise<RunDetail> {
+  return request<RunDetail>(`/runs/${runId}/metadata`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
 }
 
 export function getMixedGreenFunctionSlice(

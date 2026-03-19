@@ -59,25 +59,31 @@ def test_schema_and_presets_endpoints(client):
 
     presets_response = client.get("/api/v1/presets")
     assert presets_response.status_code == 200
-    preset_names = {preset["name"] for preset in presets_response.json()}
-    preset_solvers = {preset["solver"] for preset in presets_response.json()}
+    presets = presets_response.json()
+    preset_names = {p["name"] for p in presets}
+    preset_solvers = {p["config"]["solver"] for p in presets}
+    preset_categories = {p["category"] for p in presets}
     assert "square-4x4-higgs-demo-kbe-hfb" in preset_names
     assert preset_solvers == {"noninteracting", "tdhfb", "kbe_hfb"}
+    assert preset_categories == {"demo", "working_baseline", "mean_field", "exact_baseline"}
 
 
 def test_higgs_demo_preset_uses_long_window_gaussian_pulse():
     preset = build_higgs_demo_preset()
 
-    assert preset.time.t_final == 20.0
-    assert preset.time.dt == 0.05
-    assert preset.time.save_every == 1
-    assert preset.drive.amplitude_x == 0.25
-    assert preset.drive.amplitude_y == 0.125
-    assert preset.drive.frequency == 2.0
-    assert preset.drive.center == 3.0
-    assert preset.drive.width == 1.2
-    assert preset.kbe.self_energy.value == "hfb"
-    assert preset.observables == ["density", "energy", "vector_potential", "pairing", "pairing_s", "pairing_d"]
+    assert preset.config.time.t_final == 20.0
+    assert preset.config.time.dt == 0.05
+    assert preset.config.time.save_every == 1
+    assert preset.config.drive.amplitude_x == 0.25
+    assert preset.config.drive.amplitude_y == 0.125
+    assert preset.config.drive.frequency == 2.0
+    assert preset.config.drive.center == 3.0
+    assert preset.config.drive.width == 1.2
+    assert preset.config.kbe.self_energy.value == "hfb"
+    assert preset.config.observables == ["density", "energy", "vector_potential", "pairing", "pairing_s", "pairing_d"]
+    assert preset.category.value == "demo"
+    assert preset.validation_status.value == "prototype"
+    assert preset.primary_observable == "pairing_d"
 
 
 def test_cors_preflight_for_runs_endpoint(client):

@@ -1,4 +1,4 @@
-import type { PresetConfig, SimulationConfigInput } from "../api/types";
+import type { PresetConfig, PresetEntry, SimulationConfigInput } from "../api/types";
 import { createDefaultConfig } from "./defaultConfig";
 import type {
   DriveConfigInput,
@@ -228,9 +228,7 @@ export function createHiggsDemoPreset(): SimulationConfigInput {
   return demo;
 }
 
-export function createFallbackPresets(): SimulationConfigInput[] {
-  const oneBody = createDefaultConfig();
-
+function buildFallbackTdhfbConfig(): { tdhfb: SimulationConfigInput; kbe: SimulationConfigInput } {
   const tdhfb = createDefaultConfig();
   const driveDefaults = createDefaultConfig().drive as DriveConfigInput;
   const interactionDefaults = createDefaultConfig().interaction as InteractionConfigInput;
@@ -260,12 +258,60 @@ export function createFallbackPresets(): SimulationConfigInput[] {
   const kbe = cloneConfig(tdhfb);
   kbe.name = "square-4x4-bond-d-kbe-hfb";
   kbe.solver = "kbe_hfb";
-
-  return [createHiggsDemoPreset(), oneBody, tdhfb, kbe];
+  return { tdhfb, kbe };
 }
 
-export function cloneConfig(config: PresetConfig | SimulationConfigInput): SimulationConfigInput {
-  return JSON.parse(JSON.stringify(config)) as SimulationConfigInput;
+export function createFallbackPresets(): PresetEntry[] {
+  const oneBody = createDefaultConfig();
+  const { tdhfb, kbe } = buildFallbackTdhfbConfig();
+  return [
+    {
+      name: HIGGS_DEMO_PRESET_NAME,
+      category: "demo",
+      validation_status: "prototype",
+      summary: "Long-window kbe_hfb + hfb + bond_d run with Gaussian pulse and pairing_d readout.",
+      scope_note: "Illustrative demo. Numbers are provisional draft values.",
+      primary_observable: "pairing_d",
+      config: createHiggsDemoPreset() as PresetEntry["config"],
+    },
+    {
+      name: "square-4x4-baseline",
+      category: "exact_baseline",
+      validation_status: "validated",
+      summary: "Exact one-body propagation for transport and energy-work sanity checks.",
+      scope_note: "Clean benchmark surface for currents, density transport, and dt convergence.",
+      primary_observable: "density",
+      config: oneBody as PresetEntry["config"],
+    },
+    {
+      name: "square-4x4-bond-d-tdhfb",
+      category: "mean_field",
+      validation_status: "partial",
+      summary: "Pairing-enabled mean-field draft for stationary states and equal-time checks.",
+      scope_note: "Use for paired dynamics and the equal-time bridge before KBE closures.",
+      primary_observable: "pairing_d",
+      config: tdhfb as PresetEntry["config"],
+    },
+    {
+      name: "square-4x4-bond-d-kbe-hfb",
+      category: "working_baseline",
+      validation_status: "partial",
+      summary: "KBE-HFB scaffold with bond_d pairing for contour inspection and baseline anchoring.",
+      scope_note: "Primary working baseline. Use to anchor compare runs and contour evidence.",
+      primary_observable: "pairing_d",
+      config: kbe as PresetEntry["config"],
+    },
+  ];
+}
+
+/** Clone a config, transparently handling both PresetEntry and raw SimulationConfigInput. */
+export function cloneConfig(input: PresetEntry | PresetConfig | SimulationConfigInput): SimulationConfigInput {
+  const raw = isPresetEntry(input) ? input.config : input;
+  return JSON.parse(JSON.stringify(raw)) as SimulationConfigInput;
+}
+
+function isPresetEntry(x: unknown): x is PresetEntry {
+  return typeof x === "object" && x !== null && "category" in x && "config" in x;
 }
 
 export function describePreset(config: ConfigLike): PresetDescriptor {
@@ -310,37 +356,21 @@ export function describePreset(config: ConfigLike): PresetDescriptor {
   };
 }
 
-export function selectWorkingBaselinePreset(
-  presets: Array<PresetConfig | SimulationConfigInput>,
-): PresetConfig | SimulationConfigInput {
-  const fallbackPresets = createFallbackPresets();
+export function selectWorkingBaselinePreset(presets: PresetEntry[]): PresetEntry {
+  const fallback = createFallbackPresets();
   return (
-    presets.find(
-      (preset) =>
-        preset.solver === "kbe_hfb" &&
-        (preset.kbe?.self_energy ?? "hfb") === "hfb" &&
-        (preset.interaction?.pairing_channel ?? "none") === "bond_d" &&
-        preset.name !== HIGGS_DEMO_PRESET_NAME,
-    ) ??
-    presets.find((preset) => preset.solver === "tdhfb") ??
-    presets[0] ??
-    fallbackPresets.find(
-      (preset) =>
-        preset.solver === "kbe_hfb" &&
-        (preset.kbe?.self_energy ?? "hfb") === "hfb" &&
-        (preset.interaction?.pairing_channel ?? "none") === "bond_d" &&
-        preset.name !== HIGGS_DEMO_PRESET_NAME,
-    ) ??
-    fallbackPresets[0]
+    presets.find((p) => p.category === "working_baseline") ??
+    presets.find((p) => p.category === "mean_field") ??
+    presets.find((p) => p.name !== HIGGS_DEMO_PRESET_NAME) ??
+    fallback.find((p) => p.category === "working_baseline") ??
+    fallback[0]
   );
 }
 
-export function selectHiggsDemoPreset(
-  presets: Array<PresetConfig | SimulationConfigInput>,
-): PresetConfig | SimulationConfigInput {
+export function selectHiggsDemoPreset(presets: PresetEntry[]): PresetEntry {
   return (
-    presets.find((preset) => preset.name === HIGGS_DEMO_PRESET_NAME) ??
-    createHiggsDemoPreset()
+    presets.find((p) => p.name === HIGGS_DEMO_PRESET_NAME) ??
+    createFallbackPresets()[0]
   );
 }
 

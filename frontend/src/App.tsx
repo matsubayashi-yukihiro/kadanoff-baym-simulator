@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { PresetConfig, SimulationConfigInput } from "./api/types";
+import type { PresetEntry, SimulationConfigInput } from "./api/types";
 import { CompareJobsPlanningPanel } from "./components/CompareJobsPlanningPanel";
 import { CompareJobsRailPanel } from "./components/CompareJobsRailPanel";
 import { ConfigPanel } from "./components/ConfigPanel";
@@ -10,18 +10,17 @@ import { MixedGreenFunctionPanel } from "./components/MixedGreenFunctionPanel";
 import { ObservablePanel } from "./components/ObservablePanel";
 import { PresetLibraryPanel } from "./components/PresetLibraryPanel";
 import { ResearchArtifactsPanel } from "./components/ResearchArtifactsPanel";
-import { RunContextPanel } from "./components/RunContextPanel";
 import { RunLogPanel } from "./components/RunLogPanel";
 import { RunControlPanel } from "./components/RunControlPanel";
 import { SpectrumPanel } from "./components/SpectrumPanel";
 import { ThermalBranchPanel } from "./components/ThermalBranchPanel";
-import { ValidationScopePanel } from "./components/ValidationScopePanel";
 import { WorkbenchPlaceholderPanel } from "./components/WorkbenchPlaceholderPanel";
 import { WorkbenchTabs } from "./components/WorkbenchTabs";
 import { useGreenFunctions } from "./hooks/useGreenFunctions";
 import { useMixedGreenFunctions } from "./hooks/useMixedGreenFunctions";
 import { useObservables } from "./hooks/useObservables";
 import { usePresets } from "./hooks/usePresets";
+import { useResearchArtifacts } from "./hooks/useResearchArtifacts";
 import { useRuns } from "./hooks/useRuns";
 import { useThermalBranch } from "./hooks/useThermalBranch";
 import { readUrlState, useUrlStateSync } from "./hooks/useUrlState";
@@ -74,6 +73,7 @@ export default function App() {
   const green = useGreenFunctions(selectedRunId, selectedRun, initialUrlState.component ?? null);
   const thermal = useThermalBranch(selectedRunId, selectedRun);
   const mixed = useMixedGreenFunctions(selectedRunId, selectedRun);
+  const artifacts = useResearchArtifacts(selectedRun, () => runState.refresh());
 
   const canCancel = Boolean(selectedRun && selectedRun.state !== "succeeded" && selectedRun.state !== "failed" && selectedRun.state !== "cancelled");
   const isSingleJobPage = activeTab === "single-job";
@@ -88,7 +88,7 @@ export default function App() {
     presetName: loadedPresetName,
   });
 
-  function handleLoadPreset(preset: PresetConfig) {
+  function handleLoadPreset(preset: PresetEntry) {
     setDraftConfig(cloneConfig(preset));
     setLoadedPresetName(preset.name ?? null);
   }
@@ -98,7 +98,7 @@ export default function App() {
     setLoadedPresetName(null);
   }
 
-  function stagePreset(config: PresetConfig | SimulationConfigInput, preferredObservable: string | null = null) {
+  function stagePreset(config: PresetEntry | SimulationConfigInput, preferredObservable: string | null = null) {
     const nextConfig = cloneConfig(config);
     setActiveTab("single-job");
     setActiveContourSurface("real-time");
@@ -109,7 +109,7 @@ export default function App() {
     }
   }
 
-  async function launchPreset(config: PresetConfig | SimulationConfigInput, preferredObservable: string | null = null) {
+  async function launchPreset(config: PresetEntry | SimulationConfigInput, preferredObservable: string | null = null) {
     const nextConfig = cloneConfig(config);
     stagePreset(nextConfig, preferredObservable);
     await runState.createRun(nextConfig);
@@ -123,10 +123,6 @@ export default function App() {
   const higgsDemoPreset = selectHiggsDemoPreset(presets);
   const baselinePresetName = baselinePreset.name ?? null;
   const higgsDemoName = higgsDemoPreset.name ?? null;
-  const evidenceSurface =
-    selectedRun?.solver === "kbe_hfb"
-      ? "Observables, diagnostics, and two-time contour slices are available on this artifact surface."
-      : "Observables and diagnostics are the primary evidence surfaces for this artifact.";
   const activeContour = CONTOUR_SURFACES.find((surface) => surface.key === activeContourSurface) ?? CONTOUR_SURFACES[0];
 
   return (
@@ -159,27 +155,28 @@ export default function App() {
       <WorkbenchTabs activeTab={activeTab} onSelectTab={setActiveTab} />
 
       <div className="shell-layout">
-        <aside className="shell-sidebar">
+        <div className="params-strip">
           {isSingleJobPage ? (
-            <>
-              <div className="sidebar-action-bar">
-                <button type="button" className="primary-button sidebar-launch-btn" onClick={() => runState.createRun(draftConfig)} disabled={isSubmitting}>
-                  {isSubmitting ? "Submitting..." : "Launch Run"}
-                </button>
-                {canCancel ? (
-                  <button type="button" className="danger-button" onClick={runState.cancelRun} disabled={isCancelling}>
-                    {isCancelling ? "Cancelling..." : "Cancel"}
+            <div className="params-grid">
+              <div className="params-config-col">
+                <div className="params-action-bar">
+                  <button type="button" className="primary-button" onClick={() => runState.createRun(draftConfig)} disabled={isSubmitting}>
+                    {isSubmitting ? "Submitting..." : "Launch Run"}
                   </button>
-                ) : null}
-                {runState.submitError ? <p className="state-banner state-error" style={{fontSize: "0.82rem", padding: "0.4rem 0.6rem"}}>{runState.submitError}</p> : null}
+                  {canCancel ? (
+                    <button type="button" className="danger-button" onClick={runState.cancelRun} disabled={isCancelling}>
+                      {isCancelling ? "Cancelling..." : "Cancel"}
+                    </button>
+                  ) : null}
+                  {runState.submitError ? <p className="state-banner state-error" style={{fontSize: "0.82rem", padding: "0.4rem 0.6rem"}}>{runState.submitError}</p> : null}
+                </div>
+                <ConfigPanel
+                  config={draftConfig}
+                  disabled={isSubmitting || isCancelling}
+                  onConfigChange={setDraftConfig}
+                  onReset={resetDraft}
+                />
               </div>
-
-              <ConfigPanel
-                config={draftConfig}
-                disabled={isSubmitting || isCancelling}
-                onConfigChange={setDraftConfig}
-                onReset={resetDraft}
-              />
 
               <PresetLibraryPanel
                 presets={presets}
@@ -212,42 +209,20 @@ export default function App() {
                 onRefresh={runState.refresh}
                 onSelectRun={runState.setSelectedRunId}
               />
-            </>
+            </div>
           ) : null}
 
           {isCompareJobsPage ? (
-              <>
-                <CompareJobsRailPanel
-                  draftConfig={draftConfig}
-                  baselinePreset={baselinePreset}
-                  baselinePresetName={baselinePresetName}
-                />
-
-                <PresetLibraryPanel
-                  presets={presets}
-                  loading={presetsLoading}
-                  error={presetError}
-                  activePresetName={activePresetName}
-                  workingBaselineName={baselinePresetName}
-                  showHiggsQuickstart={false}
-                  higgsDemoName={higgsDemoName}
-                  busy={isSubmitting || isCancelling}
-                  onLoadPreset={handleLoadPreset}
-                  onStageHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
-                  onLaunchHiggsDemo={() => launchPreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
-                />
-
+            <div className="params-grid">
+              <div className="params-config-col">
                 <ConfigPanel
                   config={draftConfig}
                   disabled={isSubmitting || isCancelling}
                   onConfigChange={setDraftConfig}
                   onReset={resetDraft}
                 />
-              </>
-            ) : null}
+              </div>
 
-          {isParameterSweepPage ? (
-            <>
               <PresetLibraryPanel
                 presets={presets}
                 loading={presetsLoading}
@@ -262,37 +237,45 @@ export default function App() {
                 onLaunchHiggsDemo={() => launchPreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
               />
 
-              <ConfigPanel
-                config={draftConfig}
-                disabled={isSubmitting || isCancelling}
-                onConfigChange={setDraftConfig}
-                onReset={resetDraft}
+              <CompareJobsRailPanel
+                draftConfig={draftConfig}
+                baselinePreset={baselinePreset.config}
+                baselinePresetName={baselinePresetName}
               />
-            </>
+            </div>
           ) : null}
-        </aside>
+
+          {isParameterSweepPage ? (
+            <div className="params-grid">
+              <div className="params-config-col">
+                <ConfigPanel
+                  config={draftConfig}
+                  disabled={isSubmitting || isCancelling}
+                  onConfigChange={setDraftConfig}
+                  onReset={resetDraft}
+                />
+              </div>
+
+              <PresetLibraryPanel
+                presets={presets}
+                loading={presetsLoading}
+                error={presetError}
+                activePresetName={activePresetName}
+                workingBaselineName={baselinePresetName}
+                showHiggsQuickstart={false}
+                higgsDemoName={higgsDemoName}
+                busy={isSubmitting || isCancelling}
+                onLoadPreset={handleLoadPreset}
+                onStageHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+                onLaunchHiggsDemo={() => launchPreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+              />
+            </div>
+          ) : null}
+        </div>
 
         <main className="shell-main page-stack">
           {isSingleJobPage ? (
             <>
-              <section className="page-section">
-                <div className="section-heading-row">
-                  <div>
-                    <p className="eyebrow">Run Framing</p>
-                    <h2>Set Claim Boundary Before Reading Evidence</h2>
-                  </div>
-                  <p className="section-copy">
-                    Keep preset loading, config editing, and run selection on the left rail, then use the main canvas
-                    for artifact framing and evidence reading.
-                  </p>
-                </div>
-
-                <div className="single-job-summary-grid">
-                  <ValidationScopePanel draftConfig={draftConfig} selectedRun={selectedRun} />
-                  <RunContextPanel run={selectedRun} baselinePreset={baselinePreset} evidenceSurface={evidenceSurface} />
-                </div>
-              </section>
-
               <section className="page-section">
                 <div className="section-heading-row">
                   <div>
@@ -337,6 +320,7 @@ export default function App() {
                       activeTab={activeTab}
                       run={selectedRun}
                       selectedObservable={observables.selectedObservable}
+                      artifacts={artifacts}
                     />
                   </div>
                 </div>
@@ -463,7 +447,7 @@ export default function App() {
 
               <CompareJobsPlanningPanel
                 draftConfig={draftConfig}
-                baselinePreset={baselinePreset}
+                baselinePreset={baselinePreset.config}
                 baselinePresetName={baselinePresetName}
               />
             </section>

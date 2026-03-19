@@ -1,6 +1,8 @@
 import type { RunDetail } from "../api/types";
 import { countAnomalies, groupDiagnostics } from "../lib/diagnosticGroups";
+import { analyzeFailure } from "../lib/failureAnalysis";
 import { formatDateTime, formatLabel, formatValue } from "../lib/format";
+import { getDiagnosticMeta } from "../lib/diagnosticMeta";
 
 type DiagnosticsPanelProps = {
   run: RunDetail | null;
@@ -26,6 +28,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
     );
   }
 
+  const failure = analyzeFailure(run);
   const diagnostics = run.diagnostics && Object.keys(run.diagnostics).length > 0 ? run.diagnostics : run.diagnostics_excerpt ?? {};
   const groups = groupDiagnostics(diagnostics as Record<string, unknown>);
   const anomalyCount = countAnomalies(groups);
@@ -73,6 +76,23 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         <p className="state-banner state-nominal">All diagnostics nominal.</p>
       ) : null}
 
+      {failure ? (
+        <div className="failure-analysis">
+          <div className="failure-header">
+            <span className={`failure-category failure-category-${failure.category}`}>{formatLabel(failure.category)}</span>
+          </div>
+          <p className="failure-summary">{failure.summary}</p>
+          {failure.details.length > 0 ? (
+            <ul className="failure-details">
+              {failure.details.map((detail, index) => (
+                <li key={index}>{detail}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="failure-action">{failure.suggestedAction}</p>
+        </div>
+      ) : null}
+
       {groups.length === 0 ? (
         <div className="empty-card">
           <p>No diagnostics stored yet.</p>
@@ -82,22 +102,31 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         <>
           {anomalousEntries.length > 0 ? (
             <div className="grid gap-3">
-              {anomalousEntries.map((entry) => (
-                <article
-                  key={`${entry.groupLabel}-${entry.key}`}
-                  className="grid gap-2 border border-panel-border rounded-panel shadow-card backdrop-blur-[14px] diagnostic-alert-item"
-                  style={{
-                    padding: "0.85rem 0.95rem",
-                    background:
-                      "linear-gradient(180deg, rgba(255,255,255,0.66), rgba(248,251,253,0.92)), var(--panel-bg)",
-                  }}
-                >
-                  <span className="briefing-label">{entry.groupLabel}</span>
-                  <p>
-                    {formatLabel(entry.key)} = {formatValue(entry.value)}
-                  </p>
-                </article>
-              ))}
+              {anomalousEntries.map((entry) => {
+                const meta = getDiagnosticMeta(entry.key);
+                const tip = meta
+                  ? meta.description + (meta.threshold ? `\n許容: ${meta.threshold}` : "")
+                  : null;
+                return (
+                  <article
+                    key={`${entry.groupLabel}-${entry.key}`}
+                    className="grid gap-2 border border-panel-border rounded-panel shadow-card backdrop-blur-[14px] diagnostic-alert-item"
+                    style={{
+                      padding: "0.85rem 0.95rem",
+                      background:
+                        "linear-gradient(180deg, rgba(255,255,255,0.66), rgba(248,251,253,0.92)), var(--panel-bg)",
+                    }}
+                  >
+                    <span className="briefing-label">{entry.groupLabel}</span>
+                    <div className="flex items-center gap-1.5">
+                      <p className="m-0">
+                        {formatLabel(entry.key)} = {formatValue(entry.value)}
+                      </p>
+                      {tip ? <span className="help-tip" data-tip={tip} aria-label={meta!.description}>ⓘ</span> : null}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : null}
 
@@ -119,12 +148,21 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
                     </div>
                   ) : null}
                   <div className="metric-grid">
-                    {group.entries.map((entry) => (
-                      <div key={entry.key} className={`metric-card ${entry.anomalous ? "metric-card-anomalous" : ""}`}>
-                        <span className="metric-label">{formatLabel(entry.key)}</span>
-                        <span className="metric-value">{formatValue(entry.value)}</span>
-                      </div>
-                    ))}
+                    {group.entries.map((entry) => {
+                      const meta = getDiagnosticMeta(entry.key);
+                      const tip = meta
+                        ? meta.description + (meta.threshold ? `\n許容: ${meta.threshold}` : "")
+                        : null;
+                      return (
+                        <div key={entry.key} className={`metric-card ${entry.anomalous ? "metric-card-anomalous" : ""}`}>
+                          <div className="flex items-center gap-1">
+                            <span className="metric-label">{formatLabel(entry.key)}</span>
+                            {tip ? <span className="help-tip" data-tip={tip} aria-label={meta!.description}>ⓘ</span> : null}
+                          </div>
+                          <span className="metric-value">{formatValue(entry.value)}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               ))}

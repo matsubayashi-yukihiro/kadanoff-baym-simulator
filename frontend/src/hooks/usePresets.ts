@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 
 import { listPresets } from "../api/client";
-import type { PresetConfig } from "../api/types";
+import type { PresetEntry } from "../api/types";
 import { toErrorMessage } from "../lib/helpers";
 import { createFallbackPresets } from "../lib/workbench";
 
 export type UsePresetsReturn = {
-  presets: PresetConfig[];
+  presets: PresetEntry[];
   presetsLoading: boolean;
   presetError: string | null;
 };
 
 export function usePresets(): UsePresetsReturn {
-  const [presets, setPresets] = useState<PresetConfig[]>(() => createFallbackPresets() as PresetConfig[]);
+  const [presets, setPresets] = useState<PresetEntry[]>(() => createFallbackPresets());
   const [presetsLoading, setPresetsLoading] = useState(true);
   const [presetError, setPresetError] = useState<string | null>(null);
 
@@ -28,7 +28,7 @@ export function usePresets(): UsePresetsReturn {
       })
       .catch((error) => {
         if (!active) return;
-        setPresets(createFallbackPresets() as PresetConfig[]);
+        setPresets(createFallbackPresets());
         setPresetError(toErrorMessage(error));
       })
       .finally(() => {

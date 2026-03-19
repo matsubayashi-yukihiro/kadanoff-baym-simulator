@@ -8,7 +8,7 @@ export function AppShell() {
     <div className="flex flex-col min-h-screen">
       <TopBar />
       <NavTabs />
-      <div className="flex flex-1 overflow-hidden max-w-page mx-auto w-full">
+      <div className="flex flex-1 min-h-0 max-w-page mx-auto w-full">
         <Outlet />
       </div>
     </div>

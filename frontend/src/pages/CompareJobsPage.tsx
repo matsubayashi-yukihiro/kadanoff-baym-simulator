@@ -1,4 +1,3 @@
-import { Sidebar } from "../components/layout/Sidebar";
 import { SectionHeading } from "../components/ui/SectionHeading";
 import { CompareJobsPlanningPanel } from "../components/CompareJobsPlanningPanel";
 import { CompareJobsRailPanel } from "../components/CompareJobsRailPanel";
@@ -38,43 +37,43 @@ export function CompareJobsPage() {
   }
 
   return (
-    <>
-      <Sidebar
-        footer={
-          <button type="button" className="primary-button w-full" disabled>
-            Launch Compare Group
-          </button>
-        }
-      >
-        <CompareJobsRailPanel
-          draftConfig={draftConfig}
-          baselinePreset={baselinePreset}
-          baselinePresetName={baselinePresetName}
-        />
+    <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
+      {/* 上段: パラメーター設定 */}
+      <div className="p-6 border-b border-border-soft">
+        <div className="params-grid">
+          <div className="params-config-col">
+            <ConfigPanel
+              config={draftConfig}
+              disabled={isSubmitting || isCancelling}
+              onConfigChange={setDraftConfig}
+              onReset={resetDraft}
+            />
+          </div>
 
-        <PresetLibraryPanel
-          presets={presets}
-          loading={presetsLoading}
-          error={presetError}
-          activePresetName={loadedPresetName}
-          workingBaselineName={baselinePresetName}
-          showHiggsQuickstart={false}
-          higgsDemoName={higgsDemoName}
-          busy={isSubmitting || isCancelling}
-          onLoadPreset={loadPreset}
-          onStageHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
-          onLaunchHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
-        />
+          <PresetLibraryPanel
+            presets={presets}
+            loading={presetsLoading}
+            error={presetError}
+            activePresetName={loadedPresetName}
+            workingBaselineName={baselinePresetName}
+            showHiggsQuickstart={false}
+            higgsDemoName={higgsDemoName}
+            busy={isSubmitting || isCancelling}
+            onLoadPreset={loadPreset}
+            onStageHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+            onLaunchHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+          />
 
-        <ConfigPanel
-          config={draftConfig}
-          disabled={isSubmitting || isCancelling}
-          onConfigChange={setDraftConfig}
-          onReset={resetDraft}
-        />
-      </Sidebar>
+          <CompareJobsRailPanel
+            draftConfig={draftConfig}
+            baselinePreset={baselinePreset.config}
+            baselinePresetName={baselinePresetName}
+          />
+        </div>
+      </div>
 
-      <main className="flex-1 overflow-y-auto p-6 space-y-8">
+      {/* 下段: シミュレーション結果 */}
+      <main className="flex-1 p-6 space-y-8">
         <section>
           <SectionHeading
             eyebrow="Comparison Planning"
@@ -83,11 +82,11 @@ export function CompareJobsPage() {
           />
           <CompareJobsPlanningPanel
             draftConfig={draftConfig}
-            baselinePreset={baselinePreset}
+            baselinePreset={baselinePreset.config}
             baselinePresetName={baselinePresetName}
           />
         </section>
       </main>
-    </>
+    </div>
   );
 }

@@ -107,23 +107,35 @@ export function RunControlPanel(props: RunControlPanelProps) {
       ) : null}
 
       <div className="run-list">
-        {runs.map((run) => (
-          <button
-            key={run.run_id}
-            type="button"
-            className={`run-card ${run.run_id === selectedRunId ? "run-card-selected" : ""}`}
-            onClick={() => onSelectRun(run.run_id)}
-          >
-            <div className="run-card-top">
-              <span className="run-card-name">{run.name || run.run_id}</span>
-              <span className={`status-pill status-${run.state}`}>{run.state}</span>
-            </div>
-            <div className="run-card-meta">
-              <span>{run.solver}</span>
-              <span>{formatDateTime(run.updated_at)}</span>
-            </div>
-          </button>
-        ))}
+        {runs.map((run) => {
+          const role = run.research_metadata?.run_role;
+          const vStatus = run.research_metadata?.validation_status;
+          return (
+            <button
+              key={run.run_id}
+              type="button"
+              className={`run-card ${run.run_id === selectedRunId ? "run-card-selected" : ""}`}
+              onClick={() => onSelectRun(run.run_id)}
+            >
+              <div className="run-card-top">
+                <span className="run-card-name">{run.name || run.run_id}</span>
+                <span className={`status-pill status-${run.state}`}>{run.state}</span>
+              </div>
+              <div className="run-card-meta">
+                <span>{run.solver}</span>
+                <span>{formatDateTime(run.updated_at)}</span>
+              </div>
+              {(role || (vStatus && vStatus !== "unchecked")) ? (
+                <div className="hero-badge-row" style={{ marginTop: "0.3rem" }}>
+                  {role ? <span className="signal-badge">{role}</span> : null}
+                  {vStatus && vStatus !== "unchecked" ? (
+                    <span className={`validation-pill validation-${vStatus}`}>{vStatus}</span>
+                  ) : null}
+                </div>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
     </section>
   );

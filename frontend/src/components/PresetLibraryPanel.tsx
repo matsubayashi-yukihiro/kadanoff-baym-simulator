@@ -1,8 +1,26 @@
-import type { PresetConfig } from "../api/types";
-import { describePreset } from "../lib/workbench";
+import type { PresetEntry } from "../api/types";
+
+const CATEGORY_LABELS: Record<string, string> = {
+  demo: "Demo",
+  working_baseline: "Working baseline",
+  mean_field: "Mean-field",
+  exact_baseline: "Exact baseline",
+};
+
+const VALIDATION_LABELS: Record<string, string> = {
+  validated: "Validated",
+  partial: "Partial",
+  prototype: "Prototype",
+};
+
+const VALIDATION_PILL_TONE: Record<string, string> = {
+  validated: "validation-validated",
+  partial: "validation-partial",
+  prototype: "validation-prototype",
+};
 
 type PresetLibraryPanelProps = {
-  presets: PresetConfig[];
+  presets: PresetEntry[];
   loading: boolean;
   error: string | null;
   activePresetName: string | null;
@@ -10,7 +28,7 @@ type PresetLibraryPanelProps = {
   showHiggsQuickstart: boolean;
   higgsDemoName: string | null;
   busy: boolean;
-  onLoadPreset: (preset: PresetConfig) => void;
+  onLoadPreset: (preset: PresetEntry) => void;
   onStageHiggsDemo: () => void;
   onLaunchHiggsDemo: () => Promise<void> | void;
 };
@@ -30,6 +48,7 @@ export function PresetLibraryPanel(props: PresetLibraryPanelProps) {
     onLaunchHiggsDemo,
   } = props;
   const higgsDemoActive = activePresetName === higgsDemoName;
+  const higgsPreset = presets.find((p) => p.name === higgsDemoName);
 
   return (
     <section className="panel">
@@ -40,10 +59,6 @@ export function PresetLibraryPanel(props: PresetLibraryPanelProps) {
         </div>
       </div>
 
-      <p className="field-hint">
-        Current API presets are config-only. Category metadata and explicit demo/baseline separation will move to enriched presets later.
-      </p>
-
       {showHiggsQuickstart ? (
         <article className={`preset-quickstart-card ${higgsDemoActive ? "preset-card-active" : ""}`}>
           <div className="panel-subheader">
@@ -51,16 +66,15 @@ export function PresetLibraryPanel(props: PresetLibraryPanelProps) {
             <div className="hero-badge-row">
               <span className="signal-badge">Demo preset</span>
               <span className="signal-badge">Single Job</span>
+              {higgsPreset && (
+                <span className={`validation-pill ${VALIDATION_PILL_TONE[higgsPreset.validation_status] ?? "validation-partial"}`}>
+                  {VALIDATION_LABELS[higgsPreset.validation_status] ?? higgsPreset.validation_status}
+                </span>
+              )}
             </div>
           </div>
-          <p>
-            Stage or launch a provisional `kbe_hfb + hfb + bond_d` long-window Gaussian-pulse run with `pairing_d` as
-            the primary readout.
-          </p>
-          <p className="field-hint">
-            This is an illustrative demo path, not a validated baseline. The preset now reserves pre-pulse baseline and
-            post-pulse FFT window, but the numbers remain editable draft values.
-          </p>
+          <p>{higgsPreset?.summary ?? "Long-window kbe_hfb + hfb + bond_d run with Gaussian pulse and pairing_d readout."}</p>
+          <p className="field-hint">{higgsPreset?.scope_note ?? "Illustrative demo. Numbers are provisional draft values."}</p>
           <div className="button-row">
             <button type="button" className="ghost-button" onClick={onStageHiggsDemo} disabled={busy}>
               Stage Demo
@@ -83,25 +97,26 @@ export function PresetLibraryPanel(props: PresetLibraryPanelProps) {
 
       <div className="preset-list">
         {presets.map((preset) => {
-          const descriptor = describePreset(preset);
           const isActive = preset.name === activePresetName;
           const isBaseline = preset.name === workingBaselineName;
+          const categoryLabel = CATEGORY_LABELS[preset.category] ?? preset.category;
+          const validationTone = VALIDATION_PILL_TONE[preset.validation_status] ?? "validation-partial";
+          const validationLabel = VALIDATION_LABELS[preset.validation_status] ?? preset.validation_status;
 
           return (
-            <article key={`${preset.name}-${preset.solver}`} className={`preset-card ${isActive ? "preset-card-active" : ""}`}>
+            <article key={preset.name} className={`preset-card ${isActive ? "preset-card-active" : ""}`}>
               <div className="panel-subheader">
-                <h3>{descriptor.title}</h3>
+                <h3>{preset.name}</h3>
                 <div className="hero-badge-row">
-                  <span className="signal-badge">{descriptor.category}</span>
-                  <span className="signal-badge">{descriptor.intendedTab}</span>
-                  {isBaseline ? <span className="validation-pill validation-partial">Working baseline</span> : null}
+                  <span className="signal-badge">{categoryLabel}</span>
+                  <span className={`validation-pill ${validationTone}`}>{validationLabel}</span>
+                  {isBaseline ? <span className="signal-badge">Working baseline</span> : null}
                 </div>
               </div>
-              <p className="preset-name">{preset.name ?? "unnamed preset"}</p>
-              <p>{descriptor.summary}</p>
-              <p className="field-hint">{descriptor.scopeNote}</p>
+              <p>{preset.summary}</p>
+              <p className="field-hint">{preset.scope_note}</p>
               <button type="button" className="ghost-button" onClick={() => onLoadPreset(preset)}>
-                Load {descriptor.title}
+                Load preset
               </button>
             </article>
           );
