@@ -293,6 +293,144 @@ def test_job_groups_sweeps_and_derived_analyses_api(client, sample_config):
     assert get_analysis.json()["cache_key"] == f"fft:{baseline_run['run_id']}:pairing_d"
 
 
+def test_job_group_launch_creates_child_runs_and_syncs_variant_labels(client, sample_config):
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Launched compare group",
+            "question": "Can compare jobs launch child runs from a base config?",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["compare-jobs"],
+            "acceptance_checks": ["variant labels remain attached to child runs"],
+            "status": "active",
+            "notes_on_scope": "Backend launch semantics regression.",
+        },
+    ).json()["study_id"]
+
+    launch_response = client.post(
+        "/api/v1/job-groups/launch",
+        json={
+            "study_id": study_id,
+            "name": "dt compare launch",
+            "comparison_kind": "numerical_validation",
+            "base_config": sample_config,
+            "variants": [
+                {
+                    "label": "dt=0.1",
+                    "description": "baseline timestep",
+                    "config_patch": {"time": {"dt": 0.1}},
+                },
+                {
+                    "label": "dt=0.2",
+                    "description": "coarser timestep",
+                    "config_patch": {"time": {"dt": 0.2, "t_final": 0.4}},
+                },
+            ],
+        },
+    )
+
+    assert launch_response.status_code == 201
+    payload = launch_response.json()
+    assert payload["state"] == "succeeded"
+    assert len(payload["child_run_ids"]) == 2
+    assert payload["baseline_run_id"] == payload["child_run_ids"][0]
+    assert [variant["run_id"] for variant in payload["variants"]] == payload["child_run_ids"]
+
+    baseline_run = client.get(f"/api/v1/runs/{payload['child_run_ids'][0]}").json()
+    coarse_run = client.get(f"/api/v1/runs/{payload['child_run_ids'][1]}").json()
+    assert baseline_run["config"]["time"]["dt"] == 0.1
+    assert coarse_run["config"]["time"]["dt"] == 0.2
+    assert baseline_run["research_metadata"]["group_id"] == payload["group_id"]
+    assert coarse_run["research_metadata"]["group_id"] == payload["group_id"]
+    assert baseline_run["research_metadata"]["variant_label"] == "dt=0.1"
+    assert coarse_run["research_metadata"]["variant_label"] == "dt=0.2"
+    assert baseline_run["name"] == "dt compare launch [dt=0.1]"
+    assert coarse_run["name"] == "dt compare launch [dt=0.2]"
+
+
+def test_sweep_launch_creates_child_runs_from_parameter_path(client, sample_config):
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Launched sweep",
+            "question": "Can parameter sweeps launch child runs from a base config?",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["parameter-sweep"],
+            "acceptance_checks": ["parameter path is reflected in child run configs"],
+            "status": "active",
+            "notes_on_scope": "Backend launch semantics regression.",
+        },
+    ).json()["study_id"]
+
+    launch_response = client.post(
+        "/api/v1/sweeps/launch",
+        json={
+            "study_id": study_id,
+            "name": "dt sweep launch",
+            "parameter_kind": "numerical",
+            "parameter_path": "time.dt",
+            "parameter_label": "dt",
+            "values": [0.1, 0.2],
+            "baseline_value": 0.1,
+            "fixed_axes": {"solver": "noninteracting", "observable": "energy"},
+            "base_config": sample_config,
+        },
+    )
+
+    assert launch_response.status_code == 201
+    payload = launch_response.json()
+    assert payload["state"] == "succeeded"
+    assert payload["values"] == [0.1, 0.2]
+    assert len(payload["child_run_ids"]) == 2
+
+    baseline_run = client.get(f"/api/v1/runs/{payload['child_run_ids'][0]}").json()
+    coarse_run = client.get(f"/api/v1/runs/{payload['child_run_ids'][1]}").json()
+    assert baseline_run["config"]["time"]["dt"] == 0.1
+    assert coarse_run["config"]["time"]["dt"] == 0.2
+    assert baseline_run["research_metadata"]["sweep_id"] == payload["sweep_id"]
+    assert coarse_run["research_metadata"]["sweep_id"] == payload["sweep_id"]
+    assert baseline_run["research_metadata"]["variant_label"] == "dt=0.1"
+    assert coarse_run["research_metadata"]["variant_label"] == "dt=0.2"
+    assert baseline_run["name"] == "dt sweep launch [dt=0.1]"
+    assert coarse_run["name"] == "dt sweep launch [dt=0.2]"
+
+
+def test_sweep_launch_rejects_unknown_parameter_path(client, sample_config):
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Invalid sweep",
+            "question": "Does sweep launch reject unknown config paths?",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["parameter-sweep"],
+            "acceptance_checks": ["invalid parameter paths fail fast"],
+            "status": "planning",
+            "notes_on_scope": "Validation of launch payloads.",
+        },
+    ).json()["study_id"]
+
+    launch_response = client.post(
+        "/api/v1/sweeps/launch",
+        json={
+            "study_id": study_id,
+            "name": "broken sweep launch",
+            "parameter_kind": "numerical",
+            "parameter_path": "time.unknown_dt",
+            "parameter_label": "dt",
+            "values": [0.1, 0.2],
+            "baseline_value": 0.1,
+            "fixed_axes": {"solver": "noninteracting"},
+            "base_config": sample_config,
+        },
+    )
+
+    assert launch_response.status_code == 422
+    assert "parameter_path" in launch_response.json()["detail"]
+
+
 def test_parent_artifact_state_tracks_child_run_state_updates(tmp_path, sample_config):
     runs_dir = tmp_path / "runs"
     storage = FileRunStorage(runs_dir)

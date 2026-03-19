@@ -25,6 +25,7 @@ from backend.app.schemas.research import (
     EvidenceBundleCreate,
     EvidenceBundleRecord,
     JobGroupCreate,
+    JobGroupLaunchRequest,
     JobGroupRecord,
     JobGroupVariant,
     ParameterKind,
@@ -36,6 +37,7 @@ from backend.app.schemas.research import (
     StudyRecord,
     StudyStatus,
     SweepCreate,
+    SweepLaunchRequest,
     SweepRecord,
 )
 from backend.app.schemas.runs import (
@@ -85,6 +87,7 @@ __all__ = [
     "InitialStateConfig",
     "InteractionConfig",
     "JobGroupCreate",
+    "JobGroupLaunchRequest",
     "JobGroupRecord",
     "JobGroupVariant",
     "KBEConfig",
@@ -117,6 +120,7 @@ __all__ = [
     "StudyRecord",
     "StudyStatus",
     "SweepCreate",
+    "SweepLaunchRequest",
     "SweepRecord",
     "ThermalBranchCatalogResponse",
     "ThermalBranchSliceResponse",

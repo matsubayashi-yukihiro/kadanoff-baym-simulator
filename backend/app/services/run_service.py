@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
+
+from pydantic import ValidationError
 
 from backend.app.jobs.runner import JobRunner
 from backend.app.schemas import (
@@ -13,7 +16,9 @@ from backend.app.schemas import (
     GreenFunctionCatalogResponse,
     GreenFunctionSliceResponse,
     JobGroupCreate,
+    JobGroupLaunchRequest,
     JobGroupRecord,
+    JobGroupVariant,
     MixedGreenFunctionCatalogResponse,
     MixedGreenFunctionSliceResponse,
     ObservableCatalogResponse,
@@ -26,6 +31,7 @@ from backend.app.schemas import (
     StudyCreate,
     StudyRecord,
     SweepCreate,
+    SweepLaunchRequest,
     SweepRecord,
     ThermalBranchCatalogResponse,
     ThermalBranchSliceResponse,
@@ -274,6 +280,37 @@ class RunService:
     def create_job_group(self, payload: JobGroupCreate) -> JobGroupRecord:
         return self.repository.create_job_group(payload)
 
+    def launch_job_group(self, payload: JobGroupLaunchRequest) -> JobGroupRecord:
+        if payload.baseline_run_id is not None:
+            self.get_run(payload.baseline_run_id)
+
+        resolved_variants: list[JobGroupVariant] = []
+        child_run_ids: list[str] = []
+        for variant in payload.variants:
+            if variant.run_id is not None:
+                self.get_run(variant.run_id)
+                run_id = variant.run_id
+            else:
+                config_payload = _merge_config_payloads(payload.base_config, variant.config_patch)
+                config_payload["name"] = _format_child_run_name(payload.name, variant.label)
+                run_id = self.create_run(_validate_simulation_config(config_payload)).run_id
+            resolved_variants.append(variant.model_copy(update={"run_id": run_id}))
+            child_run_ids.append(run_id)
+
+        _validate_unique_run_ids(child_run_ids, parent_kind="job group")
+        baseline_run_id = payload.baseline_run_id or resolved_variants[0].run_id
+        return self.repository.create_job_group(
+            JobGroupCreate(
+                study_id=payload.study_id,
+                name=payload.name,
+                comparison_kind=payload.comparison_kind,
+                baseline_run_id=baseline_run_id,
+                base_config=deepcopy(payload.base_config),
+                variants=resolved_variants,
+                child_run_ids=child_run_ids,
+            )
+        )
+
     def list_job_groups(self, *, study_id: str | None = None) -> list[JobGroupRecord]:
         return self.repository.list_job_groups(study_id=study_id)
 
@@ -282,6 +319,27 @@ class RunService:
 
     def create_sweep(self, payload: SweepCreate) -> SweepRecord:
         return self.repository.create_sweep(payload)
+
+    def launch_sweep(self, payload: SweepLaunchRequest) -> SweepRecord:
+        child_run_ids: list[str] = []
+        for value in payload.values:
+            config_payload = _set_config_value(payload.base_config, payload.parameter_path, value)
+            config_payload["name"] = _format_child_run_name(payload.name, f"{payload.parameter_label}={value}")
+            child_run_ids.append(self.create_run(_validate_simulation_config(config_payload)).run_id)
+
+        return self.repository.create_sweep(
+            SweepCreate(
+                study_id=payload.study_id,
+                name=payload.name,
+                parameter_kind=payload.parameter_kind,
+                parameter_path=payload.parameter_path,
+                parameter_label=payload.parameter_label,
+                values=list(payload.values),
+                baseline_value=payload.baseline_value,
+                fixed_axes=deepcopy(payload.fixed_axes),
+                child_run_ids=child_run_ids,
+            )
+        )
 
     def list_sweeps(self, *, study_id: str | None = None) -> list[SweepRecord]:
         return self.repository.list_sweeps(study_id=study_id)
@@ -335,3 +393,47 @@ class RunService:
 
     def get_evidence_bundle(self, bundle_id: str) -> EvidenceBundleRecord:
         return self.repository.get_evidence_bundle(bundle_id)
+
+
+def _merge_config_payloads(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_config_payloads(merged[key], value)
+            continue
+        merged[key] = deepcopy(value)
+    return merged
+
+
+def _set_config_value(base: dict[str, Any], parameter_path: str, value: Any) -> dict[str, Any]:
+    if not parameter_path:
+        raise ValueError("parameter_path must not be empty")
+    payload = deepcopy(base)
+    cursor: dict[str, Any] = payload
+    keys = parameter_path.split(".")
+    for key in keys[:-1]:
+        next_cursor = cursor.get(key)
+        if not isinstance(next_cursor, dict):
+            raise ValueError(f"parameter_path '{parameter_path}' does not resolve to an object field")
+        cursor = next_cursor
+    leaf = keys[-1]
+    if leaf not in cursor:
+        raise ValueError(f"parameter_path '{parameter_path}' does not resolve to a config field")
+    cursor[leaf] = deepcopy(value)
+    return payload
+
+
+def _format_child_run_name(parent_name: str, label: str) -> str:
+    return f"{parent_name} [{label}]"
+
+
+def _validate_unique_run_ids(run_ids: list[str], *, parent_kind: str) -> None:
+    if len(run_ids) != len(set(run_ids)):
+        raise ValueError(f"{parent_kind} launch requires unique child runs")
+
+
+def _validate_simulation_config(payload: dict[str, Any]) -> SimulationConfig:
+    try:
+        return SimulationConfig.model_validate(payload)
+    except ValidationError as exc:
+        raise ValueError(str(exc)) from exc

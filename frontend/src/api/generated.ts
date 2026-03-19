@@ -330,6 +330,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/job-groups/launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Launch Job Group */
+        post: operations["launch_job_group_api_v1_job_groups_launch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/job-groups/{group_id}": {
         parameters: {
             query?: never;
@@ -359,6 +376,23 @@ export interface paths {
         put?: never;
         /** Create Sweep */
         post: operations["create_sweep_api_v1_sweeps_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/sweeps/launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Launch Sweep */
+        post: operations["launch_sweep_api_v1_sweeps_launch_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -836,6 +870,22 @@ export interface components {
             variants?: components["schemas"]["JobGroupVariant"][];
             /** Child Run Ids */
             child_run_ids?: string[];
+        };
+        /** JobGroupLaunchRequest */
+        JobGroupLaunchRequest: {
+            /** Study Id */
+            study_id: string;
+            /** Name */
+            name: string;
+            comparison_kind: components["schemas"]["ComparisonKind"];
+            /** Baseline Run Id */
+            baseline_run_id?: string | null;
+            /** Base Config */
+            base_config?: {
+                [key: string]: unknown;
+            };
+            /** Variants */
+            variants?: components["schemas"]["JobGroupVariant"][];
         };
         /** JobGroupRecord */
         JobGroupRecord: {
@@ -1318,6 +1368,30 @@ export interface components {
             };
             /** Child Run Ids */
             child_run_ids?: string[];
+        };
+        /** SweepLaunchRequest */
+        SweepLaunchRequest: {
+            /** Study Id */
+            study_id: string;
+            /** Name */
+            name: string;
+            parameter_kind: components["schemas"]["ParameterKind"];
+            /** Parameter Path */
+            parameter_path: string;
+            /** Parameter Label */
+            parameter_label: string;
+            /** Values */
+            values?: (string | number | boolean)[];
+            /** Baseline Value */
+            baseline_value?: string | number | boolean | null;
+            /** Fixed Axes */
+            fixed_axes?: {
+                [key: string]: unknown;
+            };
+            /** Base Config */
+            base_config?: {
+                [key: string]: unknown;
+            };
         };
         /** SweepRecord */
         SweepRecord: {
@@ -2105,6 +2179,39 @@ export interface operations {
             };
         };
     };
+    launch_job_group_api_v1_job_groups_launch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JobGroupLaunchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobGroupRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_job_group_api_v1_job_groups__group_id__get: {
         parameters: {
             query?: never;
@@ -2177,6 +2284,39 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["SweepCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SweepRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    launch_sweep_api_v1_sweeps_launch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SweepLaunchRequest"];
             };
         };
         responses: {

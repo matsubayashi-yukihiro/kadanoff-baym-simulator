@@ -103,12 +103,18 @@ class ExperimentRepository:
 
     def create_job_group(self, payload: JobGroupCreate) -> JobGroupRecord:
         group = self.registry.create_job_group(payload)
+        variant_labels_by_run_id = {
+            variant.run_id: variant.label
+            for variant in payload.variants
+            if variant.run_id is not None
+        }
         for run_id in payload.child_run_ids:
             self.update_run_metadata(
                 run_id,
                 RunResearchMetadataPatch(
                     study_id=payload.study_id,
                     group_id=group.group_id,
+                    variant_label=variant_labels_by_run_id.get(run_id),
                 ),
             )
         return self.registry.get_job_group(group.group_id)
@@ -121,12 +127,13 @@ class ExperimentRepository:
 
     def create_sweep(self, payload: SweepCreate) -> SweepRecord:
         sweep = self.registry.create_sweep(payload)
-        for run_id in payload.child_run_ids:
+        for ordinal, run_id in enumerate(payload.child_run_ids):
             self.update_run_metadata(
                 run_id,
                 RunResearchMetadataPatch(
                     study_id=payload.study_id,
                     sweep_id=sweep.sweep_id,
+                    variant_label=f"{payload.parameter_label}={payload.values[ordinal]}",
                 ),
             )
         return self.registry.get_sweep(sweep.sweep_id)

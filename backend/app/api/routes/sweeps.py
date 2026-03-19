@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from backend.app.core.dependencies import get_run_service
-from backend.app.schemas import SweepCreate, SweepRecord
+from backend.app.schemas import SweepCreate, SweepLaunchRequest, SweepRecord
 from backend.app.services.run_service import RunService
 
 
@@ -17,6 +17,17 @@ def create_sweep(
 ) -> SweepRecord:
     try:
         return service.create_sweep(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.post("/launch", response_model=SweepRecord, status_code=status.HTTP_201_CREATED)
+def launch_sweep(
+    payload: SweepLaunchRequest,
+    service: RunService = Depends(get_run_service),
+) -> SweepRecord:
+    try:
+        return service.launch_sweep(payload)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 

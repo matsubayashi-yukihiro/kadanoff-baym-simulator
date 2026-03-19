@@ -155,6 +155,26 @@ class JobGroupRecord(JobGroupCreate):
     updated_at: datetime
 
 
+class JobGroupLaunchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    study_id: str
+    name: str
+    comparison_kind: ComparisonKind
+    baseline_run_id: str | None = None
+    base_config: dict[str, Any] = Field(default_factory=dict)
+    variants: list[JobGroupVariant] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_variants(self) -> "JobGroupLaunchRequest":
+        if not self.variants:
+            raise ValueError("job-group launch requires at least one variant")
+        labels = [variant.label for variant in self.variants]
+        if len(labels) != len(set(labels)):
+            raise ValueError("job-group launch variants must have unique labels")
+        return self
+
+
 ScalarParameterValue = str | int | float | bool
 
 
@@ -175,6 +195,8 @@ class SweepCreate(BaseModel):
     def validate_child_run_alignment(self) -> "SweepCreate":
         if self.child_run_ids and len(self.child_run_ids) != len(self.values):
             raise ValueError("child_run_ids length must match values length for sweep artifacts")
+        if self.baseline_value is not None and self.values and self.baseline_value not in self.values:
+            raise ValueError("baseline_value must be included in sweep values")
         return self
 
 
@@ -183,6 +205,28 @@ class SweepRecord(SweepCreate):
     state: ArtifactLifecycleState
     created_at: datetime
     updated_at: datetime
+
+
+class SweepLaunchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    study_id: str
+    name: str
+    parameter_kind: ParameterKind
+    parameter_path: str
+    parameter_label: str
+    values: list[ScalarParameterValue] = Field(default_factory=list)
+    baseline_value: ScalarParameterValue | None = None
+    fixed_axes: dict[str, Any] = Field(default_factory=dict)
+    base_config: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_launch_payload(self) -> "SweepLaunchRequest":
+        if not self.values:
+            raise ValueError("sweep launch requires at least one parameter value")
+        if self.baseline_value is not None and self.baseline_value not in self.values:
+            raise ValueError("baseline_value must be included in sweep values")
+        return self
 
 
 class DecisionNoteCreate(BaseModel):
