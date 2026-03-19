@@ -51,6 +51,49 @@ def _normal_state_config(*, dt: float) -> SimulationConfig:
     )
 
 
+def _weak_interaction_benchmark_config(
+    *,
+    solver: str,
+    dt: float,
+    t_final: float,
+    onsite_u: float = -0.6,
+    amplitude_x: float = 0.5,
+    amplitude_y: float = 0.2,
+) -> SimulationConfig:
+    return SimulationConfig.model_validate(
+        {
+            "solver": solver,
+            "lattice": {
+                "nx": 2,
+                "ny": 2,
+                "boundary": "open",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": t_final, "dt": dt},
+            "drive": {
+                "amplitude_x": amplitude_x,
+                "amplitude_y": amplitude_y,
+                "frequency": 2.6,
+                "phase": 0.3,
+                "center": 0.18,
+                "width": 0.12,
+            },
+            "interaction": {
+                "onsite_u": onsite_u,
+                "nearest_neighbor_v": 0.0,
+                "pairing_channel": "none",
+            },
+            "initial_state": {
+                "filling": 0.25,
+                "temperature": 0.0,
+                "seed_pairing": 0.0,
+            },
+            "observables": ["density", "current_x", "current_y", "energy"],
+        }
+    )
+
+
 def _second_born_short_window_config(
     *,
     dt: float,
@@ -352,6 +395,141 @@ def test_tdhfb_and_kbe_hfb_track_exact_diagonalization_for_short_time_weak_inter
     assert tdhfb_current_y_error < 1e-3
     assert kbe_current_x_error < 1e-3
     assert kbe_current_y_error < 1e-3
+
+
+def test_tdhfb_and_kbe_hfb_track_exact_diagonalization_on_longer_window_weak_interaction():
+    tdhfb_config = _weak_interaction_benchmark_config(solver="tdhfb", dt=0.05, t_final=0.4)
+    kbe_config = _weak_interaction_benchmark_config(solver="kbe_hfb", dt=0.05, t_final=0.4)
+
+    exact = run_exact_diagonalization_benchmark(tdhfb_config, integration_dt=0.01)
+    tdhfb = solve_tdhfb(tdhfb_config)
+    kbe = solve_kbe_hfb(kbe_config)
+
+    density_reference = exact_diagonalization_trajectory(exact, "density")
+    current_x_reference = exact_diagonalization_trajectory(exact, "current_x")
+    current_y_reference = exact_diagonalization_trajectory(exact, "current_y")
+
+    tdhfb_density_error = summarize_trajectory_error(
+        density_reference,
+        _observable_trajectory(tdhfb, "density", label="tdhfb"),
+    )
+    tdhfb_current_x_error = summarize_trajectory_error(
+        current_x_reference,
+        _observable_trajectory(tdhfb, "current_x", label="tdhfb"),
+    )
+    tdhfb_current_y_error = summarize_trajectory_error(
+        current_y_reference,
+        _observable_trajectory(tdhfb, "current_y", label="tdhfb"),
+    )
+    kbe_density_error = summarize_trajectory_error(
+        density_reference,
+        _observable_trajectory(kbe, "density", label="kbe_hfb"),
+    )
+    kbe_current_x_error = summarize_trajectory_error(
+        current_x_reference,
+        _observable_trajectory(kbe, "current_x", label="kbe_hfb"),
+    )
+    kbe_current_y_error = summarize_trajectory_error(
+        current_y_reference,
+        _observable_trajectory(kbe, "current_y", label="kbe_hfb"),
+    )
+
+    assert tdhfb_density_error.max_abs_error < 1e-12
+    assert kbe_density_error.max_abs_error < 1e-12
+    assert tdhfb_current_x_error.max_abs_error < 2e-3
+    assert tdhfb_current_y_error.max_abs_error < 1e-3
+    assert kbe_current_x_error.max_abs_error < 2e-3
+    assert kbe_current_y_error.max_abs_error < 1e-3
+
+
+def test_tdhfb_and_kbe_hfb_show_dt_convergence_against_longer_window_exact_reference():
+    coarse_tdhfb = _weak_interaction_benchmark_config(
+        solver="tdhfb",
+        dt=0.1,
+        t_final=0.2,
+        onsite_u=-0.1,
+        amplitude_x=0.4,
+        amplitude_y=0.2,
+    )
+    fine_tdhfb = _weak_interaction_benchmark_config(
+        solver="tdhfb",
+        dt=0.05,
+        t_final=0.2,
+        onsite_u=-0.1,
+        amplitude_x=0.4,
+        amplitude_y=0.2,
+    )
+    finer_tdhfb = _weak_interaction_benchmark_config(
+        solver="tdhfb",
+        dt=0.025,
+        t_final=0.2,
+        onsite_u=-0.1,
+        amplitude_x=0.4,
+        amplitude_y=0.2,
+    )
+    coarse_kbe = _weak_interaction_benchmark_config(
+        solver="kbe_hfb",
+        dt=0.1,
+        t_final=0.2,
+        onsite_u=-0.1,
+        amplitude_x=0.4,
+        amplitude_y=0.2,
+    )
+    fine_kbe = _weak_interaction_benchmark_config(
+        solver="kbe_hfb",
+        dt=0.05,
+        t_final=0.2,
+        onsite_u=-0.1,
+        amplitude_x=0.4,
+        amplitude_y=0.2,
+    )
+    finer_kbe = _weak_interaction_benchmark_config(
+        solver="kbe_hfb",
+        dt=0.025,
+        t_final=0.2,
+        onsite_u=-0.1,
+        amplitude_x=0.4,
+        amplitude_y=0.2,
+    )
+
+    coarse_exact = run_exact_diagonalization_benchmark(coarse_tdhfb, integration_dt=0.0125)
+    fine_exact = run_exact_diagonalization_benchmark(fine_tdhfb, integration_dt=0.0125)
+    finer_exact = run_exact_diagonalization_benchmark(finer_tdhfb, integration_dt=0.0125)
+    coarse_reference = exact_diagonalization_trajectory(coarse_exact, "current_x")
+    fine_reference = exact_diagonalization_trajectory(fine_exact, "current_x")
+    finer_reference = exact_diagonalization_trajectory(finer_exact, "current_x")
+
+    coarse_tdhfb_error = summarize_trajectory_error(
+        coarse_reference,
+        _observable_trajectory(solve_tdhfb(coarse_tdhfb), "current_x", label="tdhfb-coarse"),
+    )
+    fine_tdhfb_error = summarize_trajectory_error(
+        fine_reference,
+        _observable_trajectory(solve_tdhfb(fine_tdhfb), "current_x", label="tdhfb-fine"),
+    )
+    finer_tdhfb_error = summarize_trajectory_error(
+        finer_reference,
+        _observable_trajectory(solve_tdhfb(finer_tdhfb), "current_x", label="tdhfb-finer"),
+    )
+    coarse_kbe_error = summarize_trajectory_error(
+        coarse_reference,
+        _observable_trajectory(solve_kbe_hfb(coarse_kbe), "current_x", label="kbe-coarse"),
+    )
+    fine_kbe_error = summarize_trajectory_error(
+        fine_reference,
+        _observable_trajectory(solve_kbe_hfb(fine_kbe), "current_x", label="kbe-fine"),
+    )
+    finer_kbe_error = summarize_trajectory_error(
+        finer_reference,
+        _observable_trajectory(solve_kbe_hfb(finer_kbe), "current_x", label="kbe-finer"),
+    )
+
+    assert coarse_tdhfb_error.max_abs_error > 1e-4
+    assert coarse_tdhfb_error.max_abs_error > fine_tdhfb_error.max_abs_error > finer_tdhfb_error.max_abs_error
+    assert finer_tdhfb_error.max_abs_error < 0.25 * coarse_tdhfb_error.max_abs_error
+    assert coarse_kbe_error.max_abs_error > 1e-4
+    assert coarse_kbe_error.max_abs_error > fine_kbe_error.max_abs_error > finer_kbe_error.max_abs_error
+    assert finer_kbe_error.max_abs_error < 0.25 * coarse_kbe_error.max_abs_error
 
 
 def test_second_born_prototype_remains_comparable_to_exact_benchmark_on_short_window():

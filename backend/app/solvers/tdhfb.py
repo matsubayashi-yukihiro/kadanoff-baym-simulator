@@ -25,6 +25,7 @@ from backend.app.solvers.nambu import (
     solve_hfb_equilibrium,
 )
 from backend.app.solvers.observables import average_current, particle_density_statistics
+from backend.app.solvers.observables import site_current_divergence, site_density_time_derivative
 
 
 @dataclass(slots=True)
@@ -66,7 +67,9 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
     particle_trace: list[float] = []
     hermiticity_error: list[float] = []
     density_bound_violation: list[float] = []
+    continuity_residual_norm: list[float] = []
     pairing_values: list[PairingProjections] = []
+    continuity_residual_supported = pairing_channel(config).value == "none"
 
     for time, generalized_density in zip(times, generalized_densities, strict=True):
         normal_hamiltonian, pairing_field, _, bdg_hamiltonian = build_bdg_hamiltonian(
@@ -84,6 +87,13 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
         current_x.append(average_current(lattice.bonds_x, normal_hamiltonian, normal_density))
         current_y.append(average_current(lattice.bonds_y, normal_hamiltonian, normal_density))
         energy.append(effective_energy(generalized_density, bdg_hamiltonian))
+        if continuity_residual_supported:
+            continuity_residual = site_density_time_derivative(normal_hamiltonian, normal_density) + site_current_divergence(
+                lattice,
+                normal_hamiltonian,
+                normal_density,
+            )
+            continuity_residual_norm.append(float(np.max(np.abs(continuity_residual))))
         ax, ay = vector_potential(config.drive, time)
         vector_ax.append(ax)
         vector_ay.append(ay)
@@ -104,6 +114,7 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
     particle_trace_array = np.asarray(particle_trace, dtype=np.float64)
     hermiticity_error_array = np.asarray(hermiticity_error, dtype=np.float64)
     density_bound_violation_array = np.asarray(density_bound_violation, dtype=np.float64)
+    continuity_residual_norm_array = np.asarray(continuity_residual_norm, dtype=np.float64)
     pairing_primary_array = np.asarray([value.primary for value in pairing_values], dtype=np.complex128)
     pairing_s_array = np.asarray([value.s_wave for value in pairing_values], dtype=np.complex128)
     pairing_d_array = np.asarray([value.d_wave for value in pairing_values], dtype=np.complex128)
@@ -135,6 +146,7 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
         "hfb_iterations": equilibrium.iterations,
         "hfb_converged": equilibrium.converged,
         "hfb_self_consistency_error": float(equilibrium.self_consistency_error),
+        "hfb_fixed_point_accelerator": "anderson_diis",
         "equilibrium_stationarity_residual": float(equilibrium.stationarity_residual),
         "particle_number_drift": float(np.max(np.abs(particle_trace_array - particle_trace_array[0]))),
         "energy_drift": float(np.max(np.abs(energy_array - energy_array[0]))),
@@ -144,6 +156,14 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
         "max_pairing_s_magnitude": float(np.max(np.abs(pairing_s_array))),
         "max_pairing_d_magnitude": float(np.max(np.abs(pairing_d_array))),
         "final_pairing_magnitude": float(np.abs(pairing_primary_array[-1])),
+        "continuity_residual_supported": continuity_residual_supported,
+        "continuity_residual_history": continuity_residual_norm_array.tolist(),
+        "max_continuity_residual": (
+            float(np.max(continuity_residual_norm_array)) if continuity_residual_supported else None
+        ),
+        "final_continuity_residual": (
+            float(continuity_residual_norm_array[-1]) if continuity_residual_supported else None
+        ),
     }
     diagnostics.update(propagation_diagnostics)
     summary_excerpt = {
@@ -155,6 +175,8 @@ def simulate_hfb_dynamics(config: SimulationConfig) -> HFBDynamicsResult:
         "particle_number_drift": diagnostics["particle_number_drift"],
         "time_grid_mode": diagnostics["time_grid_mode"],
     }
+    if continuity_residual_supported:
+        summary_excerpt["max_continuity_residual"] = diagnostics["max_continuity_residual"]
     return HFBDynamicsResult(
         lattice=lattice,
         times=times,

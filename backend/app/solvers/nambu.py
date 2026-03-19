@@ -7,9 +7,10 @@ from numpy.typing import NDArray
 
 from backend.app.schemas import PairingChannel, SimulationConfig
 from backend.app.solvers.equilibrium import occupation_numbers
+from backend.app.solvers.fixed_point import AndersonMixer
 from backend.app.solvers.hamiltonian import build_one_body_hamiltonian
 from backend.app.solvers.lattice import Bond, SquareLattice
-from backend.app.solvers.numerics import linear_mix, solve_bracketed_root
+from backend.app.solvers.numerics import solve_bracketed_root
 
 
 ComplexMatrix = NDArray[np.complex128]
@@ -249,6 +250,7 @@ def solve_hfb_equilibrium(config: SimulationConfig, lattice: SquareLattice) -> H
     hartree_potential = np.zeros(site_count, dtype=np.float64)
     max_iterations = 192
     mixing = 0.22
+    density_mixer = AndersonMixer(mixing=mixing, max_history=4)
 
     for iteration in range(1, max_iterations + 1):
         effective_chemical_potential, next_density = _solve_thermal_state_for_particle_target(
@@ -259,7 +261,7 @@ def solve_hfb_equilibrium(config: SimulationConfig, lattice: SquareLattice) -> H
         )
 
         self_consistency_error = float(np.max(np.abs(next_density - generalized_density)))
-        mixed_density = linear_mix(generalized_density, next_density, mixing)
+        mixed_density = density_mixer.update(generalized_density, next_density)
         mixed_density = 0.5 * (mixed_density + mixed_density.conjugate().T)
         generalized_density = mixed_density
         if self_consistency_error < 1e-8:

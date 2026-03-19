@@ -118,3 +118,48 @@ def test_tdhfb_preserves_generalized_density_constraints_over_time(paired_config
     assert dynamics.diagnostics["max_density_bound_violation"] == 0.0
     assert idempotency_residual < 1e-10
     assert occupation_bound_violation == 0.0
+
+
+def test_tdhfb_tracks_local_continuity_equation_in_source_free_normal_state():
+    config = SimulationConfig.model_validate(
+        {
+            "solver": "tdhfb",
+            "lattice": {
+                "nx": 2,
+                "ny": 2,
+                "boundary": "open",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": 0.3, "dt": 0.05},
+            "drive": {
+                "amplitude_x": 0.3,
+                "amplitude_y": 0.15,
+                "frequency": 2.4,
+                "phase": 0.2,
+                "center": 0.15,
+                "width": 0.09,
+            },
+            "interaction": {
+                "onsite_u": -0.8,
+                "nearest_neighbor_v": 0.0,
+                "pairing_channel": "none",
+            },
+            "initial_state": {
+                "filling": 0.25,
+                "temperature": 0.0,
+                "seed_pairing": 0.0,
+            },
+            "observables": ["density", "current_x", "current_y", "energy"],
+        }
+    )
+
+    artifacts = solve(config)
+
+    assert artifacts.diagnostics["continuity_residual_supported"] is True
+    assert len(artifacts.diagnostics["continuity_residual_history"]) == artifacts.diagnostics["time_steps"] + 1
+    assert artifacts.diagnostics["max_continuity_residual"] == pytest.approx(
+        max(artifacts.diagnostics["continuity_residual_history"])
+    )
+    assert artifacts.diagnostics["max_continuity_residual"] < 1e-11
+    assert artifacts.diagnostics["final_continuity_residual"] < 1e-11

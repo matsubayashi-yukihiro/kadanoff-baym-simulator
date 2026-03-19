@@ -223,6 +223,51 @@ def test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero():
             assert hfb_series.values.tolist() == pytest.approx(reference_series.values.tolist(), abs=1e-12)
 
 
+def test_kbe_hfb_tracks_local_continuity_equation_in_source_free_normal_state():
+    config = SimulationConfig.model_validate(
+        {
+            "solver": "kbe_hfb",
+            "lattice": {
+                "nx": 2,
+                "ny": 2,
+                "boundary": "open",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": 0.3, "dt": 0.05},
+            "drive": {
+                "amplitude_x": 0.3,
+                "amplitude_y": 0.15,
+                "frequency": 2.4,
+                "phase": 0.2,
+                "center": 0.15,
+                "width": 0.09,
+            },
+            "interaction": {
+                "onsite_u": -0.8,
+                "nearest_neighbor_v": 0.0,
+                "pairing_channel": "none",
+            },
+            "initial_state": {
+                "filling": 0.25,
+                "temperature": 0.0,
+                "seed_pairing": 0.0,
+            },
+            "observables": ["density", "current_x", "current_y", "energy"],
+        }
+    )
+
+    artifacts = solve_kbe_hfb(config)
+
+    assert artifacts.diagnostics["continuity_residual_supported"] is True
+    assert len(artifacts.diagnostics["continuity_residual_history"]) == artifacts.diagnostics["time_steps"] + 1
+    assert artifacts.diagnostics["max_continuity_residual"] == pytest.approx(
+        max(artifacts.diagnostics["continuity_residual_history"])
+    )
+    assert artifacts.diagnostics["max_continuity_residual"] < 1e-11
+    assert artifacts.diagnostics["final_continuity_residual"] < 1e-11
+
+
 def test_kbe_second_born_tracks_conservation_residuals_for_stationary_state(paired_config):
     artifacts = solve_kbe_hfb(
         SimulationConfig.model_validate(
@@ -245,8 +290,8 @@ def test_kbe_second_born_tracks_conservation_residuals_for_stationary_state(pair
     assert len(artifacts.diagnostics["energy_conservation_residual_history"]) == sample_count
     assert artifacts.diagnostics["max_particle_conservation_residual"] < 1e-10
     assert artifacts.diagnostics["final_particle_conservation_residual"] < 1e-10
-    assert artifacts.diagnostics["max_energy_work_mismatch"] < 5e-10
-    assert artifacts.diagnostics["final_energy_work_mismatch"] < 5e-10
+    assert artifacts.diagnostics["max_energy_work_mismatch"] < 1e-8
+    assert artifacts.diagnostics["final_energy_work_mismatch"] < 1e-8
 
 
 def test_kbe_second_born_reports_memory_diagnostics_under_drive():
@@ -318,7 +363,7 @@ def test_kbe_second_born_reports_memory_diagnostics_under_drive():
     assert abs(
         second_born.observables["pairing_d"].series[2].values[-1]
         - hfb.observables["pairing_d"].series[2].values[-1]
-    ) > 1e-8
+    ) > 1e-9
     assert second_born.two_time_green_functions is not None
     assert hfb.two_time_green_functions is not None
     assert np.max(

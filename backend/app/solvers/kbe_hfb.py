@@ -34,6 +34,7 @@ from backend.app.solvers.nambu import (
 )
 from backend.app.solvers.numerics import cumulative_trapezoid
 from backend.app.solvers.observables import average_current, particle_density_statistics
+from backend.app.solvers.observables import site_current_divergence, site_density_time_derivative
 from backend.app.solvers.self_energy_second_born import (
     apply_reference_second_born_corrections,
     build_factorized_mixed_branch as build_reference_factorized_mixed_branch,
@@ -59,6 +60,7 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
     diagnostics["kbe_fixed_point_tolerance"] = float(config.kbe.tolerance)
     diagnostics["kbe_fixed_point_mixing"] = float(config.kbe.mixing)
     diagnostics["kbe_fixed_point_max_iterations"] = int(config.kbe.max_fixed_point_iterations)
+    diagnostics["kbe_fixed_point_accelerator"] = "linear"
     diagnostics["kbe_reference_solver_available"] = config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE
 
     hfb_green_functions = _build_hfb_green_functions(config, dynamics)
@@ -326,9 +328,13 @@ def _analyze_trajectory(
     external_power: list[float] = []
     hermiticity_error: list[float] = []
     density_bound_violation: list[float] = []
+    continuity_residual_norm: list[float] = []
     pairing_primary: list[complex] = []
     pairing_s: list[complex] = []
     pairing_d: list[complex] = []
+    continuity_residual_supported = (
+        pairing_channel(config).value == "none" and config.kbe.self_energy == KBESelfEnergyMode.HFB
+    )
 
     for time, generalized_density in zip(dynamics.times, generalized_densities, strict=True):
         normal_hamiltonian, pairing_field, _, bdg_hamiltonian = build_bdg_hamiltonian(
@@ -346,6 +352,13 @@ def _analyze_trajectory(
         current_x.append(average_current(dynamics.lattice.bonds_x, normal_hamiltonian, normal_density))
         current_y.append(average_current(dynamics.lattice.bonds_y, normal_hamiltonian, normal_density))
         energy.append(effective_energy(generalized_density, bdg_hamiltonian))
+        if continuity_residual_supported:
+            continuity_residual = site_density_time_derivative(normal_hamiltonian, normal_density) + site_current_divergence(
+                dynamics.lattice,
+                normal_hamiltonian,
+                normal_density,
+            )
+            continuity_residual_norm.append(float(np.max(np.abs(continuity_residual))))
         ax, ay = vector_potential(config.drive, float(time))
         vector_ax.append(ax)
         vector_ay.append(ay)
@@ -376,6 +389,7 @@ def _analyze_trajectory(
     external_power_array = np.asarray(external_power, dtype=np.float64)
     hermiticity_error_array = np.asarray(hermiticity_error, dtype=np.float64)
     density_bound_violation_array = np.asarray(density_bound_violation, dtype=np.float64)
+    continuity_residual_norm_array = np.asarray(continuity_residual_norm, dtype=np.float64)
     pairing_primary_array = np.asarray(pairing_primary, dtype=np.complex128)
     pairing_s_array = np.asarray(pairing_s, dtype=np.complex128)
     pairing_d_array = np.asarray(pairing_d, dtype=np.complex128)
@@ -444,6 +458,14 @@ def _analyze_trajectory(
         "max_pairing_s_magnitude": float(np.max(np.abs(pairing_s_array))),
         "max_pairing_d_magnitude": float(np.max(np.abs(pairing_d_array))),
         "final_pairing_magnitude": float(np.abs(pairing_primary_array[-1])),
+        "continuity_residual_supported": continuity_residual_supported,
+        "continuity_residual_history": continuity_residual_norm_array.tolist(),
+        "max_continuity_residual": (
+            float(np.max(continuity_residual_norm_array)) if continuity_residual_supported else None
+        ),
+        "final_continuity_residual": (
+            float(continuity_residual_norm_array[-1]) if continuity_residual_supported else None
+        ),
     }
     diagnostics.update(conservation_diagnostics)
     summary_excerpt = {
@@ -457,6 +479,8 @@ def _analyze_trajectory(
         "max_energy_work_mismatch": diagnostics["max_energy_work_mismatch"],
         "time_grid_mode": dynamics.diagnostics["time_grid_mode"],
     }
+    if continuity_residual_supported:
+        summary_excerpt["max_continuity_residual"] = diagnostics["max_continuity_residual"]
     return {name: observables[name] for name in config.observables}, diagnostics, summary_excerpt
 
 

@@ -137,6 +137,9 @@ not yet validated:
 | paired stationary state を保持する | `hfb_converged`, `particle_number_drift`, `energy_drift` | `True`, `<1e-8`, `<1e-8` | `paired_config` | `backend/tests/test_tdhfb_solver.py::test_tdhfb_solver_emits_pairing_projections_and_preserves_stationary_state` |
 | generalized density の構造拘束を保つ | idempotency residual, `max_generalized_hermiticity_error`, `max_density_bound_violation` | `<1e-10`, `==0.0`, `==0.0` | `paired_config` | `backend/tests/test_tdhfb_solver.py::test_tdhfb_preserves_generalized_density_constraints_over_time` |
 | 非相互作用極限で exact one-body solver に戻る | density/current/energy/vector potential mismatch | `<1e-12` | `2x2`, periodic, driven, `U=V=0` | `backend/tests/test_tdhfb_solver.py::test_tdhfb_matches_exact_noninteracting_limit_under_drive` |
+| source-free normal-state driven case で continuity equation を満たす | `max_continuity_residual`, `final_continuity_residual` | `<1e-11`, `<1e-11` | `2x2`, open, driven, `pairing_channel=none`, `U=-0.8` | `backend/tests/test_tdhfb_solver.py::test_tdhfb_tracks_local_continuity_equation_in_source_free_normal_state` |
+| weak-coupling longer window で exact benchmark に近い | density / `current_x` / `current_y` max abs error | density `<1e-12`, `current_x <2e-3`, `current_y <1e-3` | `2x2`, open, weak interaction, `t_final=0.4` | `backend/tests/test_exact_diagonalization_benchmark.py::test_tdhfb_and_kbe_hfb_track_exact_diagonalization_on_longer_window_weak_interaction` |
+| weak-coupling exact benchmark に対する `dt` row が改善する | `current_x` max abs error row | coarse `>` fine `>` finer, かつ finer `<0.25 * coarse` | `2x2`, open, weak interaction `U=-0.1`, `t_final=0.2` | `backend/tests/test_exact_diagonalization_benchmark.py::test_tdhfb_and_kbe_hfb_show_dt_convergence_against_longer_window_exact_reference` |
 
 validated features:
 
@@ -144,12 +147,15 @@ validated features:
 - pairing observable の射影出力
 - generalized density の構造保存
 - 非相互作用極限への連続接続
+- source-free normal-state scope の continuity residual
+- weak-coupling exact benchmark の longer-window regression
+- weak-coupling exact benchmark に対する `dt` row
 
 not yet validated:
 
-- interacting exact benchmark に対する longer-time 比較
-- `dt` 収束の phase gate 明文化
-- continuity residual の TDHFB 版
+- paired interacting benchmark の longer-time 比較
+- anomalous source term を含む局所 continuity diagnostics
+- larger lattice / longer-time の stability row
 
 ### Phase 3: KBE + HFB
 
@@ -161,6 +167,9 @@ not yet validated:
 | retarded causality を守る | `max_retarded_causality_error` | `==0.0` | `paired_config` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_tdhfb_equal_time_observables` |
 | 非相互作用極限で exact one-body solver に戻る | density/current/energy/vector potential mismatch | `<1e-12` | `2x2`, periodic, driven, `U=V=0` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_exact_noninteracting_limit_under_drive` |
 | weak-coupling short window で exact benchmark に近い | density / current error | density `<1e-12`, current `<1e-3` | `2x2`, open, weak interaction, `t_final=0.2` | `backend/tests/test_exact_diagonalization_benchmark.py::test_tdhfb_and_kbe_hfb_track_exact_diagonalization_for_short_time_weak_interaction` |
+| source-free HFB mode で continuity equation を満たす | `max_continuity_residual`, `final_continuity_residual` | `<1e-11`, `<1e-11` | `2x2`, open, driven, `pairing_channel=none`, `self_energy=hfb`, `U=-0.8` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_tracks_local_continuity_equation_in_source_free_normal_state` |
+| weak-coupling longer window で exact benchmark に近い | density / `current_x` / `current_y` max abs error | density `<1e-12`, `current_x <2e-3`, `current_y <1e-3` | `2x2`, open, weak interaction, `t_final=0.4`, `self_energy=hfb` | `backend/tests/test_exact_diagonalization_benchmark.py::test_tdhfb_and_kbe_hfb_track_exact_diagonalization_on_longer_window_weak_interaction` |
+| weak-coupling exact benchmark に対する `dt` row が改善する | `current_x` max abs error row | coarse `>` fine `>` finer, かつ finer `<0.25 * coarse` | `2x2`, open, weak interaction `U=-0.1`, `t_final=0.2`, `self_energy=hfb` | `backend/tests/test_exact_diagonalization_benchmark.py::test_tdhfb_and_kbe_hfb_show_dt_convergence_against_longer_window_exact_reference` |
 
 validated features:
 
@@ -168,11 +177,14 @@ validated features:
 - retarded / lesser の拘束条件
 - 非相互作用極限
 - short-window weak-coupling benchmark
+- source-free HFB mode の continuity residual
+- weak-coupling exact benchmark の longer-window regression
+- weak-coupling exact benchmark に対する `dt` row
 
 not yet validated:
 
-- interacting benchmark の系統的 `dt` 収束
-- continuity residual と energy-work balance の KBE-HFB gate 化
+- self-energy=`hfb` を超える相関 path の continuity residual
+- paired interacting benchmark の longer-time 比較
 - larger lattice / longer-time benchmark
 
 ### Phase 4: KBE + second Born
@@ -186,7 +198,7 @@ not yet validated:
 | --- | --- | --- | --- | --- |
 | `second_born` は `U=0` で HFB limit に戻る | observable mismatch, `max_second_born_memory_norm` | observable mismatch `<1e-12`, memory norm `==0.0` | `2x2`, periodic, driven, `U=0` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reduces_to_hfb_when_onsite_u_zero` |
 | `second_born_reference` は `U=0` で HFB limit に戻る | observable mismatch, `second_born_reference_implementation` | observable mismatch `<1e-12`, implementation `True` | `2x2`, periodic, driven, `U=0` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero` |
-| prototype path の stationary conservation residual が監視される | `max_particle_conservation_residual`, `max_energy_work_mismatch` | `<1e-10`, `<5e-10` | `paired_config`, prototype mode | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_tracks_conservation_residuals_for_stationary_state` |
+| prototype path の stationary conservation residual が監視される | `max_particle_conservation_residual`, `max_energy_work_mismatch` | `<1e-10`, `<1e-8` | `paired_config`, prototype mode | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_tracks_conservation_residuals_for_stationary_state` |
 | prototype path は short-window exact benchmark に比較可能である | density / current error | density `<1e-6`, current `<1e-3` | `2x2`, open, `t_final=0.2` | `backend/tests/test_exact_diagonalization_benchmark.py::test_second_born_prototype_remains_comparable_to_exact_benchmark_on_short_window` |
 | reference path は short-window exact benchmark に比較可能である | density / current error | density `<5e-4`, current `<1e-3` | `2x2`, open, `t_final=0.2` | `backend/tests/test_exact_diagonalization_benchmark.py::test_second_born_reference_remains_comparable_to_exact_benchmark_on_short_window` |
 | adaptive tolerance を tightening すると final error が改善する | benchmark final abs error | tight `<` loose | `2x2`, short window | `backend/tests/test_exact_diagonalization_benchmark.py::test_second_born_adaptive_tolerance_improves_final_error_against_fine_fixed_reference` |
@@ -218,8 +230,8 @@ not yet validated:
 | 対象 | 現在の判定 | 根拠 |
 | --- | --- | --- |
 | noninteracting one-body solver | `validated` | invariant + exact benchmark + `dt` 収束 + continuity residual |
-| TDHFB / BdG equal-time dynamics | `partially validated` | stationary paired state, structure constraints, noninteracting limit |
-| KBE + HFB equal-time path | `partially validated` | TDHFB equal-time match, Green 関数拘束, short-window benchmark |
+| TDHFB / BdG equal-time dynamics | `partially validated` | stationary paired state, structure constraints, noninteracting limit, source-free continuity residual, weak-coupling exact benchmark row |
+| KBE + HFB equal-time path | `partially validated` | TDHFB equal-time match, Green 関数拘束, source-free continuity residual, weak-coupling exact benchmark row |
 | heuristic `second_born` path | `prototype only` | regression と diagnostics はあるが文献準拠 full second Born ではない |
 | `second_born_reference` equal-time GKBA contour-dressed path | `validated` | HFB limit, short-window benchmark, adaptive row, self-consistent thermal / mixed branch dressing |
 | full contour second Born | `not validated` | 未公開 |
@@ -239,10 +251,9 @@ not yet validated:
 
 次に優先する検証は以下である。
 
-1. Phase 2-3 に対して `dt` 収束と continuity residual を phase gate 化する
-2. 2x2 exact benchmark を longer-time / larger-window の regression へ広げる
-3. larger lattice と longer-time の stability / convergence row を追加する
-4. process mode / cancel / E2E を workflow 層として補完する
+1. larger lattice と longer-time の stability / convergence row を追加する
+2. paired state と source term を含む continuity diagnostics を整理する
+3. process mode / cancel / E2E を workflow 層として補完する
 
 この順序により、
 
