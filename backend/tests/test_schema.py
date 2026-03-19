@@ -3,6 +3,8 @@ from pydantic import ValidationError
 
 from backend.app.schemas import SimulationConfig, TimeGridConfig
 
+pytestmark = pytest.mark.physics_unit
+
 
 def test_time_grid_requires_commensurate_dt():
     with pytest.raises(ValidationError):
@@ -47,6 +49,19 @@ def test_simulation_config_accepts_phase_e_extensions():
     assert config.kbe.self_energy.value == "second_born"
     assert config.adaptive.enabled is True
     assert config.thermal_branch.n_tau == 8
+
+
+def test_simulation_config_accepts_reference_second_born_mode():
+    config = SimulationConfig(
+        solver="kbe_hfb",
+        lattice={"nx": 2, "ny": 2, "boundary": "open", "hopping": 1.0},
+        time={"t_final": 0.2, "dt": 0.1},
+        interaction={"onsite_u": -1.0},
+        kbe={"self_energy": "second_born_reference", "max_fixed_point_iterations": 6},
+        observables=["density", "current_x"],
+    )
+
+    assert config.kbe.self_energy.value == "second_born_reference"
 
 
 def test_simulation_config_requires_positive_temperature_for_thermal_branch():

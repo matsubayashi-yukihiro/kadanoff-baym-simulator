@@ -1,4 +1,5 @@
 import type { RunDetail } from "../api/types";
+import { countAnomalies, groupDiagnostics } from "../lib/diagnosticGroups";
 import { formatDateTime, formatLabel, formatValue } from "../lib/format";
 
 type DiagnosticsPanelProps = {
@@ -14,7 +15,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         <div className="panel-header">
           <div>
             <p className="eyebrow">Diagnostics</p>
-            <h2>Run Diagnostics</h2>
+            <h2>Solver Diagnostics</h2>
           </div>
         </div>
         <div className="empty-card">
@@ -26,53 +27,110 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
   }
 
   const diagnostics = run.diagnostics && Object.keys(run.diagnostics).length > 0 ? run.diagnostics : run.diagnostics_excerpt ?? {};
-  const diagnosticEntries = Object.entries(diagnostics);
+  const groups = groupDiagnostics(diagnostics as Record<string, unknown>);
+  const anomalyCount = countAnomalies(groups);
+  const entryCount = groups.reduce((sum, group) => sum + group.entries.length, 0);
+  const anomalousEntries = groups
+    .flatMap((group) =>
+      group.entries
+        .filter((entry) => entry.anomalous)
+        .map((entry) => ({ groupLabel: group.label, key: entry.key, value: entry.value })),
+    )
+    .slice(0, 4);
 
   return (
     <section className="panel">
       <div className="panel-header">
         <div>
           <p className="eyebrow">Diagnostics</p>
-          <h2>Run Diagnostics</h2>
+          <h2>Solver Diagnostics</h2>
         </div>
         <span className={`status-pill status-${run.state}`}>{run.state}</span>
       </div>
 
       <div className="diagnostic-summary">
         <div>
-          <span className="focus-key">Run ID</span>
-          <span>{run.run_id}</span>
+          <span className="focus-key">Groups</span>
+          <span>{groups.length}</span>
         </div>
         <div>
           <span className="focus-key">Updated</span>
           <span>{formatDateTime(run.updated_at)}</span>
         </div>
         <div>
-          <span className="focus-key">Lattice</span>
-          <span>
-            {formatValue(run.lattice.nx)} x {formatValue(run.lattice.ny)}
-          </span>
+          <span className="focus-key">Metrics</span>
+          <span>{entryCount}</span>
         </div>
         <div>
-          <span className="focus-key">Time Step</span>
-          <span>{formatValue(run.time_grid.dt)}</span>
+          <span className="focus-key">Anomalies</span>
+          <span>{anomalyCount}</span>
         </div>
       </div>
 
-      {diagnosticEntries.length === 0 ? (
+      {anomalyCount > 0 ? (
+        <p className="state-banner state-warning">{anomalyCount} anomal{anomalyCount === 1 ? "y" : "ies"} detected in diagnostics.</p>
+      ) : groups.length > 0 ? (
+        <p className="state-banner state-nominal">All diagnostics nominal.</p>
+      ) : null}
+
+      {groups.length === 0 ? (
         <div className="empty-card">
           <p>No diagnostics stored yet.</p>
           <p>Queued and running jobs will populate this panel when results land.</p>
         </div>
       ) : (
-        <div className="metric-grid">
-          {diagnosticEntries.map(([key, value]) => (
-            <div key={key} className="metric-card">
-              <span className="metric-label">{formatLabel(key)}</span>
-              <span className="metric-value">{formatValue(value)}</span>
+        <>
+          {anomalousEntries.length > 0 ? (
+            <div className="grid gap-3">
+              {anomalousEntries.map((entry) => (
+                <article
+                  key={`${entry.groupLabel}-${entry.key}`}
+                  className="grid gap-2 border border-panel-border rounded-panel shadow-card backdrop-blur-[14px] diagnostic-alert-item"
+                  style={{
+                    padding: "0.85rem 0.95rem",
+                    background:
+                      "linear-gradient(180deg, rgba(255,255,255,0.66), rgba(248,251,253,0.92)), var(--panel-bg)",
+                  }}
+                >
+                  <span className="briefing-label">{entry.groupLabel}</span>
+                  <p>
+                    {formatLabel(entry.key)} = {formatValue(entry.value)}
+                  </p>
+                </article>
+              ))}
             </div>
-          ))}
-        </div>
+          ) : null}
+
+          <details className="support-details">
+            <summary className="support-details-summary">
+              <span className="support-details-text">
+                <span className="briefing-label">Full Diagnostic Matrix</span>
+                <span className="support-details-copy">Open grouped solver metrics when you need the complete diagnostic surface.</span>
+              </span>
+              <span className="signal-badge">Show details</span>
+            </summary>
+
+            <div className="support-details-body">
+              {groups.map((group) => (
+                <div key={group.key}>
+                  {groups.length > 1 ? (
+                    <div className="panel-subheader">
+                      <h3>{group.label}</h3>
+                    </div>
+                  ) : null}
+                  <div className="metric-grid">
+                    {group.entries.map((entry) => (
+                      <div key={entry.key} className={`metric-card ${entry.anomalous ? "metric-card-anomalous" : ""}`}>
+                        <span className="metric-label">{formatLabel(entry.key)}</span>
+                        <span className="metric-value">{formatValue(entry.value)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
+        </>
       )}
     </section>
   );

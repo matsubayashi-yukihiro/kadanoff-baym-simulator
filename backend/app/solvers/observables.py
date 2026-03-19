@@ -5,7 +5,7 @@ from collections.abc import Iterable
 import numpy as np
 from numpy.typing import NDArray
 
-from backend.app.solvers.lattice import Bond
+from backend.app.solvers.lattice import Bond, SquareLattice
 
 
 def particle_density_statistics(density_matrix: NDArray[np.complex128]) -> tuple[float, float, float]:
@@ -30,6 +30,27 @@ def average_current(
     if not bond_values:
         return 0.0
     return float(np.mean(np.asarray(bond_values, dtype=np.float64)))
+
+
+def site_current_divergence(
+    lattice: SquareLattice,
+    hamiltonian: NDArray[np.complex128],
+    density_matrix: NDArray[np.complex128],
+) -> NDArray[np.float64]:
+    divergence = np.zeros(lattice.site_count, dtype=np.float64)
+    for bond in lattice.bonds:
+        current = bond_current(bond, hamiltonian, density_matrix)
+        divergence[bond.source] += current
+        divergence[bond.target] -= current
+    return divergence
+
+
+def site_density_time_derivative(
+    hamiltonian: NDArray[np.complex128],
+    density_matrix: NDArray[np.complex128],
+) -> NDArray[np.float64]:
+    commutator = hamiltonian @ density_matrix - density_matrix @ hamiltonian
+    return np.real(-1j * np.diag(commutator)).astype(np.float64, copy=False)
 
 
 def total_energy(

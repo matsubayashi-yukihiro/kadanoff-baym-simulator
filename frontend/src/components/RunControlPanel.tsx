@@ -3,15 +3,18 @@ import { formatDateTime } from "../lib/format";
 
 type RunControlPanelProps = {
   isSubmitting: boolean;
+  isCancelling: boolean;
   runs: RunSummary[];
   runsLoading: boolean;
   runsError: string | null;
   runLoading: boolean;
   runError: string | null;
   submitError: string | null;
+  cancelError: string | null;
   selectedRun: RunDetail | null;
   selectedRunId: string | null;
   onCreateRun: () => void;
+  onCancelRun: () => void;
   onRefresh: () => void;
   onSelectRun: (runId: string) => void;
 };
@@ -19,37 +22,37 @@ type RunControlPanelProps = {
 export function RunControlPanel(props: RunControlPanelProps) {
   const {
     isSubmitting,
+    isCancelling,
     runs,
     runsLoading,
     runsError,
     runLoading,
     runError,
     submitError,
+    cancelError,
     selectedRun,
     selectedRunId,
     onCreateRun,
+    onCancelRun,
     onRefresh,
     onSelectRun,
   } = props;
+  const canCancel = Boolean(selectedRun && selectedRun.state !== "succeeded" && selectedRun.state !== "failed" && selectedRun.state !== "cancelled");
 
   return (
     <section className="panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Execution</p>
-          <h2>RunControlPanel</h2>
+          <p className="eyebrow">Registry</p>
+          <h2>Runs And Queue</h2>
         </div>
-        <div className="button-row">
-          <button type="button" className="ghost-button" onClick={onRefresh}>
-            Refresh
-          </button>
-          <button type="button" className="primary-button" onClick={onCreateRun} disabled={isSubmitting}>
-            {isSubmitting ? "Submitting..." : "Create Run"}
-          </button>
-        </div>
+        <button type="button" className="ghost-button" onClick={onRefresh}>
+          Refresh
+        </button>
       </div>
 
       {submitError ? <p className="state-banner state-error">{submitError}</p> : null}
+      {cancelError ? <p className="state-banner state-error">{cancelError}</p> : null}
       {runError ? <p className="state-banner state-error">{runError}</p> : null}
 
       <div className="run-focus">
@@ -84,7 +87,7 @@ export function RunControlPanel(props: RunControlPanelProps) {
         ) : (
           <div className="empty-card">
             <p>No run selected.</p>
-            <p>Create one from the current config or pick an existing run below.</p>
+            <p>Launch the current draft or pick an existing artifact below.</p>
           </div>
         )}
       </div>
@@ -99,7 +102,7 @@ export function RunControlPanel(props: RunControlPanelProps) {
       {!runsLoading && runs.length === 0 ? (
         <div className="empty-card">
           <p>No saved runs yet.</p>
-          <p>The list will populate after the first successful submission.</p>
+          <p>The registry fills in as soon as the first run is launched.</p>
         </div>
       ) : null}
 

@@ -6,6 +6,8 @@ from backend.app.solvers.kbe_hfb import solve as solve_kbe_hfb
 from backend.app.solvers.noninteracting import solve as solve_noninteracting
 from backend.app.solvers.tdhfb import solve as solve_tdhfb
 
+pytestmark = pytest.mark.physics_invariant
+
 
 @pytest.mark.parametrize("observable_name,series_index", [("density", 0), ("pairing_d", 2), ("energy", 0)])
 def test_kbe_hfb_matches_tdhfb_equal_time_observables(paired_config, observable_name, series_index):
@@ -158,6 +160,67 @@ def test_kbe_second_born_reduces_to_hfb_when_onsite_u_zero():
             strict=True,
         ):
             assert hfb_series.values.tolist() == pytest.approx(second_born_series.values.tolist(), abs=1e-12)
+
+
+def test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero():
+    base_config = {
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.3, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.25,
+            "amplitude_y": 0.1,
+            "frequency": 2.0,
+            "phase": 0.2,
+            "center": 0.15,
+            "width": 0.08,
+        },
+        "interaction": {
+            "onsite_u": 0.0,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.1,
+            "seed_pairing": 0.0,
+        },
+        "observables": ["density", "current_x", "current_y", "energy"],
+    }
+
+    hfb = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
+    reference = solve_kbe_hfb(
+        SimulationConfig.model_validate(
+            {
+                **base_config,
+                "kbe": {
+                    "self_energy": "second_born_reference",
+                    "max_fixed_point_iterations": 8,
+                    "tolerance": 1e-8,
+                    "mixing": 0.5,
+                },
+            }
+        )
+    )
+
+    assert reference.diagnostics["second_born_enabled"] is True
+    assert reference.diagnostics["second_born_reference_implementation"] is True
+    assert reference.diagnostics["second_born_solver_mode"] == "hfb_limit"
+    assert reference.diagnostics["max_second_born_memory_norm"] == 0.0
+    assert reference.diagnostics["max_equal_time_tdhfb_mismatch"] < 1e-12
+    for observable_name in ("density", "current_x", "current_y", "energy"):
+        for hfb_series, reference_series in zip(
+            hfb.observables[observable_name].series,
+            reference.observables[observable_name].series,
+            strict=True,
+        ):
+            assert hfb_series.values.tolist() == pytest.approx(reference_series.values.tolist(), abs=1e-12)
 
 
 def test_kbe_second_born_tracks_conservation_residuals_for_stationary_state(paired_config):
@@ -444,3 +507,194 @@ def test_kbe_second_born_builds_correlated_thermal_and_mixed_branches():
     assert artifacts.diagnostics["second_born_converged"] is True
     assert artifacts.thermal_branch_green_functions is not None
     assert artifacts.mixed_green_functions is not None
+
+
+def test_kbe_second_born_reference_supports_adaptive_history_against_fixed_reference():
+    fixed_config = {
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.4, "dt": 0.05},
+        "drive": {
+            "amplitude_x": 0.2,
+            "amplitude_y": 0.0,
+            "frequency": 1.0,
+            "center": 0.2,
+            "width": 0.15,
+        },
+        "interaction": {
+            "onsite_u": -1.2,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {"filling": 0.5, "temperature": 0.2, "seed_pairing": 0.0},
+        "kbe": {
+            "self_energy": "second_born_reference",
+            "max_fixed_point_iterations": 10,
+            "tolerance": 1e-5,
+            "mixing": 0.5,
+        },
+        "thermal_branch": {"enabled": True, "n_tau": 8, "max_iterations": 12, "mixing": 0.4},
+        "observables": ["density", "energy"],
+    }
+
+    fixed = solve_kbe_hfb(SimulationConfig.model_validate(fixed_config))
+    adaptive = solve_kbe_hfb(
+        SimulationConfig.model_validate(
+            {
+                **fixed_config,
+                "adaptive": {
+                    "enabled": True,
+                    "rtol": 1e-3,
+                    "atol": 1e-5,
+                    "min_dt": 0.025,
+                    "max_dt": 0.1,
+                },
+            }
+        )
+    )
+
+    assert adaptive.diagnostics["time_grid_mode"] == "adaptive"
+    assert adaptive.diagnostics["accepted_time_steps"] < adaptive.diagnostics["requested_time_steps"]
+    assert adaptive.diagnostics["second_born_solver_mode"] == "gkba_causal_marching"
+    assert adaptive.diagnostics["second_born_contour_mode"] == "full_contour"
+    assert adaptive.diagnostics["second_born_reference_scope"] == "equal_time_gkba_full_contour"
+    assert adaptive.diagnostics["second_born_converged"] is True
+    assert adaptive.diagnostics["thermal_branch_reference_implementation"] is True
+    assert adaptive.diagnostics["mixed_branch_reference_implementation"] is True
+    assert adaptive.diagnostics["max_second_born_thermal_memory_norm"] > 0.0
+    assert adaptive.diagnostics["max_second_born_mixed_memory_norm"] > 0.0
+    assert adaptive.summary_excerpt["time_grid_mode"] == "adaptive"
+    assert adaptive.summary_excerpt["thermal_branch_factorized_difference"] > 0.0
+    assert adaptive.summary_excerpt["mixed_branch_factorized_difference"] > 0.0
+
+    assert adaptive.summary_excerpt["final_density"] == pytest.approx(
+        fixed.summary_excerpt["final_density"],
+        abs=2e-3,
+    )
+    assert adaptive.summary_excerpt["final_energy"] == pytest.approx(
+        fixed.summary_excerpt["final_energy"],
+        abs=5e-3,
+    )
+
+
+def test_kbe_second_born_reference_builds_correlated_thermal_and_mixed_branches():
+    config = SimulationConfig.model_validate(
+        {
+            "solver": "kbe_hfb",
+            "lattice": {
+                "nx": 2,
+                "ny": 2,
+                "boundary": "periodic",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": 0.3, "dt": 0.05},
+            "drive": {
+                "amplitude_x": 0.0,
+                "amplitude_y": 0.0,
+                "frequency": 0.0,
+                "center": 0.0,
+                "width": 1.0,
+            },
+            "interaction": {
+                "onsite_u": -1.2,
+                "nearest_neighbor_v": 0.0,
+                "pairing_channel": "none",
+            },
+            "initial_state": {"filling": 0.5, "temperature": 0.2, "seed_pairing": 0.0},
+            "kbe": {
+                "self_energy": "second_born_reference",
+                "max_fixed_point_iterations": 10,
+                "tolerance": 1e-5,
+                "mixing": 0.5,
+            },
+            "thermal_branch": {"enabled": True, "n_tau": 8, "max_iterations": 12, "mixing": 0.4},
+            "observables": ["density", "energy"],
+        }
+    )
+
+    artifacts = solve_kbe_hfb(config)
+
+    assert artifacts.diagnostics["kbe_reference_solver_available"] is True
+    assert artifacts.diagnostics["second_born_reference_implementation"] is True
+    assert artifacts.diagnostics["second_born_implementation_kind"] == "gkba_local_nambu_reference"
+    assert artifacts.diagnostics["second_born_contour_terms_included"] is True
+    assert artifacts.diagnostics["second_born_contour_mode"] == "full_contour"
+    assert artifacts.diagnostics["second_born_reference_scope"] == "equal_time_gkba_full_contour"
+    assert artifacts.diagnostics["thermal_branch_enabled"] is True
+    assert artifacts.diagnostics["thermal_branch_correlated"] is True
+    assert artifacts.diagnostics["thermal_branch_converged"] is True
+    assert artifacts.diagnostics["thermal_branch_factorized_difference"] > 0.0
+    assert artifacts.diagnostics["thermal_branch_reference_implementation"] is True
+    assert artifacts.diagnostics["thermal_branch_implementation_kind"] == "gkba_local_nambu_reference"
+    assert artifacts.diagnostics["mixed_components_included"] is True
+    assert artifacts.diagnostics["mixed_branch_converged"] is True
+    assert artifacts.diagnostics["mixed_branch_factorized_difference"] > 0.0
+    assert artifacts.diagnostics["mixed_branch_reference_implementation"] is True
+    assert artifacts.diagnostics["mixed_branch_implementation_kind"] == "gkba_local_nambu_reference"
+    assert artifacts.diagnostics["max_second_born_thermal_memory_norm"] > 0.0
+    assert artifacts.diagnostics["max_second_born_mixed_memory_norm"] > 0.0
+    assert artifacts.thermal_branch_green_functions is not None
+    assert artifacts.mixed_green_functions is not None
+
+
+def test_kbe_second_born_reference_reports_reference_diagnostics_under_drive():
+    config = SimulationConfig.model_validate(
+        {
+            "solver": "kbe_hfb",
+            "lattice": {
+                "nx": 2,
+                "ny": 2,
+                "boundary": "open",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": 0.2, "dt": 0.05},
+            "drive": {
+                "amplitude_x": 0.6,
+                "amplitude_y": 0.3,
+                "frequency": 2.7,
+                "phase": 0.35,
+                "center": 0.1,
+                "width": 0.1,
+            },
+            "interaction": {
+                "onsite_u": -0.8,
+                "nearest_neighbor_v": 0.0,
+                "pairing_channel": "none",
+            },
+            "initial_state": {
+                "filling": 0.25,
+                "temperature": 0.0,
+                "seed_pairing": 0.0,
+            },
+            "kbe": {
+                "self_energy": "second_born_reference",
+                "max_fixed_point_iterations": 10,
+                "tolerance": 1e-7,
+                "mixing": 0.5,
+            },
+            "observables": ["density", "current_x", "current_y"],
+        }
+    )
+
+    artifacts = solve_kbe_hfb(config)
+
+    assert artifacts.diagnostics["kbe_reference_solver_available"] is True
+    assert artifacts.diagnostics["second_born_reference_implementation"] is True
+    assert artifacts.diagnostics["second_born_implementation_kind"] == "gkba_local_nambu_reference"
+    assert artifacts.diagnostics["second_born_solver_mode"] == "gkba_causal_marching"
+    assert artifacts.diagnostics["second_born_contour_mode"] == "keldysh_only"
+    assert artifacts.diagnostics["second_born_explicit_self_energy"] is True
+    assert artifacts.diagnostics["second_born_reference_scope"] == "equal_time_gkba"
+    assert artifacts.diagnostics["max_second_born_memory_norm"] > 0.0
+    assert artifacts.diagnostics["max_second_born_collision_norm"] > 0.0
+    assert artifacts.diagnostics["kbe_two_time_reconstruction"] == "gkba_causal_marching"
+    assert len(artifacts.diagnostics["second_born_iteration_history"]) == artifacts.diagnostics["time_steps"]
+    assert artifacts.two_time_green_functions is not None

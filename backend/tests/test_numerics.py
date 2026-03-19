@@ -4,6 +4,8 @@ import pytest
 from backend.app.solvers.equilibrium import occupation_numbers
 from backend.app.solvers.numerics import cumulative_trapezoid, solve_bracketed_root
 
+pytestmark = pytest.mark.physics_unit
+
 
 def test_cumulative_trapezoid_matches_linear_antiderivative_on_nonuniform_grid():
     times = np.asarray([0.0, 0.2, 0.5, 1.0], dtype=np.float64)

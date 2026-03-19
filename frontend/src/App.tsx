@@ -1,823 +1,494 @@
-import { startTransition, useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 
-import {
-  ApiError,
-  createRun,
-  getGreenFunctionSlice,
-  getObservable,
-  getRun,
-  listGreenFunctions,
-} from "./api/client";
-import type {
-  GreenFunctionCatalogResponse,
-  GreenFunctionSliceResponse,
-  ObservableResponse,
-  RunDetail,
-  SimulationConfigInput,
-} from "./api/types";
+import type { PresetConfig, SimulationConfigInput } from "./api/types";
+import { CompareJobsPlanningPanel } from "./components/CompareJobsPlanningPanel";
+import { CompareJobsRailPanel } from "./components/CompareJobsRailPanel";
 import { ConfigPanel } from "./components/ConfigPanel";
 import { DiagnosticsPanel } from "./components/DiagnosticsPanel";
 import { GreenFunctionPanel } from "./components/GreenFunctionPanel";
-import { JobSummaryTable } from "./components/JobSummaryTable";
-import { JobTabsBar } from "./components/JobTabsBar";
-import { JobWorkbenchPanel } from "./components/JobWorkbenchPanel";
+import { MixedGreenFunctionPanel } from "./components/MixedGreenFunctionPanel";
+import { ObservablePanel } from "./components/ObservablePanel";
+import { PresetLibraryPanel } from "./components/PresetLibraryPanel";
+import { ResearchArtifactsPanel } from "./components/ResearchArtifactsPanel";
+import { RunContextPanel } from "./components/RunContextPanel";
+import { RunLogPanel } from "./components/RunLogPanel";
+import { RunControlPanel } from "./components/RunControlPanel";
+import { SpectrumPanel } from "./components/SpectrumPanel";
+import { ThermalBranchPanel } from "./components/ThermalBranchPanel";
+import { ValidationScopePanel } from "./components/ValidationScopePanel";
+import { WorkbenchPlaceholderPanel } from "./components/WorkbenchPlaceholderPanel";
+import { WorkbenchTabs } from "./components/WorkbenchTabs";
+import { useGreenFunctions } from "./hooks/useGreenFunctions";
+import { useMixedGreenFunctions } from "./hooks/useMixedGreenFunctions";
+import { useObservables } from "./hooks/useObservables";
+import { usePresets } from "./hooks/usePresets";
+import { useRuns } from "./hooks/useRuns";
+import { useThermalBranch } from "./hooks/useThermalBranch";
+import { readUrlState, useUrlStateSync } from "./hooks/useUrlState";
+import { createDefaultConfig } from "./lib/defaultConfig";
+import { getSimulationTrack } from "./lib/projectNarrative";
 import {
-  ObservableComparePanel,
-  type ComparePlotSelection,
-} from "./components/ObservableComparePanel";
-import {
-  applyJobColumnValue,
-  computeVisibleParameterColumns,
-  createWorkspaceJob,
-  isTerminalRunState,
-  renameJob,
-  restoreWorkspaceSnapshot,
-  snapshotWorkspace,
-  type JobColumn,
-  type WorkspaceJob,
-} from "./lib/workspace";
-import { createDefaultConfig, SUPPORTED_OBSERVABLES } from "./lib/defaultConfig";
+  cloneConfig,
+  getWorkbenchTabDescriptor,
+  HIGGS_DEMO_PRIMARY_OBSERVABLE,
+  selectHiggsDemoPreset,
+  selectWorkingBaselinePreset,
+  type WorkbenchTab,
+} from "./lib/workbench";
 
-const POLL_INTERVAL_MS = 1500;
-const WORKSPACE_STORAGE_KEY = "tdkb.workspace.v2";
+const DEFAULT_TAB: WorkbenchTab = "single-job";
+type ContourSurface = "real-time" | "thermal" | "mixed";
 
-type CompareObservableRequest = {
-  cacheKey: string;
-  runId: string;
-  observable: string;
-};
+const CONTOUR_SURFACES: Array<{ key: ContourSurface; label: string; copy: string }> = [
+  {
+    key: "real-time",
+    label: "Real-Time",
+    copy: "Inspect retarded and lesser two-time slices first. This is the primary contour surface for reading stored Keldysh structure.",
+  },
+  {
+    key: "thermal",
+    label: "Thermal",
+    copy: "Use Matsubara slices when thermal_branch is enabled and the selected run needs finite-temperature contour context.",
+  },
+  {
+    key: "mixed",
+    label: "Mixed",
+    copy: "Read mixed real-time and imaginary-time slices only when you need full contour dressing evidence beyond the real-time view.",
+  },
+];
 
 export default function App() {
-  const [jobs, setJobs] = useState<WorkspaceJob[]>(() => {
-    const snapshot =
-      typeof window !== "undefined" ? restoreWorkspaceSnapshot(window.localStorage.getItem(WORKSPACE_STORAGE_KEY)) : null;
-    return snapshot?.jobs ?? [createWorkspaceJob([])];
+  const initialUrlState = readUrlState();
+
+  const [activeTab, setActiveTab] = useState<WorkbenchTab>(() => initialUrlState.tab ?? DEFAULT_TAB);
+  const [activeContourSurface, setActiveContourSurface] = useState<ContourSurface>("real-time");
+  const [draftConfig, setDraftConfig] = useState<SimulationConfigInput>(() => createDefaultConfig());
+  const [loadedPresetName, setLoadedPresetName] = useState<string | null>(() => initialUrlState.presetName ?? null);
+
+  const { presets, presetsLoading, presetError } = usePresets();
+
+  const runState = useRuns(initialUrlState.runId ?? null);
+  const { selectedRunId, selectedRun, isSubmitting, isCancelling } = runState;
+
+  const observables = useObservables(selectedRunId, selectedRun, initialUrlState.observable ?? null);
+  const green = useGreenFunctions(selectedRunId, selectedRun, initialUrlState.component ?? null);
+  const thermal = useThermalBranch(selectedRunId, selectedRun);
+  const mixed = useMixedGreenFunctions(selectedRunId, selectedRun);
+
+  const canCancel = Boolean(selectedRun && selectedRun.state !== "succeeded" && selectedRun.state !== "failed" && selectedRun.state !== "cancelled");
+  const isSingleJobPage = activeTab === "single-job";
+  const isCompareJobsPage = activeTab === "compare-jobs";
+  const isParameterSweepPage = activeTab === "parameter-sweep";
+
+  useUrlStateSync({
+    tab: activeTab,
+    runId: isSingleJobPage ? selectedRunId : null,
+    observable: isSingleJobPage ? observables.selectedObservable : null,
+    component: isSingleJobPage ? green.selectedComponent : null,
+    presetName: loadedPresetName,
   });
-  const [activeJobId, setActiveJobId] = useState<string | null>(() => {
-    const snapshot =
-      typeof window !== "undefined" ? restoreWorkspaceSnapshot(window.localStorage.getItem(WORKSPACE_STORAGE_KEY)) : null;
-    return snapshot?.activeJobId ?? snapshot?.jobs[0]?.id ?? null;
-  });
-  const [showDifferentOnly, setShowDifferentOnly] = useState(false);
 
-  const [runsById, setRunsById] = useState<Record<string, RunDetail>>({});
-  const [runErrors, setRunErrors] = useState<Record<string, string>>({});
-  const [runRefreshVersion, setRunRefreshVersion] = useState(0);
-
-  const [submittingJobId, setSubmittingJobId] = useState<string | null>(null);
-  const [submitErrors, setSubmitErrors] = useState<Record<string, string>>({});
-
-  const [comparePlots, setComparePlots] = useState<ComparePlotSelection[]>([]);
-  const [compareDataByKey, setCompareDataByKey] = useState<Record<string, ObservableResponse>>({});
-  const [compareLoading, setCompareLoading] = useState(false);
-  const [compareError, setCompareError] = useState<string | null>(null);
-
-  const [greenCatalog, setGreenCatalog] = useState<GreenFunctionCatalogResponse | null>(null);
-  const [greenCatalogLoading, setGreenCatalogLoading] = useState(false);
-  const [greenCatalogError, setGreenCatalogError] = useState<string | null>(null);
-  const [selectedGreenComponent, setSelectedGreenComponent] = useState<string | null>(null);
-  const [greenSlice, setGreenSlice] = useState<GreenFunctionSliceResponse | null>(null);
-  const [greenSliceLoading, setGreenSliceLoading] = useState(false);
-  const [greenSliceError, setGreenSliceError] = useState<string | null>(null);
-  const [greenRowIndex, setGreenRowIndex] = useState(0);
-  const [greenColIndex, setGreenColIndex] = useState(0);
-  const [greenNambuStart, setGreenNambuStart] = useState(0);
-  const [greenNambuWindow, setGreenNambuWindow] = useState(4);
-
-  const activeJob = jobs.find((job) => job.id === activeJobId) ?? jobs[0] ?? null;
-  const activeRun = activeJob?.lastRunId ? runsById[activeJob.lastRunId] ?? null : null;
-  const activeRunError = activeJob?.lastRunId ? runErrors[activeJob.lastRunId] ?? null : null;
-  const activeSubmitError = activeJob ? submitErrors[activeJob.id] ?? null : null;
-
-  const trackedRunIds = useMemo(
-    () => Array.from(new Set(jobs.flatMap((job) => job.runHistory))),
-    [jobs],
-  );
-
-  const pendingRunIds = useMemo(
-    () =>
-      trackedRunIds.filter((runId) => {
-        const run = runsById[runId];
-        return !run || !isTerminalRunState(run.state);
-      }),
-    [trackedRunIds, runsById],
-  );
-
-  const compareJobs = useMemo(
-    () =>
-      jobs.filter((job) => {
-        if (!job.plotEnabled || !job.lastRunId) {
-          return false;
-        }
-        return runsById[job.lastRunId]?.state === "succeeded";
-      }),
-    [jobs, runsById],
-  );
-
-  const observableOptions = useMemo(() => {
-    const options = new Set<string>();
-    for (const job of compareJobs) {
-      if (!job.lastRunId) {
-        continue;
-      }
-      const run = runsById[job.lastRunId];
-      for (const descriptor of run?.available_observables ?? []) {
-        options.add(descriptor.name);
-      }
-    }
-    return sortObservableNames(Array.from(options));
-  }, [compareJobs, runsById]);
-
-  const compareEntries = useMemo(
-    () =>
-      compareJobs
-        .map((job) => {
-          const runId = job.lastRunId;
-          if (!runId) {
-            return null;
-          }
-          return {
-            jobId: job.id,
-            jobTitle: job.title,
-            runId,
-          };
-        })
-        .filter((entry): entry is { jobId: string; jobTitle: string; runId: string } => entry !== null),
-    [compareJobs],
-  );
-
-  const parameterColumns = useMemo(
-    () => computeVisibleParameterColumns(jobs, showDifferentOnly, activeJobId),
-    [jobs, showDifferentOnly, activeJobId],
-  );
-
-  const compareRequests = useMemo<CompareObservableRequest[]>(
-    () =>
-      compareEntries.flatMap((entry) =>
-        comparePlots.flatMap((plot) => {
-          if (!plot.observable) {
-            return [];
-          }
-
-          return [
-            {
-              cacheKey: buildObservableCacheKey(entry.runId, plot.observable),
-              runId: entry.runId,
-              observable: plot.observable,
-            },
-          ];
-        }),
-      ),
-    [compareEntries, comparePlots],
-  );
-
-  const missingCompareRequests = useMemo(
-    () =>
-      compareRequests.filter((request, index, allRequests) => {
-        if (compareDataByKey[request.cacheKey]) {
-          return false;
-        }
-        return allRequests.findIndex((candidate) => candidate.cacheKey === request.cacheKey) === index;
-      }),
-    [compareDataByKey, compareRequests],
-  );
-
-  useEffect(() => {
-    if (jobs.length === 0) {
-      const fallback = createWorkspaceJob([]);
-      setJobs([fallback]);
-      setActiveJobId(fallback.id);
-      return;
-    }
-
-    if (!activeJobId || !jobs.some((job) => job.id === activeJobId)) {
-      setActiveJobId(jobs[0].id);
-    }
-  }, [jobs, activeJobId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, snapshotWorkspace(jobs, activeJobId));
-  }, [jobs, activeJobId]);
-
-  useEffect(() => {
-    if (trackedRunIds.length === 0) {
-      return;
-    }
-
-    let active = true;
-
-    Promise.all(
-      trackedRunIds.map(async (runId) => {
-        try {
-          const run = await getRun(runId);
-          return { runId, run };
-        } catch (error) {
-          return { runId, error: toErrorMessage(error) };
-        }
-      }),
-    ).then((results) => {
-      if (!active) {
-        return;
-      }
-
-      setRunsById((current) => {
-        const next = { ...current };
-        for (const result of results) {
-          if ("run" in result && result.run) {
-            next[result.runId] = result.run;
-          }
-        }
-        return next;
-      });
-
-      setRunErrors((current) => {
-        const next = { ...current };
-        for (const result of results) {
-          if ("error" in result) {
-            next[result.runId] = result.error ?? "Failed to load run";
-          } else {
-            delete next[result.runId];
-          }
-        }
-        return next;
-      });
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [trackedRunIds.join("|"), runRefreshVersion]);
-
-  useEffect(() => {
-    if (pendingRunIds.length === 0) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      setRunRefreshVersion((current) => current + 1);
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [pendingRunIds.join("|")]);
-
-  useEffect(() => {
-    if (observableOptions.length === 0) {
-      setComparePlots([]);
-      setCompareLoading(false);
-      setCompareError(null);
-      return;
-    }
-
-    setComparePlots((current) => reconcileComparePlots(current, observableOptions));
-  }, [observableOptions]);
-
-  useEffect(() => {
-    if (compareEntries.length === 0 || comparePlots.length === 0) {
-      setCompareLoading(false);
-      setCompareError(null);
-      return;
-    }
-
-    if (missingCompareRequests.length === 0) {
-      setCompareLoading(false);
-      setCompareError(null);
-      return;
-    }
-
-    let active = true;
-    setCompareLoading(true);
-    setCompareError(null);
-
-    Promise.all(
-      missingCompareRequests.map(async (request) => {
-        try {
-          const data = await getObservable(request.runId, request.observable);
-          return { ...request, data };
-        } catch (error) {
-          return { ...request, error: toErrorMessage(error) };
-        }
-      }),
-    )
-      .then((results) => {
-        if (!active) {
-          return;
-        }
-
-        setCompareDataByKey((current) => {
-          const next = { ...current };
-          for (const result of results) {
-            if ("data" in result && result.data) {
-              next[result.cacheKey] = result.data;
-            }
-          }
-          return next;
-        });
-
-        const errors = results
-          .filter((result) => "error" in result)
-          .map((result) => `${result.runId}:${result.observable}`);
-        setCompareError(errors.length > 0 ? `Failed to load ${errors.join(" | ")}` : null);
-      })
-      .finally(() => {
-        if (active) {
-          setCompareLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [compareEntries, comparePlots.length, missingCompareRequests]);
-
-  useEffect(() => {
-    if (!activeRun || activeRun.state !== "succeeded" || activeRun.solver !== "kbe_hfb") {
-      setGreenCatalog(null);
-      setGreenCatalogError(null);
-      setGreenCatalogLoading(false);
-      return;
-    }
-
-    let active = true;
-    setGreenCatalogLoading(true);
-    setGreenCatalogError(null);
-
-    listGreenFunctions(activeRun.run_id)
-      .then((payload) => {
-        if (!active) {
-          return;
-        }
-        setGreenCatalog(payload);
-      })
-      .catch((error: unknown) => {
-        if (!active) {
-          return;
-        }
-        if (error instanceof ApiError && error.status === 404) {
-          setGreenCatalog(null);
-          setGreenCatalogError(null);
-          return;
-        }
-        setGreenCatalog(null);
-        setGreenCatalogError(toErrorMessage(error));
-      })
-      .finally(() => {
-        if (active) {
-          setGreenCatalogLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [activeRun?.run_id, activeRun?.solver, activeRun?.state, activeRun?.updated_at]);
-
-  useEffect(() => {
-    if (!greenCatalog || greenCatalog.components.length === 0) {
-      setSelectedGreenComponent(null);
-      return;
-    }
-
-    setSelectedGreenComponent((current) => {
-      if (current && greenCatalog.components.includes(current)) {
-        return current;
-      }
-      if (greenCatalog.components.includes("retarded")) {
-        return "retarded";
-      }
-      return greenCatalog.components[0];
-    });
-
-    const lastTimeIndex = Math.max(greenCatalog.time_point_count - 1, 0);
-    setGreenRowIndex(lastTimeIndex);
-    setGreenColIndex(lastTimeIndex);
-    setGreenNambuStart(0);
-    setGreenNambuWindow(Math.min(4, greenCatalog.nambu_dimension));
-  }, [greenCatalog]);
-
-  useEffect(() => {
-    if (
-      !activeRun ||
-      !greenCatalog ||
-      !selectedGreenComponent ||
-      activeRun.state !== "succeeded" ||
-      activeRun.solver !== "kbe_hfb"
-    ) {
-      setGreenSlice(null);
-      setGreenSliceError(null);
-      setGreenSliceLoading(false);
-      return;
-    }
-
-    const rowStart = clampIndex(greenRowIndex, Math.max(greenCatalog.time_point_count - 1, 0));
-    const colStart = clampIndex(greenColIndex, Math.max(greenCatalog.time_point_count - 1, 0));
-    const nambuStart = clampIndex(greenNambuStart, Math.max(greenCatalog.nambu_dimension - 1, 0));
-    const nambuStop = Math.min(greenCatalog.nambu_dimension, nambuStart + Math.max(1, greenNambuWindow));
-
-    let active = true;
-    setGreenSliceLoading(true);
-    setGreenSliceError(null);
-
-    getGreenFunctionSlice(activeRun.run_id, selectedGreenComponent, {
-      row_start: rowStart,
-      row_stop: rowStart + 1,
-      col_start: colStart,
-      col_stop: colStart + 1,
-      nambu_start: nambuStart,
-      nambu_stop: nambuStop,
-    })
-      .then((payload) => {
-        if (!active) {
-          return;
-        }
-        setGreenSlice(payload);
-      })
-      .catch((error: unknown) => {
-        if (!active) {
-          return;
-        }
-        setGreenSlice(null);
-        setGreenSliceError(toErrorMessage(error));
-      })
-      .finally(() => {
-        if (active) {
-          setGreenSliceLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [
-    activeRun?.run_id,
-    activeRun?.solver,
-    activeRun?.state,
-    greenCatalog,
-    selectedGreenComponent,
-    greenRowIndex,
-    greenColIndex,
-    greenNambuStart,
-    greenNambuWindow,
-  ]);
-
-  function updateJob(jobId: string, updater: (job: WorkspaceJob) => WorkspaceJob) {
-    setJobs((current) => current.map((job) => (job.id === jobId ? updater(job) : job)));
+  function handleLoadPreset(preset: PresetConfig) {
+    setDraftConfig(cloneConfig(preset));
+    setLoadedPresetName(preset.name ?? null);
   }
 
-  function handleCreateJob() {
-    const nextJob = createWorkspaceJob(jobs.map((job) => job.title));
-    setJobs((current) => [...current, nextJob]);
-    startTransition(() => {
-      setActiveJobId(nextJob.id);
-    });
+  function resetDraft() {
+    setDraftConfig(createDefaultConfig());
+    setLoadedPresetName(null);
   }
 
-  function handleDuplicateJob(jobId: string) {
-    const source = jobs.find((job) => job.id === jobId);
-    if (!source) {
-      return;
-    }
-
-    const nextJob = createWorkspaceJob(
-      jobs.map((job) => job.title),
-      source,
-    );
-    setJobs((current) => [...current, nextJob]);
-    startTransition(() => {
-      setActiveJobId(nextJob.id);
-    });
-  }
-
-  function handleDeleteJob(jobId: string) {
-    if (jobs.length === 1) {
-      const fallback = createWorkspaceJob([]);
-      setJobs([fallback]);
-      startTransition(() => {
-        setActiveJobId(fallback.id);
-      });
-      return;
-    }
-
-    const nextJobs = jobs.filter((job) => job.id !== jobId);
-    setJobs(nextJobs);
-
-    if (jobId === activeJobId) {
-      startTransition(() => {
-        setActiveJobId(nextJobs[0]?.id ?? null);
-      });
+  function stagePreset(config: PresetConfig | SimulationConfigInput, preferredObservable: string | null = null) {
+    const nextConfig = cloneConfig(config);
+    setActiveTab("single-job");
+    setActiveContourSurface("real-time");
+    setDraftConfig(nextConfig);
+    setLoadedPresetName(nextConfig.name ?? null);
+    if (preferredObservable) {
+      observables.setSelectedObservable(preferredObservable);
     }
   }
 
-  function handleRenameJob(jobId: string, title: string) {
-    updateJob(jobId, (job) => renameJob(job, title));
+  async function launchPreset(config: PresetConfig | SimulationConfigInput, preferredObservable: string | null = null) {
+    const nextConfig = cloneConfig(config);
+    stagePreset(nextConfig, preferredObservable);
+    await runState.createRun(nextConfig);
   }
 
-  function handleUpdateJobParameter(jobId: string, column: JobColumn, value: unknown) {
-    updateJob(jobId, (job) => applyJobColumnValue(job, column, value));
-  }
-
-  function handleTogglePlot(jobId: string, enabled: boolean) {
-    updateJob(jobId, (job) => ({
-      ...job,
-      plotEnabled: enabled,
-    }));
-  }
-
-  function handleActiveConfigChange(nextConfig: SimulationConfigInput) {
-    if (!activeJob) {
-      return;
-    }
-
-    updateJob(activeJob.id, (job) => ({
-      ...job,
-      config: nextConfig,
-      title: nextConfig.name ? nextConfig.name : job.title,
-    }));
-  }
-
-  function handleResetActiveJob() {
-    if (!activeJob) {
-      return;
-    }
-
-    const nextConfig = createDefaultConfig();
-    nextConfig.name = activeJob.title;
-    updateJob(activeJob.id, (job) => ({
-      ...job,
-      config: nextConfig,
-    }));
-  }
-
-  async function handleRegisterRun() {
-    if (!activeJob) {
-      return;
-    }
-
-    setSubmittingJobId(activeJob.id);
-    setSubmitErrors((current) => {
-      const next = { ...current };
-      delete next[activeJob.id];
-      return next;
-    });
-
-    try {
-      const created = await createRun(activeJob.config);
-      setRunsById((current) => ({
-        ...current,
-        [created.run_id]: created,
-      }));
-      updateJob(activeJob.id, (job) => ({
-        ...job,
-        lastRunId: created.run_id,
-        runHistory: [created.run_id, ...job.runHistory.filter((runId) => runId !== created.run_id)].slice(0, 8),
-      }));
-      setRunRefreshVersion((current) => current + 1);
-    } catch (error) {
-      setSubmitErrors((current) => ({
-        ...current,
-        [activeJob.id]: toErrorMessage(error),
-      }));
-    } finally {
-      setSubmittingJobId(null);
-    }
-  }
-
-  function handleSelectJob(jobId: string) {
-    startTransition(() => {
-      setActiveJobId(jobId);
-    });
-  }
-
-  function handleSelectRunForJob(jobId: string, runId: string) {
-    updateJob(jobId, (job) => ({
-      ...job,
-      lastRunId: runId,
-    }));
-  }
-
-  function handleSelectPlotObservable(plotIndex: number, observable: string) {
-    startTransition(() => {
-      setComparePlots((current) =>
-        current.map((plot, index) =>
-          index === plotIndex
-            ? {
-                observable,
-                series: null,
-              }
-            : plot,
-        ),
-      );
-    });
-  }
-
-  function handleSelectPlotSeries(plotIndex: number, series: string) {
-    startTransition(() => {
-      setComparePlots((current) =>
-        current.map((plot, index) =>
-          index === plotIndex
-            ? {
-                ...plot,
-                series,
-              }
-            : plot,
-        ),
-      );
-    });
-  }
+  const activeSurface = getWorkbenchTabDescriptor(activeTab);
+  const draftTrack = getSimulationTrack(draftConfig);
+  const selectedTrack = selectedRun ? getSimulationTrack(selectedRun.config) : null;
+  const activePresetName = loadedPresetName;
+  const baselinePreset = selectWorkingBaselinePreset(presets);
+  const higgsDemoPreset = selectHiggsDemoPreset(presets);
+  const baselinePresetName = baselinePreset.name ?? null;
+  const higgsDemoName = higgsDemoPreset.name ?? null;
+  const evidenceSurface =
+    selectedRun?.solver === "kbe_hfb"
+      ? "Observables, diagnostics, and two-time contour slices are available on this artifact surface."
+      : "Observables and diagnostics are the primary evidence surfaces for this artifact.";
+  const activeContour = CONTOUR_SURFACES.find((surface) => surface.key === activeContourSurface) ?? CONTOUR_SURFACES[0];
 
   return (
-    <main className="app-shell">
+    <div className="app-shell">
       <div className="app-backdrop" />
-      <section className="hero">
-        <div className="hero-main">
-          <p className="hero-kicker">TDKB Workspace</p>
-          <h1>Build, edit, and compare TDKB runs without losing the full parameter view.</h1>
-          <p className="hero-copy">
-            Switch drafts from tabs, edit every parameter inside compact cards, and pin time-evolution plots into a
-            three-column comparison wall.
-          </p>
-        </div>
-        <div className="hero-summary">
-          <div className="hero-stat-card">
-            <span className="hero-stat-label">Active Job</span>
-            <strong>{activeJob?.title ?? "-"}</strong>
-          </div>
-          <div className="hero-stat-card">
-            <span className="hero-stat-label">Solver</span>
-            <strong>{activeJob?.config.solver ?? "-"}</strong>
-          </div>
-          <div className="hero-stat-card">
-            <span className="hero-stat-label">Drafts</span>
-            <strong>{jobs.length}</strong>
-          </div>
-          <div className="hero-stat-card">
-            <span className="hero-stat-label">Compared Runs</span>
-            <strong>{compareEntries.length}</strong>
-          </div>
-        </div>
-      </section>
 
-      <JobTabsBar
-        jobs={jobs}
-        activeJobId={activeJobId}
-        runsById={runsById}
-        onCreateJob={handleCreateJob}
-        onSelectJob={handleSelectJob}
-      />
-
-      <JobSummaryTable
-        jobs={jobs}
-        activeJobId={activeJobId}
-        runsById={runsById}
-        parameterColumns={parameterColumns}
-        showDifferentOnly={showDifferentOnly}
-        onToggleShowDifferentOnly={setShowDifferentOnly}
-        onSelectJob={handleSelectJob}
-        onUpdateJobTitle={handleRenameJob}
-        onUpdateJobParameter={handleUpdateJobParameter}
-        onTogglePlot={handleTogglePlot}
-        onDuplicateJob={handleDuplicateJob}
-        onDeleteJob={handleDeleteJob}
-      />
-
-      <div className="workspace-grid">
-        <div className="workspace-sidebar">
-          <JobWorkbenchPanel
-            job={activeJob}
-            run={activeRun}
-            runsById={runsById}
-            submitting={submittingJobId === activeJob?.id}
-            submitError={activeSubmitError ?? activeRunError}
-            onTitleChange={(title) => {
-              if (activeJob) {
-                handleRenameJob(activeJob.id, title);
-              }
-            }}
-            onRegisterRun={handleRegisterRun}
-            onResetConfig={handleResetActiveJob}
-            onDuplicateJob={() => {
-              if (activeJob) {
-                handleDuplicateJob(activeJob.id);
-              }
-            }}
-            onDeleteJob={() => {
-              if (activeJob) {
-                handleDeleteJob(activeJob.id);
-              }
-            }}
-            onTogglePlot={(value) => {
-              if (activeJob) {
-                handleTogglePlot(activeJob.id, value);
-              }
-            }}
-            onSelectRun={(runId) => {
-              if (activeJob) {
-                handleSelectRunForJob(activeJob.id, runId);
-              }
-            }}
-          />
-          <ConfigPanel
-            config={activeJob?.config ?? createDefaultConfig()}
-            disabled={submittingJobId === activeJob?.id}
-            onConfigChange={handleActiveConfigChange}
-            onReset={handleResetActiveJob}
-          />
+      <header className="shell-topbar">
+        <div className="shell-brand">
+          <div className="shell-topline">
+            <p className="hero-kicker">TDKB</p>
+            <span className="shell-divider" aria-hidden="true" />
+            <span className="shell-surface-label">{activeSurface.label}</span>
+          </div>
+          <h1>Research Workbench</h1>
+          <p className="shell-copy">{activeSurface.summary}</p>
         </div>
 
-        <div className="workspace-main">
-          <ObservableComparePanel
-            observableOptions={observableOptions}
-            plots={comparePlots}
-            onSelectObservable={handleSelectPlotObservable}
-            onSelectSeries={handleSelectPlotSeries}
-            entries={compareEntries}
-            dataByKey={compareDataByKey}
-            loading={compareLoading}
-            error={compareError}
-          />
-          <DiagnosticsPanel run={activeRun} />
+        <div className="shell-badge-cluster">
+          <span className={`validation-pill validation-${draftTrack.tone}`}>Draft: {draftTrack.statusLabel}</span>
+          {isSingleJobPage && selectedTrack ? (
+            <span className={`validation-pill validation-${selectedTrack.tone}`}>
+              Selected run: {selectedTrack.statusLabel}
+            </span>
+          ) : null}
+          <span className="signal-badge">{isSingleJobPage ? "Single-run evidence" : "Planning surface"}</span>
+          {activePresetName ? <span className="signal-badge">Preset: {activePresetName}</span> : null}
         </div>
+      </header>
+
+      <WorkbenchTabs activeTab={activeTab} onSelectTab={setActiveTab} />
+
+      <div className="shell-layout">
+        <aside className="shell-sidebar">
+          {isSingleJobPage ? (
+            <>
+              <div className="sidebar-action-bar">
+                <button type="button" className="primary-button sidebar-launch-btn" onClick={() => runState.createRun(draftConfig)} disabled={isSubmitting}>
+                  {isSubmitting ? "Submitting..." : "Launch Run"}
+                </button>
+                {canCancel ? (
+                  <button type="button" className="danger-button" onClick={runState.cancelRun} disabled={isCancelling}>
+                    {isCancelling ? "Cancelling..." : "Cancel"}
+                  </button>
+                ) : null}
+                {runState.submitError ? <p className="state-banner state-error" style={{fontSize: "0.82rem", padding: "0.4rem 0.6rem"}}>{runState.submitError}</p> : null}
+              </div>
+
+              <ConfigPanel
+                config={draftConfig}
+                disabled={isSubmitting || isCancelling}
+                onConfigChange={setDraftConfig}
+                onReset={resetDraft}
+              />
+
+              <PresetLibraryPanel
+                presets={presets}
+                loading={presetsLoading}
+                error={presetError}
+                activePresetName={activePresetName}
+                workingBaselineName={baselinePresetName}
+                showHiggsQuickstart
+                higgsDemoName={higgsDemoName}
+                busy={isSubmitting || isCancelling}
+                onLoadPreset={handleLoadPreset}
+                onStageHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+                onLaunchHiggsDemo={() => launchPreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+              />
+
+              <RunControlPanel
+                isSubmitting={runState.isSubmitting}
+                isCancelling={runState.isCancelling}
+                runs={runState.runs}
+                runsLoading={runState.runsLoading}
+                runsError={runState.runsError}
+                runLoading={runState.runLoading}
+                runError={runState.runError}
+                submitError={runState.submitError}
+                cancelError={runState.cancelError}
+                selectedRun={runState.selectedRun}
+                selectedRunId={runState.selectedRunId}
+                onCreateRun={() => runState.createRun(draftConfig)}
+                onCancelRun={runState.cancelRun}
+                onRefresh={runState.refresh}
+                onSelectRun={runState.setSelectedRunId}
+              />
+            </>
+          ) : null}
+
+          {isCompareJobsPage ? (
+              <>
+                <CompareJobsRailPanel
+                  draftConfig={draftConfig}
+                  baselinePreset={baselinePreset}
+                  baselinePresetName={baselinePresetName}
+                />
+
+                <PresetLibraryPanel
+                  presets={presets}
+                  loading={presetsLoading}
+                  error={presetError}
+                  activePresetName={activePresetName}
+                  workingBaselineName={baselinePresetName}
+                  showHiggsQuickstart={false}
+                  higgsDemoName={higgsDemoName}
+                  busy={isSubmitting || isCancelling}
+                  onLoadPreset={handleLoadPreset}
+                  onStageHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+                  onLaunchHiggsDemo={() => launchPreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+                />
+
+                <ConfigPanel
+                  config={draftConfig}
+                  disabled={isSubmitting || isCancelling}
+                  onConfigChange={setDraftConfig}
+                  onReset={resetDraft}
+                />
+              </>
+            ) : null}
+
+          {isParameterSweepPage ? (
+            <>
+              <PresetLibraryPanel
+                presets={presets}
+                loading={presetsLoading}
+                error={presetError}
+                activePresetName={activePresetName}
+                workingBaselineName={baselinePresetName}
+                showHiggsQuickstart={false}
+                higgsDemoName={higgsDemoName}
+                busy={isSubmitting || isCancelling}
+                onLoadPreset={handleLoadPreset}
+                onStageHiggsDemo={() => stagePreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+                onLaunchHiggsDemo={() => launchPreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
+              />
+
+              <ConfigPanel
+                config={draftConfig}
+                disabled={isSubmitting || isCancelling}
+                onConfigChange={setDraftConfig}
+                onReset={resetDraft}
+              />
+            </>
+          ) : null}
+        </aside>
+
+        <main className="shell-main page-stack">
+          {isSingleJobPage ? (
+            <>
+              <section className="page-section">
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">Run Framing</p>
+                    <h2>Set Claim Boundary Before Reading Evidence</h2>
+                  </div>
+                  <p className="section-copy">
+                    Keep preset loading, config editing, and run selection on the left rail, then use the main canvas
+                    for artifact framing and evidence reading.
+                  </p>
+                </div>
+
+                <div className="single-job-summary-grid">
+                  <ValidationScopePanel draftConfig={draftConfig} selectedRun={selectedRun} />
+                  <RunContextPanel run={selectedRun} baselinePreset={baselinePreset} evidenceSurface={evidenceSurface} />
+                </div>
+              </section>
+
+              <section className="page-section">
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">Primary Evidence</p>
+                    <h2>Read Observables Before Diagnostics And Contours</h2>
+                  </div>
+                  <p className="section-copy">
+                    Keep the first pass on stored observables and spectrum preview. Diagnostics, logs, and artifact
+                    backlog stay on the support rail instead of competing with the primary read.
+                  </p>
+                </div>
+
+                <div className="single-job-evidence-grid">
+                  <div className="flow-column">
+                    <ObservablePanel
+                      catalog={observables.catalog}
+                      catalogLoading={observables.catalogLoading}
+                      catalogError={observables.catalogError}
+                      data={observables.data}
+                      dataLoading={observables.dataLoading}
+                      dataError={observables.dataError}
+                      run={selectedRun}
+                      selectedObservable={observables.selectedObservable}
+                      onSelectObservable={observables.setSelectedObservable}
+                      overlayNames={observables.overlayNames}
+                      onToggleOverlay={observables.toggleOverlay}
+                      overlayData={observables.overlayData}
+                    />
+
+                    <SpectrumPanel
+                      data={observables.data}
+                      dataLoading={observables.dataLoading}
+                      dataError={observables.dataError}
+                      run={selectedRun}
+                    />
+                  </div>
+
+                  <div className="flow-column evidence-support-rail control-rail-sticky">
+                    <DiagnosticsPanel run={selectedRun} />
+                    <RunLogPanel run={selectedRun} />
+                    <ResearchArtifactsPanel
+                      activeTab={activeTab}
+                      run={selectedRun}
+                      selectedObservable={observables.selectedObservable}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="page-section">
+                <div className="section-heading-row">
+                  <div>
+                    <p className="eyebrow">Advanced Evidence</p>
+                    <h2>Inspect Contour-Dressed Artifacts On Demand</h2>
+                  </div>
+                  <p className="section-copy">
+                    Keep real-time slices first and open thermal or mixed contour structure only when the selected run
+                    requires full-contour context.
+                  </p>
+                </div>
+
+                <div className="single-job-advanced-grid">
+                  <section className="panel contour-stage-panel">
+                    <div className="panel-header">
+                      <div>
+                        <p className="eyebrow">Contour Surface</p>
+                        <h2>Choose What To Inspect</h2>
+                      </div>
+                      {selectedRun ? <span className={`status-pill status-${selectedRun.state}`}>{selectedRun.state}</span> : null}
+                    </div>
+
+                    <div className="chip-row" role="tablist" aria-label="Contour surface selector">
+                      {CONTOUR_SURFACES.map((surface) => (
+                        <button
+                          key={surface.key}
+                          type="button"
+                          className={`chip ${activeContourSurface === surface.key ? "chip-active" : ""}`}
+                          onClick={() => setActiveContourSurface(surface.key)}
+                        >
+                          {surface.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <p className="field-hint contour-stage-copy">{activeContour.copy}</p>
+                  </section>
+
+                  <div className="flow-column">
+                    {activeContourSurface === "real-time" ? (
+                      <GreenFunctionPanel
+                        run={selectedRun}
+                        catalog={green.catalog}
+                        catalogLoading={green.catalogLoading}
+                        catalogError={green.catalogError}
+                        selectedComponent={green.selectedComponent}
+                        onSelectComponent={green.setSelectedComponent}
+                        rowIndex={green.rowIndex}
+                        colIndex={green.colIndex}
+                        nambuStart={green.nambuStart}
+                        nambuWindow={green.nambuWindow}
+                        onRowIndexChange={green.setRowIndex}
+                        onColIndexChange={green.setColIndex}
+                        onNambuStartChange={green.setNambuStart}
+                        onNambuWindowChange={green.setNambuWindow}
+                        slice={green.slice}
+                        sliceLoading={green.sliceLoading}
+                        sliceError={green.sliceError}
+                      />
+                    ) : null}
+
+                    {activeContourSurface === "thermal" ? (
+                      <ThermalBranchPanel
+                        run={selectedRun}
+                        catalog={thermal.catalog}
+                        catalogLoading={thermal.catalogLoading}
+                        catalogError={thermal.catalogError}
+                        selectedComponent={thermal.selectedComponent}
+                        onSelectComponent={thermal.setSelectedComponent}
+                        tauIndex={thermal.tauIndex}
+                        nambuStart={thermal.nambuStart}
+                        nambuWindow={thermal.nambuWindow}
+                        onTauIndexChange={thermal.setTauIndex}
+                        onNambuStartChange={thermal.setNambuStart}
+                        onNambuWindowChange={thermal.setNambuWindow}
+                        slice={thermal.slice}
+                        sliceLoading={thermal.sliceLoading}
+                        sliceError={thermal.sliceError}
+                      />
+                    ) : null}
+
+                    {activeContourSurface === "mixed" ? (
+                      <MixedGreenFunctionPanel
+                        run={selectedRun}
+                        catalog={mixed.catalog}
+                        catalogLoading={mixed.catalogLoading}
+                        catalogError={mixed.catalogError}
+                        selectedComponent={mixed.selectedComponent}
+                        onSelectComponent={mixed.setSelectedComponent}
+                        timeIndex={mixed.timeIndex}
+                        tauIndex={mixed.tauIndex}
+                        nambuStart={mixed.nambuStart}
+                        nambuWindow={mixed.nambuWindow}
+                        onTimeIndexChange={mixed.setTimeIndex}
+                        onTauIndexChange={mixed.setTauIndex}
+                        onNambuStartChange={mixed.setNambuStart}
+                        onNambuWindowChange={mixed.setNambuWindow}
+                        slice={mixed.slice}
+                        sliceLoading={mixed.sliceLoading}
+                        sliceError={mixed.sliceError}
+                      />
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+            </>
+          ) : isCompareJobsPage ? (
+            <section className="page-section">
+              <div className="section-heading-row">
+                <div>
+                  <p className="eyebrow">Comparison Planning</p>
+                  <h2>Stage A Managed Job Group</h2>
+                </div>
+                <p className="section-copy">
+                  Keep variant editing on the left rail and read the compare artifact framing in the main canvas before
+                  any future overlay, difference, or FFT panels arrive.
+                </p>
+              </div>
+
+              <CompareJobsPlanningPanel
+                draftConfig={draftConfig}
+                baselinePreset={baselinePreset}
+                baselinePresetName={baselinePresetName}
+              />
+            </section>
+          ) : (
+            <section className="page-section">
+              <div className="section-heading-row">
+                <div>
+                  <p className="eyebrow">Sweep Planning</p>
+                  <h2>Design A Managed Sweep</h2>
+                </div>
+                <p className="section-copy">
+                  Use this page for scan setup and guardrails. Do not mix parameter-scan planning into the single-run
+                  evidence reading path.
+                </p>
+              </div>
+
+              <WorkbenchPlaceholderPanel
+                tab={activeTab}
+                draftConfig={draftConfig}
+                baselinePresetName={baselinePresetName}
+              />
+            </section>
+          )}
+        </main>
       </div>
-
-      <GreenFunctionPanel
-        run={activeRun}
-        catalog={greenCatalog}
-        catalogLoading={greenCatalogLoading}
-        catalogError={greenCatalogError}
-        selectedComponent={selectedGreenComponent}
-        onSelectComponent={setSelectedGreenComponent}
-        rowIndex={greenRowIndex}
-        colIndex={greenColIndex}
-        nambuStart={greenNambuStart}
-        nambuWindow={greenNambuWindow}
-        onRowIndexChange={setGreenRowIndex}
-        onColIndexChange={setGreenColIndex}
-        onNambuStartChange={setGreenNambuStart}
-        onNambuWindowChange={setGreenNambuWindow}
-        slice={greenSlice}
-        sliceLoading={greenSliceLoading}
-        sliceError={greenSliceError}
-      />
-    </main>
+    </div>
   );
-}
-
-function toErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return "Unexpected error";
-}
-
-function clampIndex(value: number, upper: number): number {
-  return Math.min(Math.max(value, 0), upper);
-}
-
-function buildObservableCacheKey(runId: string, observable: string): string {
-  return `${runId}::${observable}`;
-}
-
-function reconcileComparePlots(current: ComparePlotSelection[], observableOptions: string[]): ComparePlotSelection[] {
-  const slotCount = Math.max(observableOptions.length, 3);
-  const next = Array.from({ length: slotCount }, (_, index) => {
-    const currentPlot = current[index];
-    const observable =
-      currentPlot?.observable && observableOptions.includes(currentPlot.observable)
-        ? currentPlot.observable
-        : (observableOptions[index] ?? null);
-    const series = currentPlot?.observable === observable ? currentPlot.series : null;
-    return { observable, series };
-  });
-
-  if (
-    current.length === next.length &&
-    current.every((plot, index) => plot.observable === next[index]?.observable && plot.series === next[index]?.series)
-  ) {
-    return current;
-  }
-
-  return next;
-}
-
-function sortObservableNames(names: string[]): string[] {
-  const order = new Map<string, number>(SUPPORTED_OBSERVABLES.map((name, index) => [name, index]));
-  return [...names].sort((left, right) => {
-    const leftIndex = order.get(left);
-    const rightIndex = order.get(right);
-
-    if (leftIndex !== undefined && rightIndex !== undefined) {
-      return leftIndex - rightIndex;
-    }
-    if (leftIndex !== undefined) {
-      return -1;
-    }
-    if (rightIndex !== undefined) {
-      return 1;
-    }
-    return left.localeCompare(right);
-  });
 }

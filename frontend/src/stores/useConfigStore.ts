@@ -1,0 +1,72 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+import type { PresetConfig, SimulationConfigInput } from "../api/types";
+import { listPresets } from "../api/client";
+import { createDefaultConfig } from "../lib/defaultConfig";
+import { cloneConfig, createFallbackPresets } from "../lib/workbench";
+import { toErrorMessage } from "../lib/helpers";
+
+type ConfigState = {
+  draftConfig: SimulationConfigInput;
+  loadedPresetName: string | null;
+  presets: PresetConfig[];
+  presetsLoading: boolean;
+  presetError: string | null;
+
+  setDraftConfig: (config: SimulationConfigInput) => void;
+  loadPreset: (preset: PresetConfig) => void;
+  resetDraft: () => void;
+  setLoadedPresetName: (name: string | null) => void;
+  fetchPresets: () => Promise<void>;
+};
+
+export const useConfigStore = create<ConfigState>()(
+  persist(
+    (set) => ({
+      draftConfig: createDefaultConfig(),
+      loadedPresetName: null,
+      presets: createFallbackPresets() as PresetConfig[],
+      presetsLoading: false,
+      presetError: null,
+
+      setDraftConfig: (config) => set({ draftConfig: config }),
+
+      loadPreset: (preset) =>
+        set({
+          draftConfig: cloneConfig(preset),
+          loadedPresetName: preset.name ?? null,
+        }),
+
+      resetDraft: () =>
+        set({
+          draftConfig: createDefaultConfig(),
+          loadedPresetName: null,
+        }),
+
+      setLoadedPresetName: (name) => set({ loadedPresetName: name }),
+
+      fetchPresets: async () => {
+        set({ presetsLoading: true });
+        try {
+          const result = await listPresets();
+          set({ presets: result, presetError: null });
+        } catch (error) {
+          set({
+            presets: createFallbackPresets() as PresetConfig[],
+            presetError: toErrorMessage(error),
+          });
+        } finally {
+          set({ presetsLoading: false });
+        }
+      },
+    }),
+    {
+      name: "tdkb-config-storage",
+      partialize: (state) => ({
+        draftConfig: state.draftConfig,
+        loadedPresetName: state.loadedPresetName,
+      }),
+    }
+  )
+);

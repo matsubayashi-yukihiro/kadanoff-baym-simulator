@@ -1,5 +1,9 @@
+import pytest
+
 from backend.app.schemas import SimulationConfig
 from backend.app.solvers.noninteracting import solve
+
+pytestmark = pytest.mark.physics_invariant
 
 
 def test_noninteracting_solver_conserves_particle_number_without_drive():
@@ -51,3 +55,27 @@ def test_noninteracting_solver_tracks_energy_work_balance_under_drive():
     assert artifacts.diagnostics["energy_drift"] > 1e-3
     assert artifacts.diagnostics["max_energy_work_mismatch"] < 1e-4
     assert artifacts.diagnostics["final_energy_work_mismatch"] < 1e-5
+
+
+def test_noninteracting_solver_tracks_local_continuity_equation_under_drive():
+    config = SimulationConfig(
+        lattice={"nx": 2, "ny": 2, "boundary": "open", "hopping": 1.0},
+        time={"t_final": 0.4, "dt": 0.05},
+        drive={
+            "amplitude_x": 0.6,
+            "amplitude_y": 0.3,
+            "frequency": 2.7,
+            "phase": 0.35,
+            "center": 0.18,
+            "width": 0.09,
+        },
+    )
+
+    artifacts = solve(config)
+
+    assert len(artifacts.diagnostics["continuity_residual_history"]) == artifacts.diagnostics["time_steps"] + 1
+    assert artifacts.diagnostics["max_continuity_residual"] == pytest.approx(
+        max(artifacts.diagnostics["continuity_residual_history"])
+    )
+    assert artifacts.diagnostics["max_continuity_residual"] < 1e-12
+    assert artifacts.diagnostics["final_continuity_residual"] < 1e-12

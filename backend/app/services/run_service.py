@@ -4,6 +4,10 @@ from typing import Any
 
 from backend.app.jobs.runner import JobRunner
 from backend.app.schemas import (
+    DecisionNoteCreate,
+    DecisionNoteRecord,
+    EvidenceBundleCreate,
+    EvidenceBundleRecord,
     GreenFunctionCatalogResponse,
     GreenFunctionSliceResponse,
     MixedGreenFunctionCatalogResponse,
@@ -11,13 +15,16 @@ from backend.app.schemas import (
     ObservableCatalogResponse,
     ObservableResponse,
     RunDetail,
+    RunResearchMetadataPatch,
     RunState,
     RunSummary,
     SimulationConfig,
+    StudyCreate,
+    StudyRecord,
     ThermalBranchCatalogResponse,
     ThermalBranchSliceResponse,
 )
-from backend.app.storage.file_storage import FileRunStorage
+from backend.app.storage.experiment_repository import ExperimentRepository
 
 
 def build_default_preset() -> SimulationConfig:
@@ -70,43 +77,74 @@ def build_kbe_hfb_preset() -> SimulationConfig:
     )
 
 
+def build_higgs_demo_preset() -> SimulationConfig:
+    return SimulationConfig(
+        name="square-4x4-higgs-demo-kbe-hfb",
+        solver="kbe_hfb",
+        lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
+        time={"t_final": 20.0, "dt": 0.05, "save_every": 1},
+        drive={
+            "amplitude_x": 0.25,
+            "amplitude_y": 0.125,
+            "frequency": 2.0,
+            "phase": 0.0,
+            "center": 3.0,
+            "width": 1.2,
+        },
+        interaction={
+            "onsite_u": -2.0,
+            "nearest_neighbor_v": -2.5,
+            "pairing_channel": "bond_d",
+        },
+        initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.2},
+        kbe={"self_energy": "hfb"},
+        observables=["density", "energy", "vector_potential", "pairing", "pairing_s", "pairing_d"],
+    )
+
+
 class RunService:
-    def __init__(self, storage: FileRunStorage, runner: JobRunner) -> None:
-        self.storage = storage
+    def __init__(self, repository: ExperimentRepository, runner: JobRunner) -> None:
+        self.repository = repository
         self.runner = runner
 
     def create_run(self, config: SimulationConfig) -> RunDetail:
-        summary = self.storage.create_run(config)
-        pid = self.runner.submit(summary.run_id, config, self.storage.base_dir)
+        summary = self.repository.create_run(config)
+        pid = self.runner.submit(summary.run_id, config, self.repository.storage.base_dir, self.repository.registry.db_path)
         if pid is not None:
-            self.storage.attach_pid(summary.run_id, pid)
+            self.repository.attach_pid(summary.run_id, pid)
         return self.get_run(summary.run_id)
 
     def list_runs(self) -> list[RunSummary]:
-        return self.storage.list_runs()
+        return self.repository.list_runs()
 
     def get_run(self, run_id: str) -> RunDetail:
-        return self.storage.read_run_detail(run_id)
+        return self.repository.read_run_detail(run_id)
 
     def cancel_run(self, run_id: str) -> RunDetail:
-        status = self.storage.read_status(run_id)
+        status = self.repository.storage.read_status(run_id)
         if status.state in {RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED}:
             return self.get_run(run_id)
 
         cancelled = self.runner.cancel(run_id)
         if cancelled or status.state == RunState.QUEUED:
-            self.storage.update_status(run_id, RunState.CANCELLED, message="run cancelled")
+            self.repository.update_status(run_id, RunState.CANCELLED, message="run cancelled")
         return self.get_run(run_id)
 
+    def read_log(self, run_id: str) -> str:
+        return self.repository.read_log(run_id)
+
+    def update_run_metadata(self, run_id: str, patch: RunResearchMetadataPatch) -> RunDetail:
+        return self.repository.update_run_metadata(run_id, patch)
+
     def list_observables(self, run_id: str) -> ObservableCatalogResponse:
-        descriptors = self.storage.read_observable_catalog(run_id)
+        descriptors = self.repository.storage.read_observable_catalog(run_id)
         return ObservableCatalogResponse(run_id=run_id, observables=[item.name for item in descriptors])
 
     def get_observable(self, run_id: str, name: str) -> ObservableResponse:
-        return self.storage.read_observable(run_id, name)
+        return self.repository.storage.read_observable(run_id, name)
 
     def list_green_functions(self, run_id: str) -> GreenFunctionCatalogResponse:
-        return self.storage.read_green_function_catalog(run_id)
+        return self.repository.storage.read_green_function_catalog(run_id)
 
     def get_green_function_slice(
         self,
@@ -120,7 +158,7 @@ class RunService:
         nambu_start: int | None = None,
         nambu_stop: int | None = None,
     ) -> GreenFunctionSliceResponse:
-        return self.storage.read_green_function_slice(
+        return self.repository.storage.read_green_function_slice(
             run_id,
             component,
             row_start=row_start,
@@ -132,7 +170,7 @@ class RunService:
         )
 
     def list_thermal_branch(self, run_id: str) -> ThermalBranchCatalogResponse:
-        return self.storage.read_thermal_branch_catalog(run_id)
+        return self.repository.storage.read_thermal_branch_catalog(run_id)
 
     def get_thermal_branch_slice(
         self,
@@ -144,7 +182,7 @@ class RunService:
         nambu_start: int | None = None,
         nambu_stop: int | None = None,
     ) -> ThermalBranchSliceResponse:
-        return self.storage.read_thermal_branch_slice(
+        return self.repository.storage.read_thermal_branch_slice(
             run_id,
             component,
             tau_start=tau_start,
@@ -154,7 +192,7 @@ class RunService:
         )
 
     def list_mixed_green_functions(self, run_id: str) -> MixedGreenFunctionCatalogResponse:
-        return self.storage.read_mixed_green_function_catalog(run_id)
+        return self.repository.storage.read_mixed_green_function_catalog(run_id)
 
     def get_mixed_green_function_slice(
         self,
@@ -168,7 +206,7 @@ class RunService:
         nambu_start: int | None = None,
         nambu_stop: int | None = None,
     ) -> MixedGreenFunctionSliceResponse:
-        return self.storage.read_mixed_green_function_slice(
+        return self.repository.storage.read_mixed_green_function_slice(
             run_id,
             component,
             time_start=time_start,
@@ -180,7 +218,44 @@ class RunService:
         )
 
     def get_presets(self) -> list[SimulationConfig]:
-        return [build_default_preset(), build_tdhfb_preset(), build_kbe_hfb_preset()]
+        return [build_higgs_demo_preset(), build_default_preset(), build_tdhfb_preset(), build_kbe_hfb_preset()]
 
     def get_schema(self) -> dict[str, Any]:
         return SimulationConfig.model_json_schema()
+
+    def create_study(self, payload: StudyCreate) -> StudyRecord:
+        return self.repository.create_study(payload)
+
+    def list_studies(self) -> list[StudyRecord]:
+        return self.repository.list_studies()
+
+    def get_study(self, study_id: str) -> StudyRecord:
+        return self.repository.get_study(study_id)
+
+    def create_decision_note(self, payload: DecisionNoteCreate) -> DecisionNoteRecord:
+        return self.repository.create_decision_note(payload)
+
+    def list_decision_notes(
+        self,
+        *,
+        study_id: str | None = None,
+        source_kind: str | None = None,
+        source_id: str | None = None,
+    ) -> list[DecisionNoteRecord]:
+        return self.repository.list_decision_notes(
+            study_id=study_id,
+            source_kind=source_kind,
+            source_id=source_id,
+        )
+
+    def get_decision_note(self, note_id: str) -> DecisionNoteRecord:
+        return self.repository.get_decision_note(note_id)
+
+    def create_evidence_bundle(self, payload: EvidenceBundleCreate) -> EvidenceBundleRecord:
+        return self.repository.create_evidence_bundle(payload)
+
+    def list_evidence_bundles(self, *, study_id: str | None = None) -> list[EvidenceBundleRecord]:
+        return self.repository.list_evidence_bundles(study_id=study_id)
+
+    def get_evidence_bundle(self, bundle_id: str) -> EvidenceBundleRecord:
+        return self.repository.get_evidence_bundle(bundle_id)

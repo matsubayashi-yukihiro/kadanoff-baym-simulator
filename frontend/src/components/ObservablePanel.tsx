@@ -1,6 +1,6 @@
 import type { ObservableCatalogResponse, ObservableResponse, RunDetail } from "../api/types";
 import { formatLabel } from "../lib/format";
-import { LineChart } from "./LineChart";
+import { ObservablePlot } from "./charts/ObservablePlot";
 
 type ObservablePanelProps = {
   catalog: ObservableCatalogResponse | null;
@@ -12,18 +12,32 @@ type ObservablePanelProps = {
   run: RunDetail | null;
   selectedObservable: string | null;
   onSelectObservable: (name: string) => void;
+  overlayNames: ReadonlySet<string>;
+  onToggleOverlay: (name: string) => void;
+  overlayData: ReadonlyMap<string, ObservableResponse>;
 };
 
 export function ObservablePanel(props: ObservablePanelProps) {
-  const { catalog, catalogLoading, catalogError, data, dataLoading, dataError, run, selectedObservable, onSelectObservable } =
-    props;
+  const {
+    catalog, catalogLoading, catalogError,
+    data, dataLoading, dataError,
+    run, selectedObservable, onSelectObservable,
+    overlayNames, onToggleOverlay, overlayData,
+  } = props;
+
+  const overlayList: ObservableResponse[] = [];
+  for (const name of overlayNames) {
+    if (name === selectedObservable) continue;
+    const d = overlayData.get(name);
+    if (d) overlayList.push(d);
+  }
 
   return (
     <section className="panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Observables</p>
-          <h2>ObservablePanel</h2>
+          <p className="eyebrow">Signals</p>
+          <h2>Observable Readout</h2>
         </div>
         {run ? <span className={`status-pill status-${run.state}`}>{run.state}</span> : null}
       </div>
@@ -31,7 +45,7 @@ export function ObservablePanel(props: ObservablePanelProps) {
       {!run ? (
         <div className="empty-card">
           <p>No observable source selected.</p>
-          <p>Choose a run to inspect time series.</p>
+          <p>Select a completed run to inspect saved time-series output.</p>
         </div>
       ) : null}
 
@@ -42,18 +56,34 @@ export function ObservablePanel(props: ObservablePanelProps) {
       {catalogError ? <p className="state-banner state-error">{catalogError}</p> : null}
 
       {catalog && catalog.observables.length > 0 ? (
-        <div className="chip-row" role="tablist" aria-label="Observable selector">
-          {catalog.observables.map((name) => (
-            <button
-              key={name}
-              type="button"
-              className={`chip ${selectedObservable === name ? "chip-active" : ""}`}
-              onClick={() => onSelectObservable(name)}
-            >
-              {formatLabel(name)}
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="chip-row" role="tablist" aria-label="Observable selector">
+            {catalog.observables.map((name) => {
+              const isPrimary = selectedObservable === name;
+              const isOverlay = overlayNames.has(name);
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className={`chip ${isPrimary ? "chip-active" : isOverlay ? "chip-overlay" : ""}`}
+                  onClick={(e) => {
+                    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+                      if (!isPrimary) onToggleOverlay(name);
+                    } else {
+                      onSelectObservable(name);
+                    }
+                  }}
+                  title={isPrimary ? "Primary observable" : "Click to select, Shift+click to overlay"}
+                >
+                  {formatLabel(name)}
+                </button>
+              );
+            })}
+          </div>
+          {catalog.observables.length > 1 ? (
+            <p className="hint-text">Shift+click chips to overlay multiple observables on the chart.</p>
+          ) : null}
+        </>
       ) : null}
 
       {run && run.state === "succeeded" && catalog && catalog.observables.length === 0 ? (
@@ -79,10 +109,10 @@ export function ObservablePanel(props: ObservablePanelProps) {
             </div>
             <div>
               <span className="focus-key">Series</span>
-              <span>{data.series.length}</span>
+              <span>{data.series.length}{overlayList.length > 0 ? ` + ${overlayList.length} overlay` : ""}</span>
             </div>
           </div>
-          <LineChart data={data} />
+          <ObservablePlot data={data} overlays={overlayList} variant="primary" />
         </div>
       ) : null}
     </section>

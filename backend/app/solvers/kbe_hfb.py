@@ -14,7 +14,14 @@ from backend.app.solvers.base import (
     ThermalBranchGreenFunctionData,
     TwoTimeGreenFunctionData,
 )
-from backend.app.solvers.green_functions import build_two_time_green_functions, green_function_diagnostics
+from backend.app.solvers.green_functions import (
+    MatsubaraBranchBuildResult,
+    MixedBranchContainer,
+    MixedBranchBuildResult,
+    TwoTimeGreenFunctionContainer,
+    build_two_time_green_functions,
+    green_function_diagnostics,
+)
 from backend.app.solvers.hamiltonian import build_one_body_hamiltonian_derivative, vector_potential
 from backend.app.solvers.lattice import SquareLattice
 from backend.app.solvers.nambu import (
@@ -27,6 +34,12 @@ from backend.app.solvers.nambu import (
 )
 from backend.app.solvers.numerics import cumulative_trapezoid
 from backend.app.solvers.observables import average_current, particle_density_statistics
+from backend.app.solvers.self_energy_second_born import (
+    apply_reference_second_born_corrections,
+    build_factorized_mixed_branch as build_reference_factorized_mixed_branch,
+    build_matsubara_branch_reference,
+    build_mixed_branch_reference,
+)
 from backend.app.solvers.self_energy_second_born_prototype import (
     apply_second_born_corrections,
     build_factorized_mixed_branch,
@@ -39,76 +52,51 @@ from backend.app.solvers.tdhfb import HFBDynamicsResult, simulate_hfb_dynamics
 def solve(config: SimulationConfig) -> SimulationArtifacts:
     dynamics = simulate_hfb_dynamics(config)
     diagnostics = dict(dynamics.diagnostics)
-    summary_excerpt = dict(dynamics.summary_excerpt)
     observables = dynamics.observables
-    reference_densities = dynamics.generalized_densities
+    summary_excerpt = dict(dynamics.summary_excerpt)
 
     diagnostics["kbe_self_energy_mode"] = config.kbe.self_energy.value
     diagnostics["kbe_fixed_point_tolerance"] = float(config.kbe.tolerance)
     diagnostics["kbe_fixed_point_mixing"] = float(config.kbe.mixing)
     diagnostics["kbe_fixed_point_max_iterations"] = int(config.kbe.max_fixed_point_iterations)
-    diagnostics["kbe_reference_solver_available"] = False
+    diagnostics["kbe_reference_solver_available"] = config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE
 
-    hfb_green_functions = build_two_time_green_functions(dynamics)
+    hfb_green_functions = _build_hfb_green_functions(config, dynamics)
     green_function_reference = hfb_green_functions
-    matsubara_result = build_matsubara_branch(config, dynamics)
-    contour_seed_mixed = build_factorized_mixed_branch(dynamics, matsubara_result.branch)
+    matsubara_result, contour_seed_mixed = _build_contour_seed(config, dynamics)
+    (
+        reference_densities,
+        observables,
+        second_born_diagnostics,
+        second_born_summary_excerpt,
+        green_function_reference,
+    ) = _solve_second_born_path(
+        config=config,
+        dynamics=dynamics,
+        hfb_green_functions=hfb_green_functions,
+        matsubara_result=matsubara_result,
+        contour_seed_mixed=contour_seed_mixed,
+    )
+    diagnostics.update(second_born_diagnostics)
+    if second_born_summary_excerpt is not None:
+        summary_excerpt = second_born_summary_excerpt
 
-    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN:
-        second_born_result = apply_second_born_corrections(
-            config=config,
-            dynamics=dynamics,
-            hfb_green_functions=hfb_green_functions,
-            matsubara_branch=matsubara_result.branch,
-            mixed_branch=contour_seed_mixed,
-        )
-        reference_densities = second_born_result.generalized_densities
-        observables, trajectory_diagnostics, summary_excerpt = _analyze_trajectory(
-            config=config,
-            dynamics=dynamics,
-            generalized_densities=reference_densities,
-        )
-        diagnostics.update(trajectory_diagnostics)
-        diagnostics.update(second_born_result.diagnostics)
-        green_function_reference = second_born_result.green_functions
-    else:
-        diagnostics.update(
-            {
-                "second_born_enabled": False,
-                "second_born_converged": True,
-                "second_born_iteration_history": [],
-                "second_born_residual_history": [],
-                "second_born_memory_norm_history": [],
-                "second_born_collision_norm_history": [],
-                "max_second_born_memory_norm": 0.0,
-                "max_second_born_collision_norm": 0.0,
-                "second_born_solver_mode": "disabled",
-                "second_born_reference_implementation": False,
-                "second_born_implementation_kind": "disabled",
-            }
-        )
-
+    assert green_function_reference is not None
     diagnostics.update(
         green_function_diagnostics(
             dynamics=dynamics,
             green_functions=green_function_reference,
             reference_densities=reference_densities,
             tdhfb_reference_densities=dynamics.generalized_densities,
-            reconstruction_mode=(
-                "causal_marching"
-                if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN
-                and diagnostics.get("second_born_solver_mode") == "two_time_causal_marching"
-                else None
-            ),
+            reconstruction_mode=_reconstruction_mode(config, diagnostics),
         )
     )
-
-    mixed_result = build_mixed_branch(
+    mixed_result = _build_mixed_branch_result(
         config=config,
         dynamics=dynamics,
-        matsubara_branch=matsubara_result.branch,
+        matsubara_result=matsubara_result,
         reference_densities=reference_densities,
-        factorized_branch=contour_seed_mixed,
+        contour_seed_mixed=contour_seed_mixed,
     )
     diagnostics.update(matsubara_result.diagnostics)
     diagnostics.update(mixed_result.diagnostics)
@@ -118,6 +106,174 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
         summary_excerpt["thermal_branch_factorized_difference"] = diagnostics["thermal_branch_factorized_difference"]
     if mixed_result.branch is not None:
         summary_excerpt["mixed_branch_factorized_difference"] = diagnostics["mixed_branch_factorized_difference"]
+    return _build_simulation_artifacts(
+        observables=observables,
+        diagnostics=diagnostics,
+        summary_excerpt=summary_excerpt,
+        green_function_reference=green_function_reference,
+        matsubara_result=matsubara_result,
+        mixed_result=mixed_result,
+    )
+
+
+def _build_hfb_green_functions(
+    config: SimulationConfig,
+    dynamics: HFBDynamicsResult,
+) -> TwoTimeGreenFunctionContainer | None:
+    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
+        return None
+    return build_two_time_green_functions(dynamics)
+
+
+def _build_contour_seed(
+    config: SimulationConfig,
+    dynamics: HFBDynamicsResult,
+) -> tuple[MatsubaraBranchBuildResult, MixedBranchContainer | None]:
+    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
+        matsubara_result = build_matsubara_branch_reference(config, dynamics)
+        contour_seed_mixed = build_reference_factorized_mixed_branch(dynamics, matsubara_result.branch)
+        return matsubara_result, contour_seed_mixed
+    matsubara_result = build_matsubara_branch(config, dynamics)
+    contour_seed_mixed = build_factorized_mixed_branch(dynamics, matsubara_result.branch)
+    return matsubara_result, contour_seed_mixed
+
+
+def _solve_second_born_path(
+    *,
+    config: SimulationConfig,
+    dynamics: HFBDynamicsResult,
+    hfb_green_functions: TwoTimeGreenFunctionContainer | None,
+    matsubara_result: MatsubaraBranchBuildResult,
+    contour_seed_mixed: MixedBranchContainer | None,
+) -> tuple[
+    list[ComplexMatrix],
+    dict[str, ObservableData],
+    dict[str, Any],
+    dict[str, float | str] | None,
+    TwoTimeGreenFunctionContainer | None,
+]:
+    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN:
+        assert hfb_green_functions is not None
+        second_born_result = apply_second_born_corrections(
+            config=config,
+            dynamics=dynamics,
+            hfb_green_functions=hfb_green_functions,
+            matsubara_branch=matsubara_result.branch,
+            mixed_branch=contour_seed_mixed,
+        )
+        observables, trajectory_diagnostics, summary_excerpt = _analyze_trajectory(
+            config=config,
+            dynamics=dynamics,
+            generalized_densities=second_born_result.generalized_densities,
+        )
+        diagnostics = dict(trajectory_diagnostics)
+        diagnostics.update(second_born_result.diagnostics)
+        return (
+            second_born_result.generalized_densities,
+            observables,
+            diagnostics,
+            summary_excerpt,
+            second_born_result.green_functions,
+        )
+
+    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
+        second_born_result = apply_reference_second_born_corrections(
+            config=config,
+            dynamics=dynamics,
+            matsubara_branch=matsubara_result.branch,
+            mixed_branch=contour_seed_mixed,
+        )
+        observables, trajectory_diagnostics, summary_excerpt = _analyze_trajectory(
+            config=config,
+            dynamics=dynamics,
+            generalized_densities=second_born_result.generalized_densities,
+        )
+        diagnostics = dict(trajectory_diagnostics)
+        diagnostics.update(second_born_result.diagnostics)
+        return (
+            second_born_result.generalized_densities,
+            observables,
+            diagnostics,
+            summary_excerpt,
+            second_born_result.green_functions,
+        )
+
+    return (
+        dynamics.generalized_densities,
+        dynamics.observables,
+        _disabled_second_born_diagnostics(),
+        None,
+        hfb_green_functions,
+    )
+
+
+def _disabled_second_born_diagnostics() -> dict[str, Any]:
+    return {
+        "second_born_enabled": False,
+        "second_born_converged": True,
+        "second_born_iteration_history": [],
+        "second_born_residual_history": [],
+        "second_born_memory_norm_history": [],
+        "second_born_collision_norm_history": [],
+        "max_second_born_memory_norm": 0.0,
+        "max_second_born_collision_norm": 0.0,
+        "second_born_solver_mode": "disabled",
+        "second_born_reference_implementation": False,
+        "second_born_implementation_kind": "disabled",
+    }
+
+
+def _reconstruction_mode(
+    config: SimulationConfig,
+    diagnostics: dict[str, Any],
+) -> str | None:
+    if (
+        config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN
+        and diagnostics.get("second_born_solver_mode") == "two_time_causal_marching"
+    ):
+        return "causal_marching"
+    if (
+        config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE
+        and diagnostics.get("second_born_solver_mode") == "gkba_causal_marching"
+    ):
+        return "gkba_causal_marching"
+    return None
+
+
+def _build_mixed_branch_result(
+    *,
+    config: SimulationConfig,
+    dynamics: HFBDynamicsResult,
+    matsubara_result: MatsubaraBranchBuildResult,
+    reference_densities: list[ComplexMatrix],
+    contour_seed_mixed: MixedBranchContainer | None,
+) -> MixedBranchBuildResult:
+    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
+        return build_mixed_branch_reference(
+            config=config,
+            matsubara_branch=matsubara_result.branch,
+            dynamics=dynamics,
+            reference_densities=reference_densities,
+            factorized_branch=contour_seed_mixed,
+        )
+    return build_mixed_branch(
+        config=config,
+        dynamics=dynamics,
+        matsubara_branch=matsubara_result.branch,
+        reference_densities=reference_densities,
+        factorized_branch=contour_seed_mixed,
+    )
+
+
+def _build_simulation_artifacts(
+    *,
+    observables: dict[str, ObservableData],
+    diagnostics: dict[str, Any],
+    summary_excerpt: dict[str, Any],
+    green_function_reference: TwoTimeGreenFunctionContainer,
+    matsubara_result: MatsubaraBranchBuildResult,
+    mixed_result: MixedBranchBuildResult,
+) -> SimulationArtifacts:
     return SimulationArtifacts(
         observables=observables,
         diagnostics=diagnostics,

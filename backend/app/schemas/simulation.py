@@ -19,6 +19,7 @@ class SolverKind(str, Enum):
 class KBESelfEnergyMode(str, Enum):
     HFB = "hfb"
     SECOND_BORN = "second_born"
+    SECOND_BORN_REFERENCE = "second_born_reference"
 
 
 class PairingChannel(str, Enum):

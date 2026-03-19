@@ -1,8 +1,11 @@
+import pytest
 import numpy as np
 
 from backend.app.schemas import SimulationConfig
 from backend.app.solvers.hamiltonian import build_one_body_hamiltonian, build_one_body_hamiltonian_derivative
 from backend.app.solvers.lattice import build_square_lattice
+
+pytestmark = pytest.mark.physics_unit
 
 
 def test_hamiltonian_is_hermitian_and_has_expected_hopping():

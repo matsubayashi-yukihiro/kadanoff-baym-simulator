@@ -9,7 +9,13 @@ from backend.app.schemas import SimulationConfig
 
 
 class JobRunner(Protocol):
-    def submit(self, run_id: str, config: SimulationConfig, data_dir: Path) -> int | None:
+    def submit(
+        self,
+        run_id: str,
+        config: SimulationConfig,
+        data_dir: Path,
+        registry_db_path: Path,
+    ) -> int | None:
         ...
 
     def cancel(self, run_id: str) -> bool:
@@ -17,8 +23,19 @@ class JobRunner(Protocol):
 
 
 class InlineJobRunner:
-    def submit(self, run_id: str, config: SimulationConfig, data_dir: Path) -> int | None:
-        execute_run(run_id=run_id, config_data=config.model_dump(mode="json"), data_dir=str(data_dir))
+    def submit(
+        self,
+        run_id: str,
+        config: SimulationConfig,
+        data_dir: Path,
+        registry_db_path: Path,
+    ) -> int | None:
+        execute_run(
+            run_id=run_id,
+            config_data=config.model_dump(mode="json"),
+            data_dir=str(data_dir),
+            registry_db_path=str(registry_db_path),
+        )
         return None
 
     def cancel(self, run_id: str) -> bool:
@@ -30,13 +47,20 @@ class ProcessJobRunner:
         self._ctx = mp.get_context("spawn")
         self._jobs: dict[str, mp.Process] = {}
 
-    def submit(self, run_id: str, config: SimulationConfig, data_dir: Path) -> int | None:
+    def submit(
+        self,
+        run_id: str,
+        config: SimulationConfig,
+        data_dir: Path,
+        registry_db_path: Path,
+    ) -> int | None:
         process = self._ctx.Process(
             target=execute_run,
             kwargs={
                 "run_id": run_id,
                 "config_data": config.model_dump(mode="json"),
                 "data_dir": str(data_dir),
+                "registry_db_path": str(registry_db_path),
             },
             daemon=True,
         )

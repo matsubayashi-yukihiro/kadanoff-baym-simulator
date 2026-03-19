@@ -1,12 +1,21 @@
 import type { ReactNode } from "react";
 
 import type { SimulationConfigInput } from "../api/types";
+import { CollapsibleSection } from "./ui/CollapsibleSection";
 import {
   createDefaultConfig,
   SUPPORTED_KBE_SELF_ENERGIES,
   SUPPORTED_OBSERVABLES,
   SUPPORTED_PAIRING_CHANNELS,
   SUPPORTED_SOLVERS,
+} from "../lib/defaultConfig";
+import type {
+  AdaptiveConfigInput,
+  DriveConfigInput,
+  InitialStateConfigInput,
+  InteractionConfigInput,
+  KbeConfigInput,
+  ThermalBranchConfigInput,
 } from "../lib/defaultConfig";
 
 type ConfigPanelProps = {
@@ -25,12 +34,18 @@ type FieldProps = {
 export function ConfigPanel(props: ConfigPanelProps) {
   const { config, disabled, onConfigChange, onReset } = props;
   const defaults = createDefaultConfig();
-  const drive = { ...defaults.drive, ...config.drive };
-  const interaction = { ...defaults.interaction, ...config.interaction };
-  const initialState = { ...defaults.initial_state, ...config.initial_state };
-  const kbe = { ...defaults.kbe, ...config.kbe };
-  const adaptive = { ...defaults.adaptive, ...config.adaptive };
-  const thermalBranch = { ...defaults.thermal_branch, ...config.thermal_branch };
+  const driveDefaults = defaults.drive as DriveConfigInput;
+  const interactionDefaults = defaults.interaction as InteractionConfigInput;
+  const initialStateDefaults = defaults.initial_state as InitialStateConfigInput;
+  const kbeDefaults = defaults.kbe as KbeConfigInput;
+  const adaptiveDefaults = defaults.adaptive as AdaptiveConfigInput;
+  const thermalBranchDefaults = defaults.thermal_branch as ThermalBranchConfigInput;
+  const drive: DriveConfigInput = (config.drive ?? driveDefaults) as DriveConfigInput;
+  const interaction: InteractionConfigInput = (config.interaction ?? interactionDefaults) as InteractionConfigInput;
+  const initialState: InitialStateConfigInput = (config.initial_state ?? initialStateDefaults) as InitialStateConfigInput;
+  const kbe: KbeConfigInput = (config.kbe ?? kbeDefaults) as KbeConfigInput;
+  const adaptive: AdaptiveConfigInput = (config.adaptive ?? adaptiveDefaults) as AdaptiveConfigInput;
+  const thermalBranch: ThermalBranchConfigInput = (config.thermal_branch ?? thermalBranchDefaults) as ThermalBranchConfigInput;
   const observables = new Set(config.observables ?? defaults.observables ?? []);
   const showKbeControls = (config.solver ?? "noninteracting") === "kbe_hfb";
 
@@ -43,8 +58,8 @@ export function ConfigPanel(props: ConfigPanelProps) {
 
   function updateSolver(value: SimulationConfigInput["solver"]) {
     const nextObservables = new Set(observables);
-    const nextInteraction = { ...interaction };
-    const nextInitialState = { ...initialState };
+    const nextInteraction: InteractionConfigInput = { ...interaction };
+    const nextInitialState: InitialStateConfigInput = { ...initialState };
 
     if (value !== "noninteracting") {
       nextObservables.add("pairing");
@@ -189,11 +204,11 @@ export function ConfigPanel(props: ConfigPanelProps) {
     <section className="panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Inspector</p>
-          <h2>Job Config</h2>
+          <p className="eyebrow">Draft</p>
+          <h2>Simulation Draft</h2>
         </div>
         <button type="button" className="ghost-button" onClick={onReset} disabled={disabled}>
-          Reset
+          Reset Draft
         </button>
       </div>
 
@@ -223,8 +238,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
         </Field>
       </div>
 
-      <div className="section-block">
-        <div className="section-title">Lattice</div>
+      <CollapsibleSection title="Lattice" defaultOpen={true}>
         <div className="panel-grid panel-grid-3">
           <Field label="Nx">
             <input
@@ -284,10 +298,9 @@ export function ConfigPanel(props: ConfigPanelProps) {
             />
           </Field>
         </div>
-      </div>
+      </CollapsibleSection>
 
-      <div className="section-block">
-        <div className="section-title">Time Grid</div>
+      <CollapsibleSection title="Time Grid" defaultOpen={true}>
         <div className="panel-grid panel-grid-3">
           <Field label="t_final">
             <input
@@ -318,10 +331,9 @@ export function ConfigPanel(props: ConfigPanelProps) {
             />
           </Field>
         </div>
-      </div>
+      </CollapsibleSection>
 
-      <div className="section-block">
-        <div className="section-title">Drive</div>
+      <CollapsibleSection title="Drive" defaultOpen={false}>
         <div className="panel-grid panel-grid-3">
           <Field label="A_x amplitude">
             <input
@@ -379,10 +391,9 @@ export function ConfigPanel(props: ConfigPanelProps) {
             />
           </Field>
         </div>
-      </div>
+      </CollapsibleSection>
 
-      <div className="section-block">
-        <div className="section-title">Interaction and Initial State</div>
+      <CollapsibleSection title="Interaction and Initial State" defaultOpen={false}>
         <div className="panel-grid panel-grid-3">
           <Field label="Onsite U" hint="Reserved for future solvers">
             <input
@@ -463,10 +474,9 @@ export function ConfigPanel(props: ConfigPanelProps) {
             />
           </Field>
         </div>
-      </div>
+      </CollapsibleSection>
 
-      <div className="section-block">
-        <div className="section-title">Observables</div>
+      <CollapsibleSection title="Observables" defaultOpen={false}>
         <div className="checkbox-grid">
           {SUPPORTED_OBSERVABLES.map((name) => {
             const checked = observables.has(name);
@@ -483,11 +493,10 @@ export function ConfigPanel(props: ConfigPanelProps) {
             );
           })}
         </div>
-      </div>
+      </CollapsibleSection>
 
       {showKbeControls ? (
-        <div className="section-block">
-          <div className="section-title">KBE Extensions</div>
+        <CollapsibleSection title="KBE Extensions" defaultOpen={true}>
           <div className="panel-grid panel-grid-3">
             <Field label="KBE Self-Energy" hint="Phase E1 closure">
               <select
@@ -601,7 +610,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
               />
             </Field>
           </div>
-        </div>
+        </CollapsibleSection>
       ) : null}
     </section>
   );

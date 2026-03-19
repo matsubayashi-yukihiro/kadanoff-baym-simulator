@@ -20,3 +20,11 @@ dependencies = [
 
 [tool.setuptools.packages.find]
 include = ["backend*"]
+
+[tool.pytest.ini_options]
+markers = [
+    "physics_unit: schema, numerics, Hamiltonian, and local self-energy structure tests",
+    "physics_invariant: conservation, symmetry, and limit-matching regression tests",
+    "physics_benchmark: exact benchmark and convergence regression tests",
+    "workflow: API and end-to-end workflow tests that do not count as physics validation",
+]

@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:20-alpine AS dev-base
 
 WORKDIR /app
 
@@ -7,6 +7,8 @@ RUN npm ci
 
 COPY tsconfig.json tsconfig.node.json vite.config.ts index.html ./
 COPY src ./src
+
+FROM dev-base AS build
 
 RUN npm run build
 

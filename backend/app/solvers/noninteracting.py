@@ -13,7 +13,13 @@ from backend.app.solvers.hamiltonian import (
 )
 from backend.app.solvers.lattice import SquareLattice, build_square_lattice
 from backend.app.solvers.numerics import cumulative_trapezoid
-from backend.app.solvers.observables import average_current, particle_density_statistics, total_energy
+from backend.app.solvers.observables import (
+    average_current,
+    particle_density_statistics,
+    site_density_time_derivative,
+    site_current_divergence,
+    total_energy,
+)
 
 
 def _initial_density_matrix(
@@ -76,6 +82,7 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
     hermiticity_error: list[float] = []
     particle_trace: list[float] = []
     external_power: list[float] = []
+    continuity_residual_norm: list[float] = []
 
     for index, time in enumerate(times):
         hamiltonian = build_one_body_hamiltonian(config, lattice, time)
@@ -89,6 +96,10 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
         ax, ay = vector_potential(config.drive, time)
         vector_ax.append(ax)
         vector_ay.append(ay)
+        continuity_residual = site_density_time_derivative(hamiltonian, density_matrix) + site_current_divergence(
+            lattice, hamiltonian, density_matrix
+        )
+        continuity_residual_norm.append(float(np.max(np.abs(continuity_residual))))
         hermiticity_error.append(float(np.max(np.abs(density_matrix - density_matrix.conjugate().T))))
         particle_trace.append(float(np.real(np.trace(density_matrix))))
         external_power.append(_expectation_value(build_one_body_hamiltonian_derivative(config, lattice, time), density_matrix))
@@ -112,6 +123,7 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
     hermiticity_error_array = np.asarray(hermiticity_error, dtype=np.float64)
     particle_trace_array = np.asarray(particle_trace, dtype=np.float64)
     external_power_array = np.asarray(external_power, dtype=np.float64)
+    continuity_residual_norm_array = np.asarray(continuity_residual_norm, dtype=np.float64)
     cumulative_external_work = cumulative_trapezoid(external_power_array, times)
     energy_change = energy_array - energy_array[0]
     energy_work_mismatch = energy_change - cumulative_external_work
@@ -168,6 +180,9 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
         "particle_number_drift": float(np.max(np.abs(particle_trace_array - particle_target))),
         "energy_drift": float(np.max(np.abs(energy_array - energy_array[0]))),
         "max_hermiticity_error": float(np.max(hermiticity_error_array)),
+        "continuity_residual_history": continuity_residual_norm_array.tolist(),
+        "max_continuity_residual": float(np.max(continuity_residual_norm_array)),
+        "final_continuity_residual": float(continuity_residual_norm_array[-1]),
         "net_external_work": float(cumulative_external_work[-1]),
         "max_energy_work_mismatch": float(np.max(np.abs(energy_work_mismatch))),
         "final_energy_work_mismatch": float(abs(energy_work_mismatch[-1])),
@@ -177,6 +192,7 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
         "final_density": float(density_mean_array[-1]),
         "particle_number_drift": diagnostics["particle_number_drift"],
         "energy_drift": diagnostics["energy_drift"],
+        "max_continuity_residual": diagnostics["max_continuity_residual"],
         "max_energy_work_mismatch": diagnostics["max_energy_work_mismatch"],
     }
     return SimulationArtifacts(

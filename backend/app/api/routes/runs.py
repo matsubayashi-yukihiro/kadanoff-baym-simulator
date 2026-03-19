@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import PlainTextResponse
 
 from backend.app.core.dependencies import get_run_service
 from backend.app.schemas import (
@@ -11,6 +12,7 @@ from backend.app.schemas import (
     ObservableCatalogResponse,
     ObservableResponse,
     RunDetail,
+    RunResearchMetadataPatch,
     RunSummary,
     SimulationConfig,
     ThermalBranchCatalogResponse,
@@ -49,6 +51,29 @@ def cancel_run(run_id: str, service: RunService = Depends(get_run_service)) -> R
         return service.cancel_run(run_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found") from exc
+
+
+@router.patch("/{run_id}/metadata", response_model=RunDetail)
+def update_run_metadata(
+    run_id: str,
+    patch: RunResearchMetadataPatch,
+    service: RunService = Depends(get_run_service),
+) -> RunDetail:
+    try:
+        return service.update_run_metadata(run_id, patch)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.get("/{run_id}/log")
+def get_run_log(run_id: str, service: RunService = Depends(get_run_service)) -> PlainTextResponse:
+    try:
+        log_content = service.read_log(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found") from exc
+    return PlainTextResponse(log_content)
 
 
 @router.get("/{run_id}/observables", response_model=ObservableCatalogResponse)

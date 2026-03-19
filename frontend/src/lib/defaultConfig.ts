@@ -1,7 +1,14 @@
 import type { SimulationConfigInput } from "../api/types";
 
+export type DriveConfigInput = NonNullable<SimulationConfigInput["drive"]>;
+export type InteractionConfigInput = NonNullable<SimulationConfigInput["interaction"]>;
+export type InitialStateConfigInput = NonNullable<SimulationConfigInput["initial_state"]>;
+export type KbeConfigInput = NonNullable<SimulationConfigInput["kbe"]>;
+export type AdaptiveConfigInput = NonNullable<SimulationConfigInput["adaptive"]>;
+export type ThermalBranchConfigInput = NonNullable<SimulationConfigInput["thermal_branch"]>;
+
 export const SUPPORTED_SOLVERS = ["noninteracting", "tdhfb", "kbe_hfb"] as const;
-export const SUPPORTED_KBE_SELF_ENERGIES = ["hfb", "second_born"] as const;
+export const SUPPORTED_KBE_SELF_ENERGIES = ["hfb", "second_born", "second_born_reference"] as const;
 
 export const SUPPORTED_PAIRING_CHANNELS = ["none", "onsite", "bond_s", "bond_d"] as const;
 

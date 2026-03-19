@@ -73,6 +73,58 @@ def build_two_time_green_functions(
     return TwoTimeGreenFunctionContainer(times=dynamics.times, retarded=retarded, lesser=lesser)
 
 
+def build_factorized_matsubara_green_function(
+    *,
+    temperature: float,
+    n_tau: int,
+    bdg_hamiltonian: ComplexMatrix,
+) -> MatsubaraBranchContainer:
+    beta = 1.0 / temperature
+    tau = np.linspace(0.0, beta, n_tau + 1, dtype=np.float64)
+    eigenvalues, eigenvectors = np.linalg.eigh(bdg_hamiltonian)
+    argument = np.clip(beta * eigenvalues, -120.0, 120.0)
+    occupations = 1.0 / (np.exp(argument) + 1.0)
+    phase_weights = np.exp(-tau[:, np.newaxis] * eigenvalues[np.newaxis, :]) * (1.0 - occupations)[np.newaxis, :]
+    green = -np.einsum(
+        "ik,tk,jk->tij",
+        eigenvectors,
+        phase_weights,
+        eigenvectors.conjugate(),
+        optimize=True,
+    )
+    return MatsubaraBranchContainer(tau=tau, green=green)
+
+
+def build_factorized_mixed_branch(
+    dynamics: HFBDynamicsResult,
+    matsubara_branch: MatsubaraBranchContainer | None,
+) -> MixedBranchContainer | None:
+    if matsubara_branch is None:
+        return None
+
+    propagators = np.asarray(dynamics.cumulative_propagators, dtype=np.complex128)
+    propagator_daggers = propagators.conjugate().transpose(0, 2, 1)
+    mirrored_matsubara = matsubara_branch.green[::-1].conjugate().transpose(0, 2, 1)
+    right = -1j * np.einsum(
+        "tij,ajk->taik",
+        propagators,
+        matsubara_branch.green,
+        optimize=True,
+    )
+    left = 1j * np.einsum(
+        "aij,tjk->taik",
+        mirrored_matsubara,
+        propagator_daggers,
+        optimize=True,
+    )
+    return MixedBranchContainer(
+        times=dynamics.times,
+        tau=matsubara_branch.tau,
+        right=right,
+        left=left,
+    )
+
+
 def green_function_diagnostics(
     *,
     dynamics: HFBDynamicsResult,

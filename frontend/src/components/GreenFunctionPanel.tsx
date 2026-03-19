@@ -51,8 +51,8 @@ export function GreenFunctionPanel(props: GreenFunctionPanelProps) {
     <section className="panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Green Functions</p>
-          <h2>Two-Time Slice</h2>
+          <p className="eyebrow">Contour</p>
+          <h2>Green Function Slice</h2>
         </div>
         {run ? <span className={`status-pill status-${run.state}`}>{run.state}</span> : null}
       </div>

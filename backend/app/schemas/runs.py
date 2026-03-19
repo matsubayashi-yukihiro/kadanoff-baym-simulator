@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from backend.app.schemas.research import RunResearchMetadata
 from backend.app.schemas.simulation import SimulationConfig
 
 
@@ -64,6 +65,7 @@ class RunSummary(BaseModel):
     time_grid: dict[str, Any]
     available_observables: list[ObservableDescriptor] = Field(default_factory=list)
     diagnostics_excerpt: dict[str, Any] = Field(default_factory=dict)
+    research_metadata: RunResearchMetadata = Field(default_factory=RunResearchMetadata)
 
 
 class RunDetail(RunSummary):

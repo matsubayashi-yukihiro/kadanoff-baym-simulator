@@ -20,6 +20,8 @@ from backend.app.solvers.green_functions import (
     MixedBranchBuildResult,
     MixedBranchContainer,
     TwoTimeGreenFunctionContainer,
+    build_factorized_matsubara_green_function,
+    build_factorized_mixed_branch as build_shared_factorized_mixed_branch,
 )
 from backend.app.solvers.nambu import ComplexMatrix, build_bdg_hamiltonian, extract_density_blocks
 from backend.app.solvers.numerics import linear_mix
@@ -431,28 +433,7 @@ def build_factorized_mixed_branch(
     dynamics: HFBDynamicsResult,
     matsubara_branch: MatsubaraBranchContainer | None,
 ) -> MixedBranchContainer | None:
-    if matsubara_branch is None:
-        return None
-
-    sample_count = len(dynamics.times)
-    tau_count = len(matsubara_branch.tau)
-    nambu_dimension = matsubara_branch.green.shape[1]
-    right = np.zeros((sample_count, tau_count, nambu_dimension, nambu_dimension), dtype=np.complex128)
-    left = np.zeros_like(right)
-    mirrored_matsubara = matsubara_branch.green[::-1]
-
-    for time_index, propagator in enumerate(dynamics.cumulative_propagators):
-        propagator_dagger = propagator.conjugate().T
-        for tau_index, matsubara_value in enumerate(matsubara_branch.green):
-            right[time_index, tau_index] = -1j * propagator @ matsubara_value
-            left[time_index, tau_index] = 1j * mirrored_matsubara[tau_index].conjugate().T @ propagator_dagger
-
-    return MixedBranchContainer(
-        times=dynamics.times,
-        tau=matsubara_branch.tau,
-        right=right,
-        left=left,
-    )
+    return build_shared_factorized_mixed_branch(dynamics, matsubara_branch)
 
 
 def build_mixed_branch(
@@ -612,8 +593,6 @@ def _build_factorized_matsubara_branch(
     if not config.thermal_branch.enabled:
         return None
 
-    beta = 1.0 / config.initial_state.temperature
-    tau = np.linspace(0.0, beta, config.thermal_branch.n_tau + 1, dtype=np.float64)
     _, _, _, bdg_hamiltonian = build_bdg_hamiltonian(
         config,
         dynamics.lattice,
@@ -621,15 +600,11 @@ def _build_factorized_matsubara_branch(
         dynamics.equilibrium.generalized_density,
         dynamics.equilibrium.effective_chemical_potential,
     )
-    eigenvalues, eigenvectors = np.linalg.eigh(bdg_hamiltonian)
-    argument = np.clip(beta * eigenvalues, -120.0, 120.0)
-    occupations = 1.0 / (np.exp(argument) + 1.0)
-    empty_weights = 1.0 - occupations
-    green = np.zeros((len(tau), bdg_hamiltonian.shape[0], bdg_hamiltonian.shape[1]), dtype=np.complex128)
-    for index, tau_value in enumerate(tau):
-        phase = np.exp(-tau_value * eigenvalues)
-        green[index] = -(eigenvectors * (phase * empty_weights)[np.newaxis, :]) @ eigenvectors.conjugate().T
-    return MatsubaraBranchContainer(tau=tau, green=green)
+    return build_factorized_matsubara_green_function(
+        temperature=config.initial_state.temperature,
+        n_tau=config.thermal_branch.n_tau,
+        bdg_hamiltonian=bdg_hamiltonian,
+    )
 
 
 def _matsubara_diagnostics(

@@ -19,6 +19,7 @@ from backend.app.schemas import (
     ObservableSeries,
     ObservableSeriesDescriptor,
     RunDetail,
+    RunResearchMetadata,
     RunState,
     RunStatusRecord,
     RunSummary,
@@ -146,6 +147,17 @@ class FileRunStorage:
         status = self.read_status(run_id)
         self._write_model(self._path(run_id, "status.json"), status.model_copy(update={"pid": pid}))
 
+    def update_research_metadata(self, run_id: str, metadata: RunResearchMetadata) -> RunSummary:
+        summary = self.read_summary(run_id)
+        updated_summary = summary.model_copy(
+            update={
+                "research_metadata": metadata,
+                "updated_at": self._utcnow(),
+            }
+        )
+        self._write_model(self._path(run_id, "summary.json"), updated_summary)
+        return updated_summary
+
     def write_results(
         self,
         run_id: str,
@@ -157,6 +169,7 @@ class FileRunStorage:
         thermal_branch_green_functions: ThermalBranchGreenFunctionData | None = None,
         mixed_green_functions: MixedGreenFunctionData | None = None,
     ) -> None:
+        config = self.read_config(run_id)
         arrays: dict[str, np.ndarray] = {}
         descriptors: list[ObservableDescriptor] = []
         for name, observable in observables.items():
@@ -177,14 +190,32 @@ class FileRunStorage:
                 )
             )
 
-        np.savez(self._path(run_id, "observables.npz"), **arrays)
+        np.savez_compressed(self._path(run_id, "observables.npz"), **arrays)
         self._write_json(self._path(run_id, "diagnostics.json"), diagnostics)
         if two_time_green_functions is not None:
-            self._write_green_functions(run_id, two_time_green_functions)
+            stored_two_time = _subsample_two_time_green_functions(
+                two_time_green_functions,
+                save_every=config.time.save_every,
+            )
+            self._write_green_functions(
+                run_id,
+                stored_two_time,
+                full_time_point_count=int(two_time_green_functions.times.shape[0]),
+                save_every=config.time.save_every,
+            )
         if thermal_branch_green_functions is not None:
             self._write_thermal_branch(run_id, thermal_branch_green_functions)
         if mixed_green_functions is not None:
-            self._write_mixed_green_functions(run_id, mixed_green_functions)
+            stored_mixed = _subsample_mixed_green_functions(
+                mixed_green_functions,
+                save_every=config.time.save_every,
+            )
+            self._write_mixed_green_functions(
+                run_id,
+                stored_mixed,
+                full_time_point_count=int(mixed_green_functions.times.shape[0]),
+                save_every=config.time.save_every,
+            )
 
         summary = self.read_summary(run_id)
         updated_summary = summary.model_copy(
@@ -400,6 +431,12 @@ class FileRunStorage:
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(message.rstrip() + "\n")
 
+    def read_log(self, run_id: str) -> str:
+        log_path = self._path(run_id, "run.log")
+        if not log_path.exists():
+            return ""
+        return log_path.read_text(encoding="utf-8")
+
     def run_dir(self, run_id: str) -> Path:
         return self.base_dir / run_id
 
@@ -421,7 +458,14 @@ class FileRunStorage:
     def _write_json(path: Path, payload: Any) -> None:
         path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 
-    def _write_green_functions(self, run_id: str, green_functions: TwoTimeGreenFunctionData) -> None:
+    def _write_green_functions(
+        self,
+        run_id: str,
+        green_functions: TwoTimeGreenFunctionData,
+        *,
+        full_time_point_count: int | None = None,
+        save_every: int | None = None,
+    ) -> None:
         times_file = "green_times.npy"
         component_files: dict[str, str] = {}
         shape: list[int] | None = None
@@ -446,6 +490,8 @@ class FileRunStorage:
                 "components": list(green_functions.components),
                 "shape": shape,
                 "time_point_count": int(green_functions.times.shape[0]),
+                "full_time_point_count": int(full_time_point_count or green_functions.times.shape[0]),
+                "save_every": int(save_every or 1),
                 "nambu_dimension": nambu_dimension,
             },
         )
@@ -485,7 +531,14 @@ class FileRunStorage:
     def _read_thermal_branch_metadata(self, run_id: str) -> dict[str, Any]:
         return json.loads(self._path(run_id, "thermal_branch.json").read_text(encoding="utf-8"))
 
-    def _write_mixed_green_functions(self, run_id: str, mixed_green_functions: MixedGreenFunctionData) -> None:
+    def _write_mixed_green_functions(
+        self,
+        run_id: str,
+        mixed_green_functions: MixedGreenFunctionData,
+        *,
+        full_time_point_count: int | None = None,
+        save_every: int | None = None,
+    ) -> None:
         times_file = "mixed_times.npy"
         tau_file = "mixed_tau.npy"
         component_files: dict[str, str] = {}
@@ -513,6 +566,8 @@ class FileRunStorage:
                 "components": list(mixed_green_functions.components),
                 "shape": shape,
                 "time_point_count": int(mixed_green_functions.times.shape[0]),
+                "full_time_point_count": int(full_time_point_count or mixed_green_functions.times.shape[0]),
+                "save_every": int(save_every or 1),
                 "tau_point_count": int(mixed_green_functions.tau.shape[0]),
                 "nambu_dimension": nambu_dimension,
             },
@@ -540,3 +595,47 @@ def _normalize_slice_bounds(
     if normalized_stop <= normalized_start or normalized_stop > upper:
         raise ValueError(f"{axis_name}_stop must satisfy {normalized_start} < stop <= {upper}")
     return normalized_start, normalized_stop
+
+
+def _saved_step_indices(sample_count: int, save_every: int) -> np.ndarray:
+    if sample_count <= 1 or save_every <= 1:
+        return np.arange(sample_count, dtype=np.int64)
+    indices = np.arange(0, sample_count, save_every, dtype=np.int64)
+    if indices[-1] != sample_count - 1:
+        indices = np.append(indices, sample_count - 1)
+    return indices
+
+
+def _subsample_two_time_green_functions(
+    green_functions: TwoTimeGreenFunctionData,
+    *,
+    save_every: int,
+) -> TwoTimeGreenFunctionData:
+    indices = _saved_step_indices(int(green_functions.times.shape[0]), save_every)
+    if indices.shape[0] == green_functions.times.shape[0]:
+        return green_functions
+    return TwoTimeGreenFunctionData(
+        times=green_functions.times[indices],
+        components={
+            component: values[indices][:, indices]
+            for component, values in green_functions.components.items()
+        },
+    )
+
+
+def _subsample_mixed_green_functions(
+    mixed_green_functions: MixedGreenFunctionData,
+    *,
+    save_every: int,
+) -> MixedGreenFunctionData:
+    indices = _saved_step_indices(int(mixed_green_functions.times.shape[0]), save_every)
+    if indices.shape[0] == mixed_green_functions.times.shape[0]:
+        return mixed_green_functions
+    return MixedGreenFunctionData(
+        times=mixed_green_functions.times[indices],
+        tau=mixed_green_functions.tau,
+        components={
+            component: values[indices]
+            for component, values in mixed_green_functions.components.items()
+        },
+    )

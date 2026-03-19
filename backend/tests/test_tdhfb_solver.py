@@ -6,6 +6,8 @@ from backend.app.solvers.nambu import extract_density_blocks
 from backend.app.solvers.noninteracting import solve as solve_noninteracting
 from backend.app.solvers.tdhfb import simulate_hfb_dynamics, solve
 
+pytestmark = pytest.mark.physics_invariant
+
 
 def test_tdhfb_solver_emits_pairing_projections_and_preserves_stationary_state(paired_config):
     config = SimulationConfig.model_validate(paired_config)

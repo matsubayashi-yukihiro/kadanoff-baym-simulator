@@ -3,6 +3,49 @@
 
 ---
 
+この文書は、プロジェクト全体の理論仕様と設計判断の正本である。
+実装進捗や修繕判断、文献索引は以下を併読する。
+
+- 進捗管理: [progress.md](./progress.md)
+- 検証仕様: [validation-spec.md](./validation-spec.md)
+- backend 修繕計画: [backend-remediation-plan.md](./backend-remediation-plan.md)
+- 文献索引: [literature-index.md](./literature-index.md)
+- 用語集: [glossary.md](./glossary.md)
+- 式とコードの対応: [equation-to-code-map.md](./equation-to-code-map.md)
+
+## この文書の役割
+
+- 何を理論の基準形とみなすかを固定する
+- どの近似を baseline / future extension とみなすかを明示する
+- 実装上の convenience と理論上の基準形を混同しないための境界を置く
+- 理論要求そのものと、実装が何を通れば validated と呼べるかを分離する
+
+特に本プロジェクトでは、
+
+- 理論上の基準形:
+  Nambu 表現の full two-time KBE と conserving self-energy
+- 現在の実装上の区別:
+  `hfb`、heuristic prototype の `second_born`、reference path の `second_born_reference`
+
+を明示的に分けて扱う。
+
+## 理論と現行実装の対応
+
+現時点の backend では、理論の理想形とコード上の mode は次のように対応している。
+
+| 理論上の位置づけ | config mode | 現状 |
+| --- | --- | --- |
+| HFB limit | `hfb` | 実装済み |
+| heuristic prototype | `second_born` | legacy path として維持 |
+| reference path | `second_born_reference` | explicit self-energy を用いた equal-time GKBA causal marching と self-consistent Matsubara / mixed branch dressing を実装済み |
+| full contour second Born | 未公開 | 今後の拡張対象 |
+
+したがって、この文書では full two-time KBE を理論基準として保ちつつ、
+コード参照時には `second_born_reference` が
+「現在の reference implementation」であることを区別して読む。
+
+---
+
 # 1. 研究背景
 
 相関電子系の非平衡ダイナミクスは、超短パルス光実験の発展により重要な研究対象となっている。
@@ -271,7 +314,9 @@ GKBA はその上に載る **計算軽量化の将来拡張**
 特に second Born や将来の electron-phonon 自己エネルギーを用いた
 長時間・大規模計算が必要になった段階で導入候補とする。
 
-参考: [Hermanns, Balzer, Bonitz, "Non-equilibrium Green's function approach to inhomogeneous quantum many-body systems using the Generalized Kadanoff Baym Ansatz"](../pdfs/1205.4427v1.pdf)
+参考:
+- [literature-index.md](./literature-index.md)
+- [1205.4427_gkba-inhomogeneous-systems.pdf](../pdfs/negf_kbe/1205.4427_gkba-inhomogeneous-systems.pdf)
 
 ---
 
@@ -999,7 +1044,7 @@ $$
    である。
 2. 次に、固定刻み版を参照解として adaptive full KBE integrator を導入する。
    可変刻み・可変次数の積分器および history integration order の適応には、
-   [Blommel et al., "Adaptive Time Stepping for the Two-Time Integro-Differential Kadanoff-Baym Equations"](../pdfs/2405.08737v2.pdf)
+   [2405.08737_adaptive-time-stepping-two-time-kbe.pdf](../pdfs/negf_kbe/2405.08737_adaptive-time-stepping-two-time-kbe.pdf)
    を主な数値実装上の参照とする。
 3. 相関した熱平衡初期状態が必要になった段階で、
    Matsubara 枝と mixed 成分を加える。
@@ -1815,7 +1860,7 @@ Gregory 型や高次 predictor-corrector に進めばよい。
 
 ここで優先すべきなのは、
 まず uniform grid 上で second Born の正しさと保存則を固めることである。
-`2405.08737v2.pdf` に対応する adaptive step / order 導入は、
+`2405.08737_adaptive-time-stepping-two-time-kbe.pdf` に対応する adaptive step / order 導入は、
 その後に solver state と history storage を再設計して行う。
 
 ---
@@ -1873,6 +1918,10 @@ Matsubara 拡張とは独立に進められるが、
 
 各フェーズに対して、少なくとも以下を
 完了条件とする。
+
+具体的な数値閾値と test mapping は
+[validation-spec.md](./validation-spec.md)
+を正本として管理する。
 
 - 時間刻みを半減したとき、主要観測量の誤差が期待次数で減少する
 - Phase 2 と Phase 3 の HFB 極限が数値誤差内で一致する

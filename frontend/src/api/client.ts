@@ -5,9 +5,12 @@ import type {
   MixedGreenFunctionSliceResponse,
   ObservableCatalogResponse,
   ObservableResponse,
+  PresetListResponse,
   RunDetail,
   RunSummary,
   SimulationConfigInput,
+  ThermalBranchCatalogResponse,
+  ThermalBranchSliceResponse,
 } from "./types";
 
 const API_ROOT = `${
@@ -80,8 +83,18 @@ export function listRuns(): Promise<RunSummary[]> {
   return request<RunSummary[]>("/runs");
 }
 
+export function listPresets(): Promise<PresetListResponse> {
+  return request<PresetListResponse>("/presets");
+}
+
 export function getRun(runId: string): Promise<RunDetail> {
   return request<RunDetail>(`/runs/${runId}`);
+}
+
+export function cancelRun(runId: string): Promise<RunDetail> {
+  return request<RunDetail>(`/runs/${runId}/cancel`, {
+    method: "POST",
+  });
 }
 
 export function listObservables(runId: string): Promise<ObservableCatalogResponse> {
@@ -112,6 +125,34 @@ export function getGreenFunctionSlice(
     Object.entries(params).map(([key, value]) => [key, String(value)]),
   );
   return request<GreenFunctionSliceResponse>(`/runs/${runId}/green-functions/${component}?${searchParams.toString()}`);
+}
+
+export function listThermalBranch(runId: string): Promise<ThermalBranchCatalogResponse> {
+  return request<ThermalBranchCatalogResponse>(`/runs/${runId}/thermal-branch`);
+}
+
+export function getThermalBranchSlice(
+  runId: string,
+  component: string,
+  params: {
+    tau_start: number;
+    tau_stop: number;
+    nambu_start: number;
+    nambu_stop: number;
+  },
+): Promise<ThermalBranchSliceResponse> {
+  const searchParams = new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [key, String(value)]),
+  );
+  return request<ThermalBranchSliceResponse>(`/runs/${runId}/thermal-branch/${component}?${searchParams.toString()}`);
+}
+
+export async function getRunLog(runId: string): Promise<string> {
+  const response = await fetch(`${API_ROOT}/runs/${runId}/log`);
+  if (!response.ok) {
+    throw new ApiError(response.status, response.statusText || "failed to fetch log");
+  }
+  return response.text();
 }
 
 export function listMixedGreenFunctions(runId: string): Promise<MixedGreenFunctionCatalogResponse> {
