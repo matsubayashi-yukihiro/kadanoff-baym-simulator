@@ -37,6 +37,12 @@ class ArtifactLifecycleState(str, Enum):
     CANCELLED = "cancelled"
 
 
+class EvidenceBundleStatus(str, Enum):
+    DRAFT = "draft"
+    READY = "ready"
+    SUPERSEDED = "superseded"
+
+
 class ComparisonKind(str, Enum):
     PHYSICS_HYPOTHESIS = "physics_hypothesis"
     NUMERICAL_VALIDATION = "numerical_validation"
@@ -255,12 +261,58 @@ class EvidenceBundleCreate(BaseModel):
     analysis_refs: list[str] = Field(default_factory=list)
     validation_scope: str | None = None
     reproduction_recipe: str | None = None
+    status: EvidenceBundleStatus = EvidenceBundleStatus.DRAFT
+
+
+class EvidenceBundlePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str | None = None
+    claim_candidate: str | None = None
+    artifact_refs: list[ArtifactRef] | None = None
+    analysis_refs: list[str] | None = None
+    validation_scope: str | None = None
+    reproduction_recipe: str | None = None
+    status: EvidenceBundleStatus | None = None
 
 
 class EvidenceBundleRecord(EvidenceBundleCreate):
     bundle_id: str
     created_at: datetime
     updated_at: datetime
+
+
+class EvidenceBundleResolvedArtifact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    artifact_kind: ArtifactSourceKind
+    artifact_id: str
+    study_id: str | None = None
+    label: str
+    state: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvidenceBundleResolvedAnalysis(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    analysis_id: str
+    study_id: str
+    analysis_type: str
+    analysis_version: str
+    source_kind: DerivedAnalysisSourceKind
+    source_id: str
+    status: ArtifactLifecycleState
+    result_metadata: dict[str, Any] = Field(default_factory=dict)
+    supports_bundle_ids: list[str] = Field(default_factory=list)
+
+
+class EvidenceBundleResolvedRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    bundle: EvidenceBundleRecord
+    resolved_artifacts: list[EvidenceBundleResolvedArtifact] = Field(default_factory=list)
+    resolved_analyses: list[EvidenceBundleResolvedAnalysis] = Field(default_factory=list)
 
 
 class DerivedAnalysisArtifactCreate(BaseModel):
@@ -284,3 +336,23 @@ class DerivedAnalysisArtifactRecord(DerivedAnalysisArtifactCreate):
     analysis_id: str
     created_at: datetime
     updated_at: datetime
+
+
+class DerivedAnalysisLaunchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    study_id: str
+    source_kind: DerivedAnalysisSourceKind
+    source_id: str
+    analysis_type: str
+    analysis_version: str = "v1"
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    input_surface_ids: list[str] = Field(default_factory=list)
+
+
+class DerivedAnalysisResultRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    analysis: DerivedAnalysisArtifactRecord
+    payload_kind: str
+    payload: dict[str, Any]

@@ -469,6 +469,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/derived-analyses/launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Launch Derived Analysis */
+        post: operations["launch_derived_analysis_api_v1_derived_analyses_launch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/derived-analyses/{analysis_id}": {
         parameters: {
             query?: never;
@@ -478,6 +495,23 @@ export interface paths {
         };
         /** Get Derived Analysis */
         get: operations["get_derived_analysis_api_v1_derived_analyses__analysis_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/derived-analyses/{analysis_id}/result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Derived Analysis Result */
+        get: operations["get_derived_analysis_result_api_v1_derived_analyses__analysis_id__result_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -513,6 +547,24 @@ export interface paths {
         };
         /** Get Evidence Bundle */
         get: operations["get_evidence_bundle_api_v1_evidence_bundles__bundle_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Evidence Bundle */
+        patch: operations["update_evidence_bundle_api_v1_evidence_bundles__bundle_id__patch"];
+        trace?: never;
+    };
+    "/api/v1/evidence-bundles/{bundle_id}/resolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Evidence Bundle Resolved */
+        get: operations["get_evidence_bundle_resolved_api_v1_evidence_bundles__bundle_id__resolved_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -699,6 +751,37 @@ export interface components {
              */
             updated_at: string;
         };
+        /** DerivedAnalysisLaunchRequest */
+        DerivedAnalysisLaunchRequest: {
+            /** Study Id */
+            study_id: string;
+            source_kind: components["schemas"]["DerivedAnalysisSourceKind"];
+            /** Source Id */
+            source_id: string;
+            /** Analysis Type */
+            analysis_type: string;
+            /**
+             * Analysis Version
+             * @default v1
+             */
+            analysis_version: string;
+            /** Parameters */
+            parameters?: {
+                [key: string]: unknown;
+            };
+            /** Input Surface Ids */
+            input_surface_ids?: string[];
+        };
+        /** DerivedAnalysisResultRecord */
+        DerivedAnalysisResultRecord: {
+            analysis: components["schemas"]["DerivedAnalysisArtifactRecord"];
+            /** Payload Kind */
+            payload_kind: string;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+        };
         /**
          * DerivedAnalysisSourceKind
          * @enum {string}
@@ -753,6 +836,24 @@ export interface components {
             validation_scope?: string | null;
             /** Reproduction Recipe */
             reproduction_recipe?: string | null;
+            /** @default draft */
+            status: components["schemas"]["EvidenceBundleStatus"];
+        };
+        /** EvidenceBundlePatch */
+        EvidenceBundlePatch: {
+            /** Title */
+            title?: string | null;
+            /** Claim Candidate */
+            claim_candidate?: string | null;
+            /** Artifact Refs */
+            artifact_refs?: components["schemas"]["ArtifactRef"][] | null;
+            /** Analysis Refs */
+            analysis_refs?: string[] | null;
+            /** Validation Scope */
+            validation_scope?: string | null;
+            /** Reproduction Recipe */
+            reproduction_recipe?: string | null;
+            status?: components["schemas"]["EvidenceBundleStatus"] | null;
         };
         /** EvidenceBundleRecord */
         EvidenceBundleRecord: {
@@ -770,6 +871,8 @@ export interface components {
             validation_scope?: string | null;
             /** Reproduction Recipe */
             reproduction_recipe?: string | null;
+            /** @default draft */
+            status: components["schemas"]["EvidenceBundleStatus"];
             /** Bundle Id */
             bundle_id: string;
             /**
@@ -783,6 +886,56 @@ export interface components {
              */
             updated_at: string;
         };
+        /** EvidenceBundleResolvedAnalysis */
+        EvidenceBundleResolvedAnalysis: {
+            /** Analysis Id */
+            analysis_id: string;
+            /** Study Id */
+            study_id: string;
+            /** Analysis Type */
+            analysis_type: string;
+            /** Analysis Version */
+            analysis_version: string;
+            source_kind: components["schemas"]["DerivedAnalysisSourceKind"];
+            /** Source Id */
+            source_id: string;
+            status: components["schemas"]["ArtifactLifecycleState"];
+            /** Result Metadata */
+            result_metadata?: {
+                [key: string]: unknown;
+            };
+            /** Supports Bundle Ids */
+            supports_bundle_ids?: string[];
+        };
+        /** EvidenceBundleResolvedArtifact */
+        EvidenceBundleResolvedArtifact: {
+            artifact_kind: components["schemas"]["ArtifactSourceKind"];
+            /** Artifact Id */
+            artifact_id: string;
+            /** Study Id */
+            study_id?: string | null;
+            /** Label */
+            label: string;
+            /** State */
+            state?: string | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        /** EvidenceBundleResolvedRecord */
+        EvidenceBundleResolvedRecord: {
+            bundle: components["schemas"]["EvidenceBundleRecord"];
+            /** Resolved Artifacts */
+            resolved_artifacts?: components["schemas"]["EvidenceBundleResolvedArtifact"][];
+            /** Resolved Analyses */
+            resolved_analyses?: components["schemas"]["EvidenceBundleResolvedAnalysis"][];
+        };
+        /**
+         * EvidenceBundleStatus
+         * @enum {string}
+         */
+        EvidenceBundleStatus: "draft" | "ready" | "superseded";
         /** GreenFunctionCatalogResponse */
         GreenFunctionCatalogResponse: {
             /** Run Id */
@@ -2534,6 +2687,39 @@ export interface operations {
             };
         };
     };
+    launch_derived_analysis_api_v1_derived_analyses_launch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DerivedAnalysisLaunchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedAnalysisArtifactRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_derived_analysis_api_v1_derived_analyses__analysis_id__get: {
         parameters: {
             query?: never;
@@ -2565,10 +2751,42 @@ export interface operations {
             };
         };
     };
+    get_derived_analysis_result_api_v1_derived_analyses__analysis_id__result_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                analysis_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivedAnalysisResultRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     list_evidence_bundles_api_v1_evidence_bundles_get: {
         parameters: {
             query?: {
                 study_id?: string | null;
+                status?: components["schemas"]["EvidenceBundleStatus"] | null;
             };
             header?: never;
             path?: never;
@@ -2647,6 +2865,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvidenceBundleRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_evidence_bundle_api_v1_evidence_bundles__bundle_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bundle_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvidenceBundlePatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceBundleRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_evidence_bundle_resolved_api_v1_evidence_bundles__bundle_id__resolved_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                bundle_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceBundleResolvedRecord"];
                 };
             };
             /** @description Validation Error */

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 import traceback
 
 from backend.app.schemas import RunState, SimulationConfig
@@ -22,6 +23,9 @@ def execute_run(run_id: str, config_data: dict, data_dir: str, registry_db_path:
             message="simulation running",
             pid=os.getpid(),
         )
+        startup_delay_seconds = float(os.getenv("TDKB_WORKER_STARTUP_DELAY_SECONDS", "0.0"))
+        if startup_delay_seconds > 0.0:
+            time.sleep(startup_delay_seconds)
         artifacts = run_simulation(config)
         repository.write_results(
             run_id,

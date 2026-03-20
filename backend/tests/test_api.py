@@ -1,11 +1,25 @@
 from copy import deepcopy
+import subprocess
+import sys
+import time
 
 import numpy as np
 import pytest
 
+from backend.app.core.settings import AppSettings
+from backend.app.main import create_app
+from backend.app.schemas import RunState, SimulationConfig
 from backend.app.services.run_service import build_higgs_demo_preset
 
 pytestmark = pytest.mark.workflow
+
+
+class _NeverCancelRunner:
+    def submit(self, run_id, config, data_dir, registry_db_path):
+        return None
+
+    def cancel(self, run_id):
+        return False
 
 
 def test_api_run_lifecycle(client, sample_config):
@@ -50,6 +64,256 @@ def test_api_observable_response_respects_save_every(client, sample_config):
     assert energy_response.status_code == 200
     assert energy_payload["time"] == [0.0, 0.2, 0.4]
     assert len(energy_payload["series"][0]["values"]) == 3
+
+
+def test_api_launches_and_reuses_fft_derived_analysis_artifacts(client, sample_config):
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "FFT artifact study",
+            "question": "Can backend FFT artifacts be cached and re-read?",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["single-job"],
+            "acceptance_checks": ["FFT payload is persisted and cacheable"],
+            "status": "active",
+            "notes_on_scope": "Workflow-level regression for derived analysis lifecycle.",
+        },
+    ).json()["study_id"]
+
+    run_id = client.post("/api/v1/runs", json=sample_config).json()["run_id"]
+
+    launch_payload = {
+        "study_id": study_id,
+        "source_kind": "run",
+        "source_id": run_id,
+        "analysis_type": "fft_preview",
+        "analysis_version": "v1",
+        "parameters": {"observable": "energy"},
+        "input_surface_ids": [run_id],
+    }
+
+    launch_response = client.post("/api/v1/derived-analyses/launch", json=launch_payload)
+    assert launch_response.status_code == 201
+    analysis = launch_response.json()
+    assert analysis["status"] == "succeeded"
+    assert analysis["data_refs"]
+    assert analysis["result_metadata"]["observable"] == "energy"
+
+    result_response = client.get(f"/api/v1/derived-analyses/{analysis['analysis_id']}/result")
+    assert result_response.status_code == 200
+    result = result_response.json()
+    assert result["payload_kind"] == "observable"
+    assert result["analysis"]["analysis_id"] == analysis["analysis_id"]
+    assert result["payload"]["name"] == "energy_fft_preview"
+    assert result["payload"]["metadata"]["source_observable"] == "energy"
+    assert result["payload"]["metadata"]["axis"] == "frequency"
+
+    cached_launch_response = client.post("/api/v1/derived-analyses/launch", json=launch_payload)
+    assert cached_launch_response.status_code == 201
+    cached_analysis = cached_launch_response.json()
+    assert cached_analysis["analysis_id"] == analysis["analysis_id"]
+
+    list_response = client.get(
+        "/api/v1/derived-analyses",
+        params={"study_id": study_id, "source_kind": "run", "source_id": run_id},
+    )
+    assert list_response.status_code == 200
+    assert [item["analysis_id"] for item in list_response.json()] == [analysis["analysis_id"]]
+
+
+def test_api_launches_group_and_sweep_fft_derived_analysis_artifacts(client, sample_config):
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Compare and sweep FFT artifacts",
+            "question": "Can compare and sweep artifacts reuse backend-generated FFT payloads?",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["compare-jobs", "parameter-sweep"],
+            "acceptance_checks": ["group and sweep payloads remain re-fetchable"],
+            "status": "active",
+            "notes_on_scope": "Workflow-level regression for compare/sweep derived analysis lifecycle.",
+        },
+    ).json()["study_id"]
+
+    baseline_run_id = client.post("/api/v1/runs", json=sample_config).json()["run_id"]
+    coarse_config = deepcopy(sample_config)
+    coarse_config["name"] = "test-run-dt-0.2"
+    coarse_config["time"]["dt"] = 0.2
+    variant_run_id = client.post("/api/v1/runs", json=coarse_config).json()["run_id"]
+
+    group_id = client.post(
+        "/api/v1/job-groups",
+        json={
+            "study_id": study_id,
+            "name": "energy dt compare",
+            "comparison_kind": "numerical_validation",
+            "baseline_run_id": baseline_run_id,
+            "base_config": sample_config,
+            "variants": [
+                {"label": "dt=0.1", "config_patch": {"time": {"dt": 0.1}}, "run_id": baseline_run_id},
+                {"label": "dt=0.2", "config_patch": {"time": {"dt": 0.2}}, "run_id": variant_run_id},
+            ],
+            "child_run_ids": [baseline_run_id, variant_run_id],
+        },
+    ).json()["group_id"]
+
+    sweep_id = client.post(
+        "/api/v1/sweeps",
+        json={
+            "study_id": study_id,
+            "name": "energy dt sweep",
+            "parameter_kind": "numerical",
+            "parameter_path": "time.dt",
+            "parameter_label": "dt",
+            "values": [0.1, 0.2],
+            "baseline_value": 0.1,
+            "fixed_axes": {"observable": "energy"},
+            "child_run_ids": [baseline_run_id, variant_run_id],
+        },
+    ).json()["sweep_id"]
+
+    group_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "job_group",
+            "source_id": group_id,
+            "analysis_type": "fft_compare",
+            "parameters": {"observable": "energy"},
+            "input_surface_ids": [group_id],
+        },
+    )
+    assert group_launch.status_code == 201
+    group_analysis = group_launch.json()
+    assert group_analysis["status"] == "succeeded"
+    assert group_analysis["result_metadata"]["run_count"] == 2
+
+    group_result = client.get(f"/api/v1/derived-analyses/{group_analysis['analysis_id']}/result")
+    assert group_result.status_code == 200
+    group_payload = group_result.json()["payload"]
+    assert group_payload["name"] == "energy_fft_compare"
+    assert [entry["label"] for entry in group_payload["entries"]] == ["dt=0.1", "dt=0.2"]
+    assert group_payload["entries"][0]["is_baseline"] is True
+
+    group_cached = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "job_group",
+            "source_id": group_id,
+            "analysis_type": "fft_compare",
+            "parameters": {"observable": "energy"},
+            "input_surface_ids": [group_id],
+        },
+    )
+    assert group_cached.status_code == 201
+    assert group_cached.json()["analysis_id"] == group_analysis["analysis_id"]
+
+    sweep_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "sweep",
+            "source_id": sweep_id,
+            "analysis_type": "fft_heatmap",
+            "parameters": {"observable": "energy"},
+            "input_surface_ids": [sweep_id],
+        },
+    )
+    assert sweep_launch.status_code == 201
+    sweep_analysis = sweep_launch.json()
+    assert sweep_analysis["status"] == "succeeded"
+    assert sweep_analysis["result_metadata"]["sweep_point_count"] == 2
+
+    sweep_result = client.get(f"/api/v1/derived-analyses/{sweep_analysis['analysis_id']}/result")
+    assert sweep_result.status_code == 200
+    sweep_payload = sweep_result.json()["payload"]
+    assert sweep_payload["name"] == "energy_fft_heatmap"
+    assert sweep_payload["parameter_values"] == [0.1, 0.2]
+    assert len(sweep_payload["intensity"]) == 2
+    assert len(sweep_payload["intensity"][0]) == len(sweep_payload["frequency"])
+    assert sweep_payload["interpolated_to_common_grid"] is True
+
+
+def test_api_cancel_falls_back_to_pid_when_runner_state_is_gone(tmp_path, sample_config):
+    app = create_app(
+        settings=AppSettings(data_dir=tmp_path / "runs", registry_db_path=tmp_path / "experiment-registry.sqlite", job_mode="inline"),
+        runner=_NeverCancelRunner(),
+    )
+    repository = app.state.run_service.repository
+    summary = repository.create_run(SimulationConfig.model_validate(sample_config))
+    sleeper = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        repository.update_status(
+            summary.run_id,
+            RunState.RUNNING,
+            message="simulation running",
+            pid=sleeper.pid,
+        )
+
+        from fastapi.testclient import TestClient
+
+        with TestClient(app) as client:
+            cancel_response = client.post(f"/api/v1/runs/{summary.run_id}/cancel")
+
+        assert cancel_response.status_code == 200
+        assert cancel_response.json()["state"] == "cancelled"
+
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and sleeper.poll() is None:
+            time.sleep(0.05)
+        assert sleeper.poll() is not None
+    finally:
+        if sleeper.poll() is None:
+            sleeper.kill()
+            sleeper.wait(timeout=5.0)
+
+
+def test_api_process_mode_submit_and_cancel_workflow(tmp_path, sample_config, monkeypatch):
+    monkeypatch.setenv("TDKB_WORKER_STARTUP_DELAY_SECONDS", "5.0")
+    app = create_app(
+        settings=AppSettings(
+            data_dir=tmp_path / "runs",
+            registry_db_path=tmp_path / "experiment-registry.sqlite",
+            job_mode="process",
+        ),
+    )
+
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        create_response = client.post("/api/v1/runs", json=sample_config)
+        assert create_response.status_code == 202
+        run_id = create_response.json()["run_id"]
+
+        deadline = time.monotonic() + 10.0
+        detail = create_response.json()
+        while time.monotonic() < deadline:
+            detail = client.get(f"/api/v1/runs/{run_id}").json()
+            if detail["state"] == "running" and detail["status_message"] == "simulation running":
+                break
+            time.sleep(0.05)
+        assert detail["state"] == "running"
+        assert detail["started_at"] is not None
+        assert detail["diagnostics"] == {}
+        assert detail["status_message"] == "simulation running"
+        assert detail["config"]["solver"] == sample_config["solver"]
+
+        cancel_response = client.post(f"/api/v1/runs/{run_id}/cancel")
+        assert cancel_response.status_code == 200
+        cancelled = cancel_response.json()
+        assert cancelled["state"] == "cancelled"
+        assert cancelled["finished_at"] is not None
+        assert cancelled["status_message"] == "run cancelled"
+
+        log_response = client.get(f"/api/v1/runs/{run_id}/log")
+        assert log_response.status_code == 200
 
 
 def test_schema_and_presets_endpoints(client):

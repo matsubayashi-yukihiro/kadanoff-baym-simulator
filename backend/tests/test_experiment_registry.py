@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -48,6 +49,33 @@ def test_existing_run_directories_are_backfilled_into_registry(tmp_path, sample_
     metadata = payload[0]["research_metadata"]
     assert metadata["config_hash"]
     assert metadata["storage_uri"] == str((runs_dir / legacy_summary.run_id).resolve())
+
+
+def test_existing_evidence_bundle_table_is_migrated_with_status_column(tmp_path):
+    db_path = tmp_path / "experiment-registry.sqlite"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE evidence_bundles (
+                bundle_id TEXT PRIMARY KEY,
+                study_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                claim_candidate TEXT NOT NULL,
+                artifact_refs_json TEXT NOT NULL,
+                analysis_refs_json TEXT NOT NULL,
+                validation_scope TEXT,
+                reproduction_recipe TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+
+    ExperimentRegistry(db_path)
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(evidence_bundles)").fetchall()}
+    assert "status" in columns
 
 
 def test_run_metadata_patch_updates_registry_backed_runs_list(client, sample_config):
@@ -119,6 +147,20 @@ def test_studies_notes_and_bundles_api(client, sample_config):
     run_response = client.post("/api/v1/runs", json=sample_config)
     run_id = run_response.json()["run_id"]
 
+    analysis_response = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "fft_preview",
+            "parameters": {"observable": "energy"},
+            "input_surface_ids": [run_id],
+        },
+    )
+    assert analysis_response.status_code == 201
+    analysis_id = analysis_response.json()["analysis_id"]
+
     note_response = client.post(
         "/api/v1/decision-notes",
         json={
@@ -149,22 +191,314 @@ def test_studies_notes_and_bundles_api(client, sample_config):
             "title": "Single-job framing bundle",
             "claim_candidate": "Registry foundation can anchor baseline evidence before compare APIs exist.",
             "artifact_refs": [{"artifact_kind": "run", "artifact_id": run_id}],
-            "analysis_refs": [],
+            "analysis_refs": [analysis_id],
             "validation_scope": "Workbench metadata only; does not alter solver validation labels.",
             "reproduction_recipe": "Create study, run baseline, attach note, then bundle the run reference.",
+            "status": "ready",
         },
     )
     assert bundle_response.status_code == 201
     bundle_payload = bundle_response.json()
     assert bundle_payload["artifact_refs"] == [{"artifact_kind": "run", "artifact_id": run_id}]
+    assert bundle_payload["analysis_refs"] == [analysis_id]
+    assert bundle_payload["status"] == "ready"
 
     list_bundles = client.get("/api/v1/evidence-bundles", params={"study_id": study_id})
     assert list_bundles.status_code == 200
     assert [item["bundle_id"] for item in list_bundles.json()] == [bundle_payload["bundle_id"]]
 
+    ready_bundles = client.get("/api/v1/evidence-bundles", params={"status": "ready"})
+    assert ready_bundles.status_code == 200
+    assert [item["bundle_id"] for item in ready_bundles.json()] == [bundle_payload["bundle_id"]]
+
+    get_analysis = client.get(f"/api/v1/derived-analyses/{analysis_id}")
+    assert get_analysis.status_code == 200
+    assert get_analysis.json()["supports_bundle_ids"] == [bundle_payload["bundle_id"]]
+
+    resolved_bundle = client.get(f"/api/v1/evidence-bundles/{bundle_payload['bundle_id']}/resolved")
+    assert resolved_bundle.status_code == 200
+    resolved_payload = resolved_bundle.json()
+    assert resolved_payload["bundle"]["status"] == "ready"
+    assert resolved_payload["resolved_artifacts"][0]["artifact_kind"] == "run"
+    assert resolved_payload["resolved_artifacts"][0]["artifact_id"] == run_id
+    assert resolved_payload["resolved_artifacts"][0]["label"] == sample_config["name"]
+    assert resolved_payload["resolved_artifacts"][0]["state"] == "succeeded"
+    assert resolved_payload["resolved_analyses"][0]["analysis_id"] == analysis_id
+    assert resolved_payload["resolved_analyses"][0]["analysis_type"] == "fft_preview"
+    assert resolved_payload["resolved_analyses"][0]["supports_bundle_ids"] == [bundle_payload["bundle_id"]]
+
     get_study = client.get(f"/api/v1/studies/{study_id}")
     assert get_study.status_code == 200
     assert get_study.json()["title"] == "Numerical validation sweep prep"
+
+
+def test_evidence_bundle_list_supports_status_and_study_filters(client):
+    first_study = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Bundle filter study A",
+            "question": "Which bundles are ready in study A?",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["single-job"],
+            "acceptance_checks": ["ready bundle remains queryable"],
+            "status": "active",
+            "notes_on_scope": "Filter coverage.",
+        },
+    ).json()
+    second_study = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Bundle filter study B",
+            "question": "Which bundles are ready in study B?",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["pairing_d"],
+            "primary_surfaces": ["single-job"],
+            "acceptance_checks": ["draft bundle is excluded"],
+            "status": "active",
+            "notes_on_scope": "Filter coverage.",
+        },
+    ).json()
+
+    ready_bundle = client.post(
+        "/api/v1/evidence-bundles",
+        json={
+            "study_id": first_study["study_id"],
+            "title": "Ready bundle",
+            "claim_candidate": "Ready bundles should be queryable by status and study.",
+            "artifact_refs": [],
+            "analysis_refs": [],
+            "validation_scope": "Metadata only.",
+            "reproduction_recipe": "Create bundle.",
+            "status": "ready",
+        },
+    )
+    assert ready_bundle.status_code == 201
+
+    draft_bundle = client.post(
+        "/api/v1/evidence-bundles",
+        json={
+            "study_id": second_study["study_id"],
+            "title": "Draft bundle",
+            "claim_candidate": "Draft bundles should not leak into ready filter results.",
+            "artifact_refs": [],
+            "analysis_refs": [],
+            "validation_scope": "Metadata only.",
+            "reproduction_recipe": "Create bundle.",
+            "status": "draft",
+        },
+    )
+    assert draft_bundle.status_code == 201
+
+    ready_list = client.get("/api/v1/evidence-bundles", params={"status": "ready"})
+    assert ready_list.status_code == 200
+    assert [item["bundle_id"] for item in ready_list.json()] == [ready_bundle.json()["bundle_id"]]
+
+    study_scoped_ready_list = client.get(
+        "/api/v1/evidence-bundles",
+        params={"study_id": first_study["study_id"], "status": "ready"},
+    )
+    assert study_scoped_ready_list.status_code == 200
+    assert [item["bundle_id"] for item in study_scoped_ready_list.json()] == [ready_bundle.json()["bundle_id"]]
+
+
+def test_evidence_bundle_rejects_cross_study_analysis_reference(client, sample_config):
+    study_a_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Study A",
+            "question": "A",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["single-job"],
+            "acceptance_checks": [],
+            "status": "active",
+        },
+    ).json()["study_id"]
+    study_b_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Study B",
+            "question": "B",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["single-job"],
+            "acceptance_checks": [],
+            "status": "active",
+        },
+    ).json()["study_id"]
+
+    run_id = client.post("/api/v1/runs", json=sample_config).json()["run_id"]
+    client.patch(f"/api/v1/runs/{run_id}/metadata", json={"study_id": study_a_id})
+    analysis_id = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_a_id,
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "fft_preview",
+            "parameters": {"observable": "energy"},
+            "input_surface_ids": [run_id],
+        },
+    ).json()["analysis_id"]
+
+    bundle_response = client.post(
+        "/api/v1/evidence-bundles",
+        json={
+            "study_id": study_b_id,
+            "title": "Invalid cross-study bundle",
+            "claim_candidate": "Should fail.",
+            "artifact_refs": [],
+            "analysis_refs": [analysis_id],
+            "validation_scope": "workflow",
+            "reproduction_recipe": "n/a",
+        },
+    )
+    assert bundle_response.status_code == 422
+    assert bundle_response.json()["detail"] == "evidence bundle references must belong to the same study"
+
+
+def test_evidence_bundle_patch_updates_status_and_analysis_support_links(client, sample_config):
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "Bundle patch study",
+            "question": "Can bundle patch update analysis provenance links?",
+            "baseline_preset_id": "square-4x4-baseline",
+            "target_observables": ["energy"],
+            "primary_surfaces": ["single-job"],
+            "acceptance_checks": [],
+            "status": "active",
+        },
+    ).json()["study_id"]
+
+    first_run_id = client.post("/api/v1/runs", json=sample_config).json()["run_id"]
+    second_config = {**sample_config, "name": "bundle-patch-second"}
+    second_run_id = client.post("/api/v1/runs", json=second_config).json()["run_id"]
+
+    first_analysis_id = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": first_run_id,
+            "analysis_type": "fft_preview",
+            "parameters": {"observable": "energy"},
+            "input_surface_ids": [first_run_id],
+        },
+    ).json()["analysis_id"]
+    second_analysis_id = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": second_run_id,
+            "analysis_type": "fft_preview",
+            "parameters": {"observable": "energy"},
+            "input_surface_ids": [second_run_id],
+        },
+    ).json()["analysis_id"]
+
+    bundle_id = client.post(
+        "/api/v1/evidence-bundles",
+        json={
+            "study_id": study_id,
+            "title": "Patchable bundle",
+            "claim_candidate": "Initial draft.",
+            "artifact_refs": [{"artifact_kind": "run", "artifact_id": first_run_id}],
+            "analysis_refs": [first_analysis_id],
+            "status": "draft",
+        },
+    ).json()["bundle_id"]
+
+    patch_response = client.patch(
+        f"/api/v1/evidence-bundles/{bundle_id}",
+        json={
+            "title": "Patched bundle",
+            "claim_candidate": "Updated claim.",
+            "analysis_refs": [second_analysis_id],
+            "status": "superseded",
+        },
+    )
+    assert patch_response.status_code == 200
+    patched = patch_response.json()
+    assert patched["title"] == "Patched bundle"
+    assert patched["claim_candidate"] == "Updated claim."
+    assert patched["analysis_refs"] == [second_analysis_id]
+    assert patched["status"] == "superseded"
+
+    first_analysis = client.get(f"/api/v1/derived-analyses/{first_analysis_id}").json()
+    second_analysis = client.get(f"/api/v1/derived-analyses/{second_analysis_id}").json()
+    assert first_analysis["supports_bundle_ids"] == []
+    assert second_analysis["supports_bundle_ids"] == [bundle_id]
+
+    resolved = client.get(f"/api/v1/evidence-bundles/{bundle_id}/resolved").json()
+    assert resolved["bundle"]["status"] == "superseded"
+    assert [item["analysis_id"] for item in resolved["resolved_analyses"]] == [second_analysis_id]
+
+
+def test_derived_analysis_and_bundle_payloads_survive_repository_restart(tmp_path, sample_config):
+    settings = AppSettings(
+        data_dir=tmp_path / "runs",
+        registry_db_path=tmp_path / "experiment-registry.sqlite",
+        job_mode="inline",
+    )
+    app = create_app(settings=settings, runner=InlineJobRunner())
+
+    with TestClient(app) as client:
+        study_id = client.post(
+            "/api/v1/studies",
+            json={
+                "title": "Restart persistence study",
+                "question": "Do analysis payloads and bundles survive restart?",
+                "baseline_preset_id": "square-4x4-baseline",
+                "target_observables": ["energy"],
+                "primary_surfaces": ["single-job"],
+                "acceptance_checks": [],
+                "status": "active",
+            },
+        ).json()["study_id"]
+        run_id = client.post("/api/v1/runs", json=sample_config).json()["run_id"]
+        analysis_id = client.post(
+            "/api/v1/derived-analyses/launch",
+            json={
+                "study_id": study_id,
+                "source_kind": "run",
+                "source_id": run_id,
+                "analysis_type": "fft_preview",
+                "parameters": {"observable": "energy"},
+                "input_surface_ids": [run_id],
+            },
+        ).json()["analysis_id"]
+        bundle_id = client.post(
+            "/api/v1/evidence-bundles",
+            json={
+                "study_id": study_id,
+                "title": "Restart bundle",
+                "claim_candidate": "Persisted artifact graph remains readable.",
+                "artifact_refs": [{"artifact_kind": "run", "artifact_id": run_id}],
+                "analysis_refs": [analysis_id],
+                "status": "ready",
+            },
+        ).json()["bundle_id"]
+
+    restarted_app = create_app(settings=settings, runner=InlineJobRunner())
+    with TestClient(restarted_app) as client:
+        analysis_result = client.get(f"/api/v1/derived-analyses/{analysis_id}/result")
+        assert analysis_result.status_code == 200
+        assert analysis_result.json()["payload"]["name"] == "energy_fft_preview"
+
+        bundle = client.get(f"/api/v1/evidence-bundles/{bundle_id}")
+        assert bundle.status_code == 200
+        assert bundle.json()["status"] == "ready"
+
+        resolved = client.get(f"/api/v1/evidence-bundles/{bundle_id}/resolved")
+        assert resolved.status_code == 200
+        resolved_payload = resolved.json()
+        assert resolved_payload["bundle"]["bundle_id"] == bundle_id
+        assert resolved_payload["resolved_artifacts"][0]["artifact_id"] == run_id
+        assert resolved_payload["resolved_analyses"][0]["analysis_id"] == analysis_id
+        assert resolved_payload["resolved_analyses"][0]["supports_bundle_ids"] == [bundle_id]
 
 
 def test_job_groups_sweeps_and_derived_analyses_api(client, sample_config):

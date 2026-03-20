@@ -533,6 +533,36 @@ class ExperimentRegistry:
             raise FileNotFoundError(analysis_id)
         return self._derived_analysis_from_row(row)
 
+    def update_derived_analysis(self, analysis: DerivedAnalysisArtifactRecord) -> DerivedAnalysisArtifactRecord:
+        updated = analysis.model_copy(update={"updated_at": _utcnow()})
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE derived_analyses
+                SET status = ?,
+                    parameters_json = ?,
+                    input_surface_ids_json = ?,
+                    result_metadata_json = ?,
+                    data_refs_json = ?,
+                    supports_bundle_ids_json = ?,
+                    updated_at = ?
+                WHERE analysis_id = ?
+                """,
+                (
+                    updated.status.value,
+                    json.dumps(updated.parameters),
+                    json.dumps(updated.input_surface_ids),
+                    json.dumps(updated.result_metadata),
+                    json.dumps(updated.data_refs),
+                    json.dumps(updated.supports_bundle_ids),
+                    updated.updated_at.isoformat(),
+                    updated.analysis_id,
+                ),
+            )
+        if cursor.rowcount == 0:
+            raise FileNotFoundError(updated.analysis_id)
+        return updated
+
     def create_evidence_bundle(self, payload: EvidenceBundleCreate) -> EvidenceBundleRecord:
         now = _utcnow()
         bundle = EvidenceBundleRecord(
@@ -554,9 +584,10 @@ class ExperimentRegistry:
                         analysis_refs_json,
                         validation_scope,
                         reproduction_recipe,
+                        status,
                         created_at,
                         updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         bundle.bundle_id,
@@ -567,6 +598,7 @@ class ExperimentRegistry:
                         json.dumps(bundle.analysis_refs),
                         bundle.validation_scope,
                         bundle.reproduction_recipe,
+                        bundle.status.value,
                         bundle.created_at.isoformat(),
                         bundle.updated_at.isoformat(),
                     ),
@@ -575,12 +607,21 @@ class ExperimentRegistry:
             raise ValueError("study_id not found") from exc
         return bundle
 
-    def list_evidence_bundles(self, *, study_id: str | None = None) -> list[EvidenceBundleRecord]:
+    def list_evidence_bundles(
+        self,
+        *,
+        study_id: str | None = None,
+        status: EvidenceBundleStatus | None = None,
+    ) -> list[EvidenceBundleRecord]:
         params: list[Any] = []
-        where_clause = ""
+        filters: list[str] = []
         if study_id is not None:
-            where_clause = "WHERE study_id = ?"
+            filters.append("study_id = ?")
             params.append(study_id)
+        if status is not None:
+            filters.append("status = ?")
+            params.append(status.value)
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
 
         with self._connect() as connection:
             rows = connection.execute(
@@ -607,6 +648,38 @@ class ExperimentRegistry:
         if row is None:
             raise FileNotFoundError(bundle_id)
         return self._evidence_bundle_from_row(row)
+
+    def update_evidence_bundle(self, bundle: EvidenceBundleRecord) -> EvidenceBundleRecord:
+        updated = bundle.model_copy(update={"updated_at": _utcnow()})
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE evidence_bundles
+                SET title = ?,
+                    claim_candidate = ?,
+                    artifact_refs_json = ?,
+                    analysis_refs_json = ?,
+                    validation_scope = ?,
+                    reproduction_recipe = ?,
+                    status = ?,
+                    updated_at = ?
+                WHERE bundle_id = ?
+                """,
+                (
+                    updated.title,
+                    updated.claim_candidate,
+                    json.dumps([ref.model_dump(mode="json") for ref in updated.artifact_refs]),
+                    json.dumps(updated.analysis_refs),
+                    updated.validation_scope,
+                    updated.reproduction_recipe,
+                    updated.status.value,
+                    updated.updated_at.isoformat(),
+                    updated.bundle_id,
+                ),
+            )
+        if cursor.rowcount == 0:
+            raise FileNotFoundError(updated.bundle_id)
+        return updated
 
     def refresh_parent_states_for_run(self, run_id: str) -> None:
         with self._connect() as connection:
@@ -777,11 +850,17 @@ class ExperimentRegistry:
                     analysis_refs_json TEXT NOT NULL,
                     validation_scope TEXT,
                     reproduction_recipe TEXT,
+                    status TEXT NOT NULL DEFAULT 'draft',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            evidence_bundle_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(evidence_bundles)").fetchall()
+            }
+            if "status" not in evidence_bundle_columns:
+                connection.execute("ALTER TABLE evidence_bundles ADD COLUMN status TEXT NOT NULL DEFAULT 'draft'")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_created_at ON runs(created_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_study_id ON runs(study_id)")
             connection.execute("CREATE INDEX IF NOT EXISTS idx_job_groups_study_id ON job_groups(study_id)")
@@ -1026,6 +1105,7 @@ class ExperimentRegistry:
             analysis_refs=_loads_json_list(row["analysis_refs_json"]),
             validation_scope=row["validation_scope"],
             reproduction_recipe=row["reproduction_recipe"],
+            status=row["status"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )

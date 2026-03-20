@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import signal
+import time
 from copy import deepcopy
 from typing import Any
 
@@ -11,7 +14,12 @@ from backend.app.schemas import (
     DecisionNoteRecord,
     DerivedAnalysisArtifactCreate,
     DerivedAnalysisArtifactRecord,
+    DerivedAnalysisLaunchRequest,
+    DerivedAnalysisResultRecord,
     EvidenceBundleCreate,
+    EvidenceBundlePatch,
+    EvidenceBundleResolvedRecord,
+    EvidenceBundleStatus,
     EvidenceBundleRecord,
     GreenFunctionCatalogResponse,
     GreenFunctionSliceResponse,
@@ -171,6 +179,8 @@ class RunService:
             return self.get_run(run_id)
 
         cancelled = self.runner.cancel(run_id)
+        if not cancelled and status.pid is not None:
+            cancelled = _terminate_process_by_pid(status.pid)
         if cancelled or status.state == RunState.QUEUED:
             self.repository.update_status(run_id, RunState.CANCELLED, message="run cancelled")
         return self.get_run(run_id)
@@ -369,6 +379,9 @@ class RunService:
     def create_derived_analysis(self, payload: DerivedAnalysisArtifactCreate) -> DerivedAnalysisArtifactRecord:
         return self.repository.create_derived_analysis(payload)
 
+    def launch_derived_analysis(self, payload: DerivedAnalysisLaunchRequest) -> DerivedAnalysisArtifactRecord:
+        return self.repository.launch_derived_analysis(payload)
+
     def list_derived_analyses(
         self,
         *,
@@ -385,14 +398,28 @@ class RunService:
     def get_derived_analysis(self, analysis_id: str) -> DerivedAnalysisArtifactRecord:
         return self.repository.get_derived_analysis(analysis_id)
 
+    def get_derived_analysis_result(self, analysis_id: str) -> DerivedAnalysisResultRecord:
+        return self.repository.get_derived_analysis_result(analysis_id)
+
     def create_evidence_bundle(self, payload: EvidenceBundleCreate) -> EvidenceBundleRecord:
         return self.repository.create_evidence_bundle(payload)
 
-    def list_evidence_bundles(self, *, study_id: str | None = None) -> list[EvidenceBundleRecord]:
-        return self.repository.list_evidence_bundles(study_id=study_id)
+    def update_evidence_bundle(self, bundle_id: str, patch: EvidenceBundlePatch) -> EvidenceBundleRecord:
+        return self.repository.update_evidence_bundle(bundle_id, patch)
+
+    def list_evidence_bundles(
+        self,
+        *,
+        study_id: str | None = None,
+        status: EvidenceBundleStatus | None = None,
+    ) -> list[EvidenceBundleRecord]:
+        return self.repository.list_evidence_bundles(study_id=study_id, status=status)
 
     def get_evidence_bundle(self, bundle_id: str) -> EvidenceBundleRecord:
         return self.repository.get_evidence_bundle(bundle_id)
+
+    def get_evidence_bundle_resolved(self, bundle_id: str) -> EvidenceBundleResolvedRecord:
+        return self.repository.get_evidence_bundle_resolved(bundle_id)
 
 
 def _merge_config_payloads(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
@@ -437,3 +464,55 @@ def _validate_simulation_config(payload: dict[str, Any]) -> SimulationConfig:
         return SimulationConfig.model_validate(payload)
     except ValidationError as exc:
         raise ValueError(str(exc)) from exc
+
+
+def _terminate_process_by_pid(pid: int, *, timeout_seconds: float = 2.0) -> bool:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return False
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not _process_exists(pid):
+            return True
+        time.sleep(0.05)
+
+    if hasattr(signal, "SIGKILL"):
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False
+
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            if not _process_exists(pid):
+                return True
+            time.sleep(0.05)
+
+    return not _process_exists(pid)
+
+
+def _process_exists(pid: int) -> bool:
+    proc_status_path = f"/proc/{pid}/status"
+    try:
+        with open(proc_status_path, encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("State:"):
+                    return "\tZ" not in line and " zombie" not in line.lower()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        pass
+
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True

@@ -10,6 +10,8 @@ from uuid import uuid4
 import numpy as np
 
 from backend.app.schemas import (
+    DerivedAnalysisArtifactRecord,
+    DerivedAnalysisResultRecord,
     GreenFunctionCatalogResponse,
     GreenFunctionSliceResponse,
     MixedGreenFunctionCatalogResponse,
@@ -439,6 +441,46 @@ class FileRunStorage:
 
     def run_dir(self, run_id: str) -> Path:
         return self.base_dir / run_id
+
+    def derived_analysis_dir(self, analysis_id: str) -> Path:
+        path = self.base_dir / "derived_analyses" / analysis_id
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def write_derived_analysis_result(
+        self,
+        analysis_id: str,
+        *,
+        payload_kind: str,
+        payload: dict[str, Any],
+    ) -> str:
+        analysis_dir = self.derived_analysis_dir(analysis_id)
+        result_path = analysis_dir / "result.json"
+        self._write_json(
+            result_path,
+            {
+                "payload_kind": payload_kind,
+                "payload": payload,
+            },
+        )
+        return str(result_path.relative_to(self.base_dir))
+
+    def read_derived_analysis_result(
+        self,
+        analysis: DerivedAnalysisArtifactRecord,
+    ) -> DerivedAnalysisResultRecord:
+        result_ref = next(iter(analysis.data_refs), None)
+        if result_ref is None:
+            raise FileNotFoundError("derived analysis result payload is missing")
+        result_path = self.base_dir / result_ref
+        if not result_path.exists():
+            raise FileNotFoundError(result_path)
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+        return DerivedAnalysisResultRecord(
+            analysis=analysis,
+            payload_kind=str(payload["payload_kind"]),
+            payload=dict(payload["payload"]),
+        )
 
     def _path(self, run_id: str, filename: str) -> Path:
         path = self.run_dir(run_id) / filename

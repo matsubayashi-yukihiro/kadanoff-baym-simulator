@@ -958,9 +958,9 @@ backend は計算実行だけでなく、
 複素量は初期段階では `real/imag` 分解を許し、
 将来的に amplitude / phase / spectrum surface へ拡張する。
 
-### 5.5 将来必要な API
+### 5.5 現在の artifact API と残作業
 
-現行 `/runs` 系 API に加え、次を要求する。
+現行 `/runs` 系 API に加え、次は backend 実装済みである。
 
 - `studies`
 - `job-groups`
@@ -970,6 +970,15 @@ backend は計算実行だけでなく、
 - `evidence-bundles`
 - enriched `presets`
 - run context metadata
+
+実装済み backend artifact の運用詳細は `docs/backend-artifact-lifecycle.md` を参照する。
+
+現時点の残作業は主に frontend 側にある。
+
+- `Compare Jobs` / `Parameter Sweep` の actual result surface 接続
+- local FFT preview の backend 保存 `derived analysis artifact` への置換
+- `study` / tab / run / group / sweep / bundle を横断する URL deep link
+- 一覧 / filter / re-read を含む artifact 導線の整理
 
 API 方針:
 
@@ -1241,9 +1250,10 @@ DB 導入後は、これに加えて次を backend workflow test に含める。
 
 受け入れ条件:
 
-- base config から variant 群を作成できる
-- `comparison_kind=physics_hypothesis|numerical_validation` を保持できる
-- 複数 run の比較が一つの artifact として再利用できる
+- backend では base config から variant 群を作成できる
+- backend では `comparison_kind=physics_hypothesis|numerical_validation` を保持できる
+- backend では複数 run の比較を一つの artifact として再利用できる
+- frontend compare tab から artifact の launch / fetch / re-read ができる
 - accepted / rejected と failure reason を比較 artifact 上で再読できる
 
 ### P3: Parameter Sweep
@@ -1261,10 +1271,10 @@ DB 導入後は、これに加えて次を backend workflow test に含める。
 
 受け入れ条件:
 
-- scalar parameter の 1D sweep を起動できる
-- `dt` や tolerance sweep を `parameter_kind=numerical` で保存できる
-- heatmap から代表 run へ drill down できる
-- numerical sweep を physics sweep と同じ抽象で再取得できる
+- backend では scalar parameter の 1D sweep を起動できる
+- backend では `dt` や tolerance sweep を `parameter_kind=numerical` で保存できる
+- frontend sweep tab から heatmap / representative run drill-down ができる
+- numerical sweep を physics sweep と同じ抽象で frontend から再取得できる
 
 ### P4: Advanced Analysis And Evidence
 
@@ -1281,9 +1291,10 @@ DB 導入後は、これに加えて次を backend workflow test に含める。
 
 受け入れ条件:
 
-- 同じ run に対する解析を再計算せず再取得できる
-- compare / sweep で共通解析結果を使い回せる
-- evidence bundle から source run / analysis / validation scope を一意に辿れる
+- backend では同じ run に対する解析を再計算せず再取得できる
+- backend では compare / sweep で共通解析結果を使い回せる
+- backend では evidence bundle から source run / analysis / validation scope を一意に辿れる
+- frontend から analysis result / bundle resolved provenance を実用的に読める
 
 ### P5: Future Physics Surfaces
 
@@ -1310,7 +1321,7 @@ physics phase とアプリ実装の対応は次のように読む。
 - Phase C-D:
   paired solver と KBE + HFB の可視化、diagnostics、Green 関数 inspector、仮説比較と numerical check の足場
 - Phase E:
-  prototype / reference path の切り分け、thermal / mixed / adaptive artifact の表示、将来 compare / sweep / analysis / evidence bundle への接続
+  prototype / reference path の切り分け、thermal / mixed / adaptive artifact の表示、backend artifact 化された compare / sweep / analysis / evidence bundle の frontend 接続
 
 ---
 
@@ -1353,3 +1364,5 @@ physics phase とアプリ実装の対応は次のように読む。
 - 将来の k 空間 / 実空間 / 不純物 / 新 pairing channel を見据えた `data surface` 抽象
 
 を、本書の正本として採用する。
+
+2026-03-20 時点では、backend の artifact foundation は `job group` / `sweep` / `derived analysis artifact` / `evidence bundle` まで実装済みであり、次の主課題は frontend surface、URL deep link、local preview 置換である。

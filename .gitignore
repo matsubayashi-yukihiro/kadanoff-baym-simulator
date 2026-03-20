@@ -11,3 +11,5 @@ wheels/
 
 # Local research material
 pdfs/
+embedded-research-runtime
+.err/

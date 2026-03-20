@@ -6,6 +6,8 @@ from backend.app.core.dependencies import get_run_service
 from backend.app.schemas import (
     DerivedAnalysisArtifactCreate,
     DerivedAnalysisArtifactRecord,
+    DerivedAnalysisLaunchRequest,
+    DerivedAnalysisResultRecord,
     DerivedAnalysisSourceKind,
 )
 from backend.app.services.run_service import RunService
@@ -21,6 +23,19 @@ def create_derived_analysis(
 ) -> DerivedAnalysisArtifactRecord:
     try:
         return service.create_derived_analysis(payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.post("/launch", response_model=DerivedAnalysisArtifactRecord, status_code=status.HTTP_201_CREATED)
+def launch_derived_analysis(
+    payload: DerivedAnalysisLaunchRequest,
+    service: RunService = Depends(get_run_service),
+) -> DerivedAnalysisArtifactRecord:
+    try:
+        return service.launch_derived_analysis(payload)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="derived analysis source not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
@@ -48,3 +63,14 @@ def get_derived_analysis(
         return service.get_derived_analysis(analysis_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="derived analysis not found") from exc
+
+
+@router.get("/{analysis_id}/result", response_model=DerivedAnalysisResultRecord)
+def get_derived_analysis_result(
+    analysis_id: str,
+    service: RunService = Depends(get_run_service),
+) -> DerivedAnalysisResultRecord:
+    try:
+        return service.get_derived_analysis_result(analysis_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="derived analysis result not found") from exc
