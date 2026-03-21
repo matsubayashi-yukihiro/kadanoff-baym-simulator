@@ -5,19 +5,23 @@ import { StatusPill } from "../components/ui/StatusPill";
 import { ConfigPanel } from "../components/ConfigPanel";
 import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
 import { GreenFunctionPanel } from "../components/GreenFunctionPanel";
+import { KSpectralPanel } from "../components/KSpectralPanel";
 import { MixedGreenFunctionPanel } from "../components/MixedGreenFunctionPanel";
 import { ObservablePanel } from "../components/ObservablePanel";
 import { PresetLibraryPanel } from "../components/PresetLibraryPanel";
 import { ResearchArtifactsPanel } from "../components/ResearchArtifactsPanel";
 import { RunControlPanel } from "../components/RunControlPanel";
 import { RunLogPanel } from "../components/RunLogPanel";
+import { RunProgressPanel } from "../components/RunProgressPanel";
 import { SpectrumPanel } from "../components/SpectrumPanel";
 import { ThermalBranchPanel } from "../components/ThermalBranchPanel";
+import { TrArpesPanel } from "../components/TrArpesPanel";
 import { useConfigStore } from "../stores/useConfigStore";
 import { useRunStore } from "../stores/useRunStore";
 import { useObservableStore } from "../stores/useObservableStore";
 import { useGreenFunctionStore } from "../stores/useGreenFunctionStore";
 import { useResearchArtifacts } from "../hooks/useResearchArtifacts";
+import { useRunProgress } from "../hooks/useRunProgress";
 import {
   cloneConfig,
   selectHiggsDemoPreset,
@@ -87,6 +91,10 @@ export function SingleJobPage() {
 
   // Research artifacts (studies, decision notes, evidence bundles)
   const artifacts = useResearchArtifacts(selectedRun, () => runStore.refresh());
+  const progress = useRunProgress(
+    selectedRunId,
+    selectedRun?.state === "queued" || selectedRun?.state === "running",
+  );
 
   const baselinePreset = selectWorkingBaselinePreset(presets);
   const higgsDemoPreset = selectHiggsDemoPreset(presets);
@@ -272,8 +280,6 @@ export function SingleJobPage() {
               onLaunchHiggsDemo={() => launchPreset(higgsDemoPreset, HIGGS_DEMO_PRIMARY_OBSERVABLE)}
             />
             <RunControlPanel
-              isSubmitting={isSubmitting}
-              isCancelling={isCancelling}
               runs={runs}
               runsLoading={runsLoading}
               runsError={runsError}
@@ -283,8 +289,6 @@ export function SingleJobPage() {
               cancelError={cancelError}
               selectedRun={selectedRun}
               selectedRunId={selectedRunId}
-              onCreateRun={() => runStore.createRun(draftConfig)}
-              onCancelRun={() => runStore.cancelRun()}
               onRefresh={() => runStore.refresh()}
               onSelectRun={(id) => runStore.setSelectedRunId(id)}
             />
@@ -344,6 +348,13 @@ export function SingleJobPage() {
             />
           </div>
           <div className="sjp-support-rail">
+            <RunProgressPanel
+              run={selectedRun}
+              progress={progress.progress}
+              loading={progress.loading}
+              error={progress.error}
+              isStale={progress.isStale}
+            />
             <DiagnosticsPanel run={selectedRun} />
             <RunLogPanel run={selectedRun} />
             <ResearchArtifactsPanel
@@ -354,6 +365,20 @@ export function SingleJobPage() {
             />
           </div>
         </div>
+
+        {/* K-Space Derived Analysis — only for k_space runs */}
+        {selectedRun?.config?.representation === "k_space" && (
+          <div className="space-y-4">
+            <KSpectralPanel
+              run={selectedRun}
+              studyId={selectedRun.research_metadata?.study_id}
+            />
+            <TrArpesPanel
+              run={selectedRun}
+              studyId={selectedRun.research_metadata?.study_id}
+            />
+          </div>
+        )}
 
         {/* Advanced Evidence — Contour Surfaces */}
         <section>

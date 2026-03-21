@@ -66,6 +66,135 @@ def test_api_observable_response_respects_save_every(client, sample_config):
     assert len(energy_payload["series"][0]["values"]) == 3
 
 
+def test_api_exposes_run_progress_record(client, sample_config):
+    create_response = client.post("/api/v1/runs", json=sample_config)
+    assert create_response.status_code == 202
+    run_id = create_response.json()["run_id"]
+
+    progress_response = client.get(f"/api/v1/runs/{run_id}/progress")
+    assert progress_response.status_code == 200
+    progress = progress_response.json()
+
+    assert progress["run_id"] == run_id
+    assert progress["state"] == "succeeded"
+    assert progress["phase"] == "succeeded"
+    assert progress["physical_time_final"] == pytest.approx(sample_config["time"]["t_final"])
+    assert progress["requested_steps"] == 4
+    assert progress["history"]
+    assert progress["status_line"] == "simulation completed"
+
+
+def test_api_accepts_k_space_runs_and_keeps_existing_artifact_contracts(client):
+    config = {
+        "name": "k-space-native-run",
+        "solver": "kbe_hfb",
+        "representation": "k_space",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.05,
+            "amplitude_y": 0.02,
+            "frequency": 1.5,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -4.0,
+            "nearest_neighbor_v": -2.5,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.2,
+        },
+        "kbe": {"self_energy": "hfb"},
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    create_response = client.post("/api/v1/runs", json=config)
+    assert create_response.status_code == 202
+    run_id = create_response.json()["run_id"]
+
+    detail = client.get(f"/api/v1/runs/{run_id}")
+    assert detail.status_code == 200
+    assert detail.json()["diagnostics"]["solver_representation"] == "k_space"
+
+    green_catalog = client.get(f"/api/v1/runs/{run_id}/green-functions")
+    assert green_catalog.status_code == 200
+    assert set(green_catalog.json()["components"]) == {"retarded", "lesser"}
+
+
+def test_api_accepts_k_space_second_born_reference_runs_and_keeps_existing_artifact_contracts(client):
+    config = {
+        "name": "k-space-reference-run",
+        "solver": "kbe_hfb",
+        "representation": "k_space",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.05,
+            "amplitude_y": 0.02,
+            "frequency": 1.5,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -0.6,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.2,
+            "seed_pairing": 0.0,
+        },
+        "equilibrium": {
+            "method": "hfb",
+            "allow_approximation_mismatch": True,
+        },
+        "kbe": {
+            "self_energy": "second_born_reference",
+            "max_fixed_point_iterations": 8,
+            "tolerance": 1e-6,
+            "mixing": 0.35,
+        },
+        "thermal_branch": {
+            "enabled": True,
+            "n_tau": 8,
+            "max_iterations": 8,
+            "mixing": 0.4,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    create_response = client.post("/api/v1/runs", json=config)
+    assert create_response.status_code == 202
+    run_id = create_response.json()["run_id"]
+
+    detail = client.get(f"/api/v1/runs/{run_id}")
+    assert detail.status_code == 200
+    diagnostics = detail.json()["diagnostics"]
+    assert diagnostics["solver_representation"] == "k_space"
+    assert diagnostics["second_born_reference_implementation"] is True
+
+    green_catalog = client.get(f"/api/v1/runs/{run_id}/green-functions")
+    assert green_catalog.status_code == 200
+    assert set(green_catalog.json()["components"]) == {"retarded", "lesser"}
+
+
 def test_api_launches_and_reuses_fft_derived_analysis_artifacts(client, sample_config):
     study_id = client.post(
         "/api/v1/studies",
@@ -237,6 +366,783 @@ def test_api_launches_group_and_sweep_fft_derived_analysis_artifacts(client, sam
     assert sweep_payload["interpolated_to_common_grid"] is True
 
 
+def test_api_launches_k_space_and_trarpes_derived_analysis_artifacts(client):
+    config = {
+        "name": "k-space-preview-run",
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.0,
+            "amplitude_y": 0.0,
+            "frequency": 0.0,
+            "center": 0.0,
+            "width": 1.0,
+        },
+        "interaction": {
+            "onsite_u": -1.5,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.0,
+        },
+        "kbe": {"self_energy": "hfb"},
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "k-space preview study",
+            "question": "Can backend derived analyses produce k-space and tr-ARPES preview payloads?",
+            "baseline_preset_id": "square-4x4-bond-d-kbe-hfb",
+            "target_observables": ["k_spectrum", "tr_arpes"],
+            "primary_surfaces": ["single-job", "k_spectrum", "tr_arpes"],
+            "acceptance_checks": ["run-backed k-space payloads are cacheable and re-readable"],
+            "status": "active",
+            "notes_on_scope": "Workflow-level regression for k-space derived-analysis lifecycle.",
+        },
+    ).json()["study_id"]
+    run_id = client.post("/api/v1/runs", json=config).json()["run_id"]
+
+    k_space_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "k_spectral_preview",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 81},
+                "probe_center": 0.2,
+                "probe_width": 0.12,
+                "broadening": 0.08,
+                "observable_scope": "occupied_spectrum",
+            },
+            "input_surface_ids": [run_id],
+        },
+    )
+    assert k_space_launch.status_code == 201
+    analysis = k_space_launch.json()
+    assert analysis["status"] == "succeeded"
+    assert analysis["result_metadata"]["observable_scope"] == "occupied_spectrum"
+    assert analysis["result_metadata"]["k_surface_kind"] == "k_path"
+
+    k_space_result = client.get(f"/api/v1/derived-analyses/{analysis['analysis_id']}/result")
+    assert k_space_result.status_code == 200
+    payload = k_space_result.json()["payload"]
+    assert payload["analysis_type"] == "k_spectral_preview"
+    assert payload["observable_scope"] == "occupied_spectrum"
+    assert payload["measurement_model"] == "minimal_matrix_element_free_tr_arpes"
+    assert payload["source_self_energy"] == "hfb"
+    assert payload["k_surface"]["kind"] == "k_path"
+    assert payload["k_surface"]["tick_labels"] == ["Gamma", "X", "M", "Gamma"]
+    assert len(payload["intensity"]) == len(payload["k_surface"]["points"])
+    assert len(payload["intensity"][0]) == len(payload["energy"])
+    assert payload["gap_indicator"]["minimum_gap_energy"] >= 0.0
+
+    cached_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "k_spectral_preview",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 81},
+                "probe_center": 0.2,
+                "probe_width": 0.12,
+                "broadening": 0.08,
+                "observable_scope": "occupied_spectrum",
+            },
+            "input_surface_ids": [run_id],
+        },
+    )
+    assert cached_launch.status_code == 201
+    assert cached_launch.json()["analysis_id"] == analysis["analysis_id"]
+
+    tr_arpes_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "tr_arpes_preview",
+            "parameters": {
+                "k_grid": {"kind": "discrete_bz"},
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 61},
+                "probe_center": 0.1,
+                "probe_width": 0.08,
+                "broadening": 0.08,
+                "observable_scope": "tr_arpes_intensity",
+            },
+            "input_surface_ids": [run_id],
+        },
+    )
+    assert tr_arpes_launch.status_code == 201
+    tr_arpes_analysis = tr_arpes_launch.json()
+    assert tr_arpes_analysis["result_metadata"]["observable_scope"] == "tr_arpes_intensity"
+    assert tr_arpes_analysis["result_metadata"]["k_surface_kind"] == "k_grid"
+    tr_arpes_result = client.get(f"/api/v1/derived-analyses/{tr_arpes_analysis['analysis_id']}/result")
+    assert tr_arpes_result.status_code == 200
+    tr_arpes_payload = tr_arpes_result.json()["payload"]
+    assert tr_arpes_payload["analysis_type"] == "tr_arpes_preview"
+    assert tr_arpes_payload["observable_scope"] == "tr_arpes_intensity"
+    assert tr_arpes_payload["k_surface"]["kind"] == "k_grid"
+
+
+def test_api_launches_k_space_preview_from_second_born_reference_source(client):
+    config = {
+        "name": "k-space-reference-preview-run",
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.05,
+            "amplitude_y": 0.02,
+            "frequency": 1.5,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -0.6,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.0,
+        },
+        "kbe": {
+            "self_energy": "second_born_reference",
+            "max_fixed_point_iterations": 8,
+            "tolerance": 1e-7,
+            "mixing": 0.35,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "reference-source k-space preview study",
+            "question": "Can backend derived analyses reuse second_born_reference runs as real-space sources?",
+            "baseline_preset_id": "square-4x4-bond-d-kbe-hfb",
+            "target_observables": ["k_spectrum"],
+            "primary_surfaces": ["single-job", "k_spectrum"],
+            "acceptance_checks": ["second_born_reference source is preserved in the derived-analysis payload"],
+            "status": "active",
+            "notes_on_scope": "Workflow-level regression for correlated real-space source reuse.",
+        },
+    ).json()["study_id"]
+    run_id = client.post("/api/v1/runs", json=config).json()["run_id"]
+
+    launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "k_spectral_preview",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 81},
+                "probe_center": 0.2,
+                "probe_width": 0.12,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [run_id],
+        },
+    )
+    assert launch.status_code == 201
+
+    result = client.get(f"/api/v1/derived-analyses/{launch.json()['analysis_id']}/result")
+    assert result.status_code == 200
+    payload = result.json()["payload"]
+
+    assert payload["source_run_solver"] == "kbe_hfb"
+    assert payload["source_self_energy"] == "second_born_reference"
+    assert payload["measurement_model"] == "minimal_matrix_element_free_tr_arpes"
+    assert payload["k_surface"]["kind"] == "k_path"
+    assert len(payload["intensity"]) == len(payload["k_surface"]["points"])
+    assert len(payload["intensity"][0]) == len(payload["energy"])
+    assert min(min(row) for row in payload["intensity"]) >= 0.0
+
+
+def test_api_launches_k_space_compare_and_trarpes_heatmap_artifacts(client):
+    config = {
+        "name": "k-space-compare-run",
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.1,
+            "amplitude_y": 0.0,
+            "frequency": 1.5,
+            "center": 0.1,
+            "width": 0.2,
+        },
+        "interaction": {
+            "onsite_u": -1.2,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.0,
+        },
+        "kbe": {"self_energy": "hfb"},
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "k-space compare and heatmap study",
+            "question": "Can job-group and sweep artifacts reuse k-space derived analyses?",
+            "baseline_preset_id": "square-4x4-bond-d-kbe-hfb",
+            "target_observables": ["k_spectrum", "tr_arpes"],
+            "primary_surfaces": ["compare-jobs", "parameter-sweep"],
+            "acceptance_checks": ["compare and heatmap payloads remain re-fetchable"],
+            "status": "active",
+            "notes_on_scope": "Workflow-level regression for k-space compare/sweep lifecycle.",
+        },
+    ).json()["study_id"]
+
+    baseline_run_id = client.post("/api/v1/runs", json=config).json()["run_id"]
+    variant_config = deepcopy(config)
+    variant_config["name"] = "k-space-compare-run-variant"
+    variant_config["drive"]["amplitude_x"] = 0.2
+    variant_run_id = client.post("/api/v1/runs", json=variant_config).json()["run_id"]
+
+    group_id = client.post(
+        "/api/v1/job-groups",
+        json={
+            "study_id": study_id,
+            "name": "k-space compare",
+            "comparison_kind": "physics_hypothesis",
+            "baseline_run_id": baseline_run_id,
+            "base_config": config,
+            "variants": [
+                {"label": "baseline", "config_patch": {"drive": {"amplitude_x": 0.1}}, "run_id": baseline_run_id},
+                {"label": "pump-x2", "config_patch": {"drive": {"amplitude_x": 0.2}}, "run_id": variant_run_id},
+            ],
+            "child_run_ids": [baseline_run_id, variant_run_id],
+        },
+    ).json()["group_id"]
+
+    sweep_id = client.post(
+        "/api/v1/sweeps",
+        json={
+            "study_id": study_id,
+            "name": "tr-arpes delay sweep",
+            "parameter_kind": "analysis",
+            "parameter_path": "probe_center",
+            "parameter_label": "probe_delay",
+            "values": [0.05, 0.15],
+            "baseline_value": 0.05,
+            "fixed_axes": {"analysis_type": "tr_arpes_heatmap"},
+            "child_run_ids": [baseline_run_id, variant_run_id],
+        },
+    ).json()["sweep_id"]
+
+    compare_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "job_group",
+            "source_id": group_id,
+            "analysis_type": "k_spectral_compare",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 81},
+                "probe_center": 0.1,
+                "probe_width": 0.12,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [group_id],
+        },
+    )
+    assert compare_launch.status_code == 201
+    compare_analysis = compare_launch.json()
+    assert compare_analysis["result_metadata"]["run_count"] == 2
+    compare_result = client.get(f"/api/v1/derived-analyses/{compare_analysis['analysis_id']}/result")
+    assert compare_result.status_code == 200
+    compare_payload = compare_result.json()["payload"]
+    assert compare_payload["source_kind"] == "job_group"
+    assert compare_payload["k_surface"]["kind"] == "k_path"
+    assert [entry["label"] for entry in compare_payload["entries"]] == ["baseline", "pump-x2"]
+    assert compare_payload["entries"][0]["is_baseline"] is True
+    assert len(compare_payload["entries"][0]["intensity"]) == len(compare_payload["k_surface"]["points"])
+
+    heatmap_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "sweep",
+            "source_id": sweep_id,
+            "analysis_type": "tr_arpes_heatmap",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 61},
+                "probe_width": 0.08,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [sweep_id],
+        },
+    )
+    assert heatmap_launch.status_code == 201
+    heatmap_analysis = heatmap_launch.json()
+    assert heatmap_analysis["result_metadata"]["sweep_point_count"] == 2
+    assert heatmap_analysis["result_metadata"]["selected_k_index"] >= 0
+    heatmap_result = client.get(f"/api/v1/derived-analyses/{heatmap_analysis['analysis_id']}/result")
+    assert heatmap_result.status_code == 200
+    heatmap_payload = heatmap_result.json()["payload"]
+    assert heatmap_payload["source_kind"] == "sweep"
+    assert heatmap_payload["parameter_label"] == "probe_delay"
+    assert heatmap_payload["parameter_values"] == [0.05, 0.15]
+    assert heatmap_payload["probe_centers"] == [0.05, 0.15]
+    assert len(heatmap_payload["intensity"]) == 2
+    assert len(heatmap_payload["intensity"][0]) == len(heatmap_payload["energy"])
+
+
+def test_api_launches_second_born_reference_k_space_compare_and_heatmap_with_analysis_override(client):
+    config = {
+        "name": "k-space-reference-compare-run",
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.05,
+            "amplitude_y": 0.02,
+            "frequency": 1.5,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -0.6,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.2,
+            "seed_pairing": 0.0,
+        },
+        "equilibrium": {
+            "method": "hfb",
+            "allow_approximation_mismatch": True,
+        },
+        "kbe": {
+            "self_energy": "second_born_reference",
+            "max_fixed_point_iterations": 8,
+            "tolerance": 1e-6,
+            "mixing": 0.35,
+        },
+        "thermal_branch": {
+            "enabled": True,
+            "n_tau": 8,
+            "max_iterations": 8,
+            "mixing": 0.4,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "reference compare and heatmap study",
+            "question": "Can compare/sweep payloads reuse second_born_reference runs across real/k representations?",
+            "baseline_preset_id": "square-4x4-bond-d-kbe-hfb",
+            "target_observables": ["k_spectrum", "tr_arpes"],
+            "primary_surfaces": ["compare-jobs", "parameter-sweep"],
+            "acceptance_checks": ["payload parity and analysis override stay stable"],
+            "status": "active",
+            "notes_on_scope": "Workflow-level regression for second_born_reference source consistency.",
+        },
+    ).json()["study_id"]
+
+    real_run_id = client.post("/api/v1/runs", json=config).json()["run_id"]
+    k_space_run_id = client.post("/api/v1/runs", json={**config, "name": "k-space-reference-compare-run-k", "representation": "k_space"}).json()["run_id"]
+
+    group_id = client.post(
+        "/api/v1/job-groups",
+        json={
+            "study_id": study_id,
+            "name": "reference compare",
+            "comparison_kind": "physics_hypothesis",
+            "baseline_run_id": real_run_id,
+            "base_config": config,
+            "variants": [
+                {"label": "real", "config_patch": {}, "run_id": real_run_id},
+                {"label": "k-space", "config_patch": {"representation": "k_space"}, "run_id": k_space_run_id},
+            ],
+            "child_run_ids": [real_run_id, k_space_run_id],
+        },
+    ).json()["group_id"]
+
+    sweep_id = client.post(
+        "/api/v1/sweeps",
+        json={
+            "study_id": study_id,
+            "name": "reference tr-arpes delay sweep",
+            "parameter_kind": "analysis",
+            "parameter_path": "probe_center",
+            "parameter_label": "probe_delay",
+            "values": [0.05, 0.15],
+            "baseline_value": 0.05,
+            "fixed_axes": {"analysis_type": "tr_arpes_heatmap"},
+            "child_run_ids": [real_run_id, k_space_run_id],
+        },
+    ).json()["sweep_id"]
+
+    compare_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "job_group",
+            "source_id": group_id,
+            "analysis_type": "k_spectral_compare",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 81},
+                "probe_center": 0.1,
+                "probe_width": 0.12,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [group_id],
+        },
+    )
+    assert compare_launch.status_code == 201
+    compare_analysis = compare_launch.json()
+    compare_result = client.get(f"/api/v1/derived-analyses/{compare_analysis['analysis_id']}/result")
+    assert compare_result.status_code == 200
+    compare_payload = compare_result.json()["payload"]
+
+    assert [entry["label"] for entry in compare_payload["entries"]] == ["real", "k-space"]
+    assert {entry["source_self_energy"] for entry in compare_payload["entries"]} == {"second_born_reference"}
+    assert compare_payload["k_surface"]["kind"] == "k_path"
+    real_intensity = np.asarray(compare_payload["entries"][0]["intensity"], dtype=float)
+    k_space_intensity = np.asarray(compare_payload["entries"][1]["intensity"], dtype=float)
+    assert np.max(np.abs(real_intensity - k_space_intensity)) < 1e-12
+
+    compare_launch_with_different_grid = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "job_group",
+            "source_id": group_id,
+            "analysis_type": "k_spectral_compare",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 61},
+                "probe_center": 0.1,
+                "probe_width": 0.12,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [group_id],
+        },
+    )
+    assert compare_launch_with_different_grid.status_code == 201
+    assert compare_launch_with_different_grid.json()["analysis_id"] != compare_analysis["analysis_id"]
+    compare_result_coarse = client.get(
+        f"/api/v1/derived-analyses/{compare_launch_with_different_grid.json()['analysis_id']}/result"
+    )
+    assert compare_result_coarse.status_code == 200
+    assert len(compare_payload["energy"]) == 81
+    assert len(compare_result_coarse.json()["payload"]["energy"]) == 61
+
+    heatmap_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "sweep",
+            "source_id": sweep_id,
+            "analysis_type": "tr_arpes_heatmap",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 61},
+                "probe_width": 0.08,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [sweep_id],
+        },
+    )
+    assert heatmap_launch.status_code == 201
+    heatmap_analysis = heatmap_launch.json()
+    heatmap_result = client.get(f"/api/v1/derived-analyses/{heatmap_analysis['analysis_id']}/result")
+    assert heatmap_result.status_code == 200
+    heatmap_payload = heatmap_result.json()["payload"]
+
+    assert heatmap_payload["source_kind"] == "sweep"
+    assert heatmap_payload["parameter_values"] == [0.05, 0.15]
+    assert heatmap_payload["probe_centers"] == [0.05, 0.15]
+    assert len(heatmap_payload["intensity"]) == 2
+    assert len(heatmap_payload["intensity"][0]) == len(heatmap_payload["energy"])
+    assert float(np.min(np.asarray(heatmap_payload["intensity"], dtype=float))) >= 0.0
+
+
+def test_api_launches_k_space_and_trarpes_derived_analysis_from_tdhfb_sources(client):
+    config = {
+        "name": "tdhfb-k-space-preview-run",
+        "solver": "tdhfb",
+        "representation": "k_space",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.05,
+            "amplitude_y": 0.02,
+            "frequency": 1.5,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -1.2,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.0,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "tdhfb k-space preview study",
+            "question": "Can derived k-space analyses read direct tdhfb sources?",
+            "baseline_preset_id": "square-4x4-bond-d-kbe-hfb",
+            "target_observables": ["k_spectrum", "tr_arpes"],
+            "primary_surfaces": ["single-job", "k_spectrum", "tr_arpes"],
+            "acceptance_checks": ["tdhfb source payloads are launchable and re-readable"],
+            "status": "active",
+            "notes_on_scope": "Workflow-level regression for tdhfb direct-source contract.",
+        },
+    ).json()["study_id"]
+
+    run_id = client.post("/api/v1/runs", json=config).json()["run_id"]
+
+    k_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "k_spectral_preview",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 81},
+                "probe_center": 0.2,
+                "probe_width": 0.12,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [run_id],
+        },
+    )
+    assert k_launch.status_code == 201
+    k_result = client.get(f"/api/v1/derived-analyses/{k_launch.json()['analysis_id']}/result")
+    assert k_result.status_code == 200
+    k_payload = k_result.json()["payload"]
+    assert k_payload["source_run_solver"] == "tdhfb"
+    assert k_payload["source_self_energy"] is None
+    assert k_payload["k_surface"]["kind"] == "k_path"
+    assert min(min(row) for row in k_payload["intensity"]) >= 0.0
+
+    tr_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "tr_arpes_preview",
+            "parameters": {
+                "k_grid": {"kind": "discrete_bz"},
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 61},
+                "probe_center": 0.1,
+                "probe_width": 0.08,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [run_id],
+        },
+    )
+    assert tr_launch.status_code == 201
+    tr_result = client.get(f"/api/v1/derived-analyses/{tr_launch.json()['analysis_id']}/result")
+    assert tr_result.status_code == 200
+    tr_payload = tr_result.json()["payload"]
+    assert tr_payload["source_run_solver"] == "tdhfb"
+    assert tr_payload["source_self_energy"] is None
+    assert tr_payload["k_surface"]["kind"] == "k_grid"
+    assert min(min(row) for row in tr_payload["intensity"]) >= 0.0
+
+
+def test_api_launches_k_space_compare_and_trarpes_heatmap_from_tdhfb_sources(client):
+    config = {
+        "name": "tdhfb-k-space-compare-run",
+        "solver": "tdhfb",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.05,
+            "amplitude_y": 0.02,
+            "frequency": 1.5,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -1.2,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.0,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+    study_id = client.post(
+        "/api/v1/studies",
+        json={
+            "title": "tdhfb k-space compare and heatmap study",
+            "question": "Can compare/sweep artifacts reuse tdhfb direct k-space analyses?",
+            "baseline_preset_id": "square-4x4-bond-d-kbe-hfb",
+            "target_observables": ["k_spectrum", "tr_arpes"],
+            "primary_surfaces": ["compare-jobs", "parameter-sweep"],
+            "acceptance_checks": ["compare and heatmap payloads remain re-fetchable for tdhfb source"],
+            "status": "active",
+            "notes_on_scope": "Workflow-level regression for tdhfb compare/sweep derived-analysis lifecycle.",
+        },
+    ).json()["study_id"]
+
+    baseline_run_id = client.post("/api/v1/runs", json=config).json()["run_id"]
+    variant_config = deepcopy(config)
+    variant_config["name"] = "tdhfb-k-space-compare-run-variant"
+    variant_config["representation"] = "k_space"
+    variant_run_id = client.post("/api/v1/runs", json=variant_config).json()["run_id"]
+
+    group_id = client.post(
+        "/api/v1/job-groups",
+        json={
+            "study_id": study_id,
+            "name": "tdhfb k-space compare",
+            "comparison_kind": "physics_hypothesis",
+            "baseline_run_id": baseline_run_id,
+            "base_config": config,
+            "variants": [
+                {"label": "real", "config_patch": {}, "run_id": baseline_run_id},
+                {"label": "k-space", "config_patch": {"representation": "k_space"}, "run_id": variant_run_id},
+            ],
+            "child_run_ids": [baseline_run_id, variant_run_id],
+        },
+    ).json()["group_id"]
+
+    sweep_id = client.post(
+        "/api/v1/sweeps",
+        json={
+            "study_id": study_id,
+            "name": "tdhfb tr-arpes delay sweep",
+            "parameter_kind": "analysis",
+            "parameter_path": "probe_center",
+            "parameter_label": "probe_delay",
+            "values": [0.05, 0.15],
+            "baseline_value": 0.05,
+            "fixed_axes": {"analysis_type": "tr_arpes_heatmap"},
+            "child_run_ids": [baseline_run_id, variant_run_id],
+        },
+    ).json()["sweep_id"]
+
+    compare_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "job_group",
+            "source_id": group_id,
+            "analysis_type": "k_spectral_compare",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 81},
+                "probe_center": 0.1,
+                "probe_width": 0.12,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [group_id],
+        },
+    )
+    assert compare_launch.status_code == 201
+    compare_result = client.get(f"/api/v1/derived-analyses/{compare_launch.json()['analysis_id']}/result")
+    assert compare_result.status_code == 200
+    compare_payload = compare_result.json()["payload"]
+    assert compare_payload["k_surface"]["kind"] == "k_path"
+    assert [entry["label"] for entry in compare_payload["entries"]] == ["real", "k-space"]
+    assert {entry["source_run_solver"] for entry in compare_payload["entries"]} == {"tdhfb"}
+    assert {entry["source_self_energy"] for entry in compare_payload["entries"]} == {None}
+
+    heatmap_launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": study_id,
+            "source_kind": "sweep",
+            "source_id": sweep_id,
+            "analysis_type": "tr_arpes_heatmap",
+            "parameters": {
+                "k_path": "gamma_x_m_gamma",
+                "energy_grid": {"min": -4.0, "max": 4.0, "count": 61},
+                "probe_width": 0.08,
+                "broadening": 0.08,
+            },
+            "input_surface_ids": [sweep_id],
+        },
+    )
+    assert heatmap_launch.status_code == 201
+    heatmap_result = client.get(f"/api/v1/derived-analyses/{heatmap_launch.json()['analysis_id']}/result")
+    assert heatmap_result.status_code == 200
+    heatmap_payload = heatmap_result.json()["payload"]
+    assert heatmap_payload["source_kind"] == "sweep"
+    assert heatmap_payload["probe_centers"] == [0.05, 0.15]
+    assert len(heatmap_payload["intensity"]) == 2
+
+
 def test_api_cancel_falls_back_to_pid_when_runner_state_is_gone(tmp_path, sample_config):
     app = create_app(
         settings=AppSettings(data_dir=tmp_path / "runs", registry_db_path=tmp_path / "experiment-registry.sqlite", job_mode="inline"),
@@ -261,9 +1167,13 @@ def test_api_cancel_falls_back_to_pid_when_runner_state_is_gone(tmp_path, sample
 
         with TestClient(app) as client:
             cancel_response = client.post(f"/api/v1/runs/{summary.run_id}/cancel")
+            progress_response = client.get(f"/api/v1/runs/{summary.run_id}/progress")
 
         assert cancel_response.status_code == 200
         assert cancel_response.json()["state"] == "cancelled"
+        assert progress_response.status_code == 200
+        assert progress_response.json()["state"] == "cancelled"
+        assert progress_response.json()["phase"] == "cancelled"
 
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline and sleeper.poll() is None:
@@ -305,12 +1215,28 @@ def test_api_process_mode_submit_and_cancel_workflow(tmp_path, sample_config, mo
         assert detail["status_message"] == "simulation running"
         assert detail["config"]["solver"] == sample_config["solver"]
 
+        running_progress_response = client.get(f"/api/v1/runs/{run_id}/progress")
+        assert running_progress_response.status_code == 200
+        running_progress = running_progress_response.json()
+        assert running_progress["state"] == "running"
+        assert running_progress["phase"] in {"equilibrium", "propagating"}
+        assert running_progress["started_at"] is not None
+        assert running_progress["history"]
+        assert running_progress["status_line"] == "simulation running"
+
         cancel_response = client.post(f"/api/v1/runs/{run_id}/cancel")
         assert cancel_response.status_code == 200
         cancelled = cancel_response.json()
         assert cancelled["state"] == "cancelled"
         assert cancelled["finished_at"] is not None
         assert cancelled["status_message"] == "run cancelled"
+
+        progress_response = client.get(f"/api/v1/runs/{run_id}/progress")
+        assert progress_response.status_code == 200
+        progress = progress_response.json()
+        assert progress["state"] == "cancelled"
+        assert progress["phase"] == "cancelled"
+        assert progress["started_at"] is not None
 
         log_response = client.get(f"/api/v1/runs/{run_id}/log")
         assert log_response.status_code == 200

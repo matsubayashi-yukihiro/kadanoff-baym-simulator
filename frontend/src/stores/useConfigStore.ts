@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 import type { PresetEntry, SimulationConfigInput } from "../api/types";
 import { listPresets } from "../api/client";
 import { createDefaultConfig } from "../lib/defaultConfig";
-import { cloneConfig, createFallbackPresets } from "../lib/workbench";
+import { cloneConfig, createFallbackPresets, sanitizeSimulationConfig } from "../lib/workbench";
 import { toErrorMessage } from "../lib/helpers";
 
 type ConfigState = {
@@ -30,7 +30,7 @@ export const useConfigStore = create<ConfigState>()(
       presetsLoading: false,
       presetError: null,
 
-      setDraftConfig: (config) => set({ draftConfig: config }),
+      setDraftConfig: (config) => set({ draftConfig: sanitizeSimulationConfig(config) }),
 
       loadPreset: (preset) =>
         set({
@@ -63,6 +63,15 @@ export const useConfigStore = create<ConfigState>()(
     }),
     {
       name: "tdkb-config-storage",
+      merge: (persistedState, currentState) => {
+        const persisted = (persistedState ?? {}) as Partial<ConfigState>;
+        return {
+          ...currentState,
+          ...persisted,
+          draftConfig: sanitizeSimulationConfig(persisted.draftConfig ?? currentState.draftConfig),
+          loadedPresetName: persisted.loadedPresetName ?? currentState.loadedPresetName,
+        };
+      },
       partialize: (state) => ({
         draftConfig: state.draftConfig,
         loadedPresetName: state.loadedPresetName,

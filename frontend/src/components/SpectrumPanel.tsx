@@ -63,8 +63,8 @@ export function SpectrumPanel(props: SpectrumPanelProps) {
       {preview ? (
         <div className="observable-body">
           <p className="state-banner">
-            Mean-subtracted local preview only. Persistent derived-analysis artifacts will move to backend storage once
-            `derived-analyses` APIs land.
+            Client-side FFT preview (mean-subtracted). Backend-cached FFT artifacts are available via{" "}
+            <code>run/fft_preview</code> derived analysis — replacement pending payload format alignment.
           </p>
           <div className="observable-meta">
             <div>

@@ -86,6 +86,7 @@ product / architecture の正本は [research-workbench-plan.md](./research-work
 - backend での現在の責務:
   - source artifact と analysis type、parameters、cache key、result metadata、payload data ref、bundle support link を保持する。
   - `run/fft_preview`, `job_group/fft_compare`, `sweep/fft_heatmap` を backend 生成できる。
+  - `run/k_spectral_preview`, `run/tr_arpes_preview`, `job_group/k_spectral_compare`, `sweep/tr_arpes_heatmap` を backend 生成できる。
 - 主要 API surface:
   - `POST /api/v1/derived-analyses`
   - `POST /api/v1/derived-analyses/launch`
@@ -138,8 +139,12 @@ product / architecture の正本は [research-workbench-plan.md](./research-work
 現時点の analysis type:
 
 - `source_kind=run`, `analysis_type=fft_preview`
+- `source_kind=run`, `analysis_type=k_spectral_preview`
+- `source_kind=run`, `analysis_type=tr_arpes_preview`
 - `source_kind=job_group`, `analysis_type=fft_compare`
+- `source_kind=job_group`, `analysis_type=k_spectral_compare`
 - `source_kind=sweep`, `analysis_type=fft_heatmap`
+- `source_kind=sweep`, `analysis_type=tr_arpes_heatmap`
 
 ### `evidence bundle`
 
@@ -153,6 +158,7 @@ product / architecture の正本は [research-workbench-plan.md](./research-work
 
 - metadata, relation, state aggregation は SQLite-backed な `experiment registry` を正本にする。
 - observables, Green 関数, derived-analysis payload などの大きいデータは file artifact に保存する。
+- run 実行中の execution telemetry は run artifact 配下の `progress.json` に保存し、`GET /runs/{run_id}/progress` で再取得する。
 - bundle status migration と、analysis payload / bundle resolved provenance の restart persistence は workflow regression 済みである。
 
 ---
@@ -163,6 +169,8 @@ product / architecture の正本は [research-workbench-plan.md](./research-work
 
 - `studies`
   - create / list / get
+- `runs`
+  - create / list / get / progress / cancel / metadata patch / log / observables / contour slices
 - `job-groups`
   - create / launch / list / get
 - `sweeps`
@@ -195,5 +203,6 @@ list query の現状:
 
 - `Compare Jobs` / `Parameter Sweep` は backend artifact が存在する一方で、actual result fetch と re-read が未接続である。
 - `Single Job` の FFT preview は local preview のままで、backend 保存の `derived analysis artifact` に置き換わっていない。
+- `Single Job` の running telemetry は `progress.json` / progress API を正本とし、`run.log` は terminal 後の詳細出力面として維持する。
 - `study` / tab / run / group / sweep / bundle を横断する URL deep link は未実装である。
 - bundle 一覧、resolved provenance、analysis result の使い勝手は frontend 導線次第でまだ改善余地がある。

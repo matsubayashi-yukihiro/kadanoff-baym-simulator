@@ -16,7 +16,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
       <section className="panel">
         <div className="panel-header">
           <div>
-            <p className="eyebrow">Diagnostics</p>
+            <p className="eyebrow">Baseline And Failure Context</p>
             <h2>Solver Diagnostics</h2>
           </div>
         </div>
@@ -45,7 +45,7 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
     <section className="panel">
       <div className="panel-header">
         <div>
-          <p className="eyebrow">Diagnostics</p>
+          <p className="eyebrow">Baseline And Failure Context</p>
           <h2>Solver Diagnostics</h2>
         </div>
         <span className={`status-pill status-${run.state}`}>{run.state}</span>

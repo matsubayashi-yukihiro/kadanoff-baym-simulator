@@ -25,7 +25,9 @@ from backend.app.schemas import (
     EvidenceBundleRecord,
     JobGroupCreate,
     JobGroupRecord,
+    ParameterKind,
     RunDetail,
+    RunProgressRecord,
     RunResearchMetadata,
     RunResearchMetadataPatch,
     RunSummary,
@@ -34,6 +36,13 @@ from backend.app.schemas import (
     StudyRecord,
     SweepCreate,
     SweepRecord,
+)
+from backend.app.solvers.kspace_analysis import (
+    build_gap_indicator,
+    build_momentum_selection,
+    compute_k_resolved_trarpes,
+    parse_energy_grid,
+    serialize_momentum_selection,
 )
 from backend.app.storage.experiment_registry import ExperimentRegistry
 from backend.app.storage.file_storage import FileRunStorage
@@ -62,6 +71,10 @@ class ExperimentRepository:
         except FileNotFoundError:
             metadata = self._sync_run_from_storage(run_id)
         return detail.model_copy(update={"research_metadata": metadata})
+
+    def read_run_progress(self, run_id: str) -> RunProgressRecord:
+        self.storage.read_summary(run_id)
+        return self.storage.read_progress(run_id)
 
     def update_status(self, *args, **kwargs):
         status = self.storage.update_status(*args, **kwargs)
@@ -522,12 +535,11 @@ class ExperimentRepository:
         self,
         payload: DerivedAnalysisLaunchRequest,
     ) -> tuple[dict[str, object], str, dict[str, object]]:
-        observable_name = str(payload.parameters.get("observable") or "")
-        if not observable_name:
-            raise ValueError("derived-analysis launch requires parameters.observable")
-
-        series_label = payload.parameters.get("series_label")
         if payload.source_kind == DerivedAnalysisSourceKind.RUN and payload.analysis_type == "fft_preview":
+            observable_name = str(payload.parameters.get("observable") or "")
+            if not observable_name:
+                raise ValueError("derived-analysis launch requires parameters.observable")
+            series_label = payload.parameters.get("series_label")
             fft_payload = _build_run_fft_payload(self.storage, payload.source_id, observable_name, series_label=series_label)
             return (
                 fft_payload["observable"],
@@ -543,6 +555,10 @@ class ExperimentRepository:
             )
 
         if payload.source_kind == DerivedAnalysisSourceKind.JOB_GROUP and payload.analysis_type == "fft_compare":
+            observable_name = str(payload.parameters.get("observable") or "")
+            if not observable_name:
+                raise ValueError("derived-analysis launch requires parameters.observable")
+            series_label = payload.parameters.get("series_label")
             group = self.get_job_group(payload.source_id)
             compare_payload = _build_job_group_fft_compare_payload(
                 self.storage,
@@ -562,6 +578,10 @@ class ExperimentRepository:
             )
 
         if payload.source_kind == DerivedAnalysisSourceKind.SWEEP and payload.analysis_type == "fft_heatmap":
+            observable_name = str(payload.parameters.get("observable") or "")
+            if not observable_name:
+                raise ValueError("derived-analysis launch requires parameters.observable")
+            series_label = payload.parameters.get("series_label")
             sweep = self.get_sweep(payload.source_id)
             heatmap_payload = _build_sweep_fft_heatmap_payload(
                 self.storage,
@@ -582,8 +602,74 @@ class ExperimentRepository:
                 },
             )
 
+        if payload.source_kind == DerivedAnalysisSourceKind.RUN and payload.analysis_type in {
+            "k_spectral_preview",
+            "tr_arpes_preview",
+        }:
+            analysis_payload = _build_run_k_space_payload(
+                self.storage,
+                self.storage.read_config(payload.source_id),
+                payload.source_id,
+                analysis_type=payload.analysis_type,
+                parameters=payload.parameters,
+            )
+            return (
+                analysis_payload,
+                "heatmap",
+                {
+                    "observable_scope": analysis_payload["observable_scope"],
+                    "k_surface_kind": analysis_payload["k_surface"]["kind"],
+                    "k_point_count": len(analysis_payload["k_surface"]["points"]),
+                    "energy_count": len(analysis_payload["energy"]),
+                    "probe_center": analysis_payload["probe_center"],
+                    "probe_width": analysis_payload["probe_width"],
+                    "broadening": analysis_payload["broadening"],
+                    "source_run_solver": analysis_payload["source_run_solver"],
+                },
+            )
+
+        if payload.source_kind == DerivedAnalysisSourceKind.JOB_GROUP and payload.analysis_type == "k_spectral_compare":
+            group = self.get_job_group(payload.source_id)
+            compare_payload = _build_job_group_k_spectral_compare_payload(
+                self.storage,
+                group,
+                parameters=payload.parameters,
+            )
+            return (
+                compare_payload,
+                "comparison",
+                {
+                    "observable_scope": compare_payload["observable_scope"],
+                    "run_count": len(compare_payload["entries"]),
+                    "baseline_run_id": group.baseline_run_id,
+                    "comparison_kind": group.comparison_kind.value,
+                    "k_surface_kind": compare_payload["k_surface"]["kind"],
+                    "energy_count": len(compare_payload["energy"]),
+                },
+            )
+
+        if payload.source_kind == DerivedAnalysisSourceKind.SWEEP and payload.analysis_type == "tr_arpes_heatmap":
+            sweep = self.get_sweep(payload.source_id)
+            heatmap_payload = _build_sweep_tr_arpes_heatmap_payload(
+                self.storage,
+                sweep,
+                parameters=payload.parameters,
+            )
+            return (
+                heatmap_payload,
+                "heatmap",
+                {
+                    "observable_scope": heatmap_payload["observable_scope"],
+                    "sweep_point_count": len(sweep.child_run_ids),
+                    "parameter_label": sweep.parameter_label,
+                    "parameter_path": sweep.parameter_path,
+                    "selected_k_index": heatmap_payload["selected_k_index"],
+                    "energy_count": len(heatmap_payload["energy"]),
+                },
+            )
+
         raise ValueError(
-            "derived-analysis launch currently supports run/fft_preview, job_group/fft_compare, and sweep/fft_heatmap only"
+            "derived-analysis launch currently supports run/fft_preview, run/k_spectral_preview, run/tr_arpes_preview, job_group/fft_compare, job_group/k_spectral_compare, sweep/fft_heatmap, and sweep/tr_arpes_heatmap only"
         )
 
 
@@ -774,6 +860,210 @@ def _build_fft_preview_payload(source_observable: dict[str, object], *, series_l
         "dominant_frequency": dominant_frequency,
         "source_series_label": str(selected_series["label"]),
     }
+
+
+def _build_run_k_space_payload(
+    storage: FileRunStorage,
+    config: SimulationConfig,
+    run_id: str,
+    *,
+    analysis_type: str,
+    parameters: dict[str, object],
+) -> dict[str, object]:
+    times, lesser = storage.read_green_function_component_array(run_id, "lesser")
+    momentum_selection = build_momentum_selection(
+        config,
+        k_path=parameters.get("k_path"),
+        k_grid=parameters.get("k_grid"),
+    )
+    energy_grid = parse_energy_grid(parameters.get("energy_grid"), config=config)
+    probe_center = float(parameters.get("probe_center", float(times[-1])))
+    probe_width = float(parameters.get("probe_width", max(float(config.time.dt) * 2.0, 0.1)))
+    broadening = float(parameters.get("broadening", max(float(config.time.dt), 0.05)))
+    default_scope = "occupied_spectrum" if analysis_type == "k_spectral_preview" else "tr_arpes_intensity"
+    observable_scope = str(parameters.get("observable_scope", default_scope))
+    if observable_scope not in {"occupied_spectrum", "tr_arpes_intensity"}:
+        raise ValueError("observable_scope must be 'occupied_spectrum' or 'tr_arpes_intensity'")
+
+    analysis = compute_k_resolved_trarpes(
+        lesser=lesser,
+        times=np.asarray(times, dtype=float),
+        config=config,
+        momentum_selection=momentum_selection,
+        energy_grid=energy_grid,
+        probe_center=probe_center,
+        probe_width=probe_width,
+        broadening=broadening,
+    )
+    intensity = np.asarray(analysis["intensity"], dtype=float)
+    gap_indicator = build_gap_indicator(
+        energy_grid=energy_grid,
+        intensity=intensity,
+        points=momentum_selection.points,
+    )
+
+    return {
+        "name": f"{analysis_type}_{observable_scope}",
+        "source_kind": "run",
+        "source_id": run_id,
+        "analysis_type": analysis_type,
+        "observable_scope": observable_scope,
+        "measurement_model": "minimal_matrix_element_free_tr_arpes",
+        "source_component": "lesser",
+        "source_run_solver": config.solver.value,
+        "source_self_energy": config.kbe.self_energy.value if config.solver.value == "kbe_hfb" else None,
+        "k_surface": serialize_momentum_selection(momentum_selection),
+        "energy": energy_grid.astype(float).tolist(),
+        "intensity": intensity.astype(float).tolist(),
+        "occupied_weight": np.asarray(analysis["occupied_weight"], dtype=float).tolist(),
+        "probe_center": probe_center,
+        "probe_width": probe_width,
+        "broadening": broadening,
+        "time_window_norm": float(analysis["window_norm"]),
+        "time_step": float(analysis["time_step"]),
+        "time_sample_count": int(len(times)),
+        "gap_indicator": gap_indicator,
+    }
+
+
+def _build_job_group_k_spectral_compare_payload(
+    storage: FileRunStorage,
+    group: JobGroupRecord,
+    *,
+    parameters: dict[str, object],
+) -> dict[str, object]:
+    label_by_run_id = {
+        variant.run_id: variant.label
+        for variant in group.variants
+        if variant.run_id is not None
+    }
+    entries: list[dict[str, object]] = []
+    reference_payload: dict[str, object] | None = None
+    for run_id in group.child_run_ids:
+        config = storage.read_config(run_id)
+        payload = _build_run_k_space_payload(
+            storage,
+            config,
+            run_id,
+            analysis_type="k_spectral_preview",
+            parameters=parameters,
+        )
+        if reference_payload is None:
+            reference_payload = payload
+        else:
+            _ensure_compatible_k_space_axes(reference_payload, payload)
+        entries.append(
+            {
+                "run_id": run_id,
+                "label": label_by_run_id.get(run_id, run_id),
+                "intensity": payload["intensity"],
+                "gap_indicator": payload["gap_indicator"],
+                "source_run_solver": payload["source_run_solver"],
+                "source_self_energy": payload["source_self_energy"],
+                "is_baseline": run_id == group.baseline_run_id,
+            }
+        )
+    if reference_payload is None:
+        raise ValueError("k_spectral_compare requires at least one child run")
+    return {
+        "name": "k_spectral_compare",
+        "source_kind": "job_group",
+        "source_id": group.group_id,
+        "baseline_run_id": group.baseline_run_id,
+        "comparison_kind": group.comparison_kind.value,
+        "observable_scope": reference_payload["observable_scope"],
+        "measurement_model": reference_payload["measurement_model"],
+        "k_surface": reference_payload["k_surface"],
+        "energy": reference_payload["energy"],
+        "probe_center": reference_payload["probe_center"],
+        "probe_width": reference_payload["probe_width"],
+        "broadening": reference_payload["broadening"],
+        "entries": entries,
+    }
+
+
+def _build_sweep_tr_arpes_heatmap_payload(
+    storage: FileRunStorage,
+    sweep: SweepRecord,
+    *,
+    parameters: dict[str, object],
+) -> dict[str, object]:
+    payloads: list[dict[str, object]] = []
+    for run_id, parameter_value in zip(sweep.child_run_ids, sweep.values, strict=True):
+        config = storage.read_config(run_id)
+        row_parameters = _with_analysis_sweep_parameter(parameters, sweep, parameter_value)
+        payload = _build_run_k_space_payload(
+            storage,
+            config,
+            run_id,
+            analysis_type="tr_arpes_preview",
+            parameters=row_parameters,
+        )
+        if payloads:
+            _ensure_compatible_k_space_axes(payloads[0], payload)
+        payloads.append(payload)
+    if not payloads:
+        raise ValueError("tr_arpes_heatmap requires at least one child run")
+
+    selected_k_index = int(parameters.get("selected_k_index", payloads[0]["gap_indicator"]["k_index"]))
+    point_count = len(payloads[0]["k_surface"]["points"])
+    if selected_k_index < 0 or selected_k_index >= point_count:
+        raise ValueError("selected_k_index is out of bounds for the chosen k-surface")
+    selected_point = payloads[0]["k_surface"]["points"][selected_k_index]
+    intensity_rows = [
+        [float(value) for value in payload["intensity"][selected_k_index]]
+        for payload in payloads
+    ]
+    return {
+        "name": "tr_arpes_heatmap",
+        "source_kind": "sweep",
+        "source_id": sweep.sweep_id,
+        "observable_scope": payloads[0]["observable_scope"],
+        "measurement_model": payloads[0]["measurement_model"],
+        "parameter_label": sweep.parameter_label,
+        "parameter_path": sweep.parameter_path,
+        "parameter_kind": sweep.parameter_kind.value,
+        "parameter_values": list(sweep.values),
+        "energy": payloads[0]["energy"],
+        "k_surface": payloads[0]["k_surface"],
+        "selected_k_index": selected_k_index,
+        "selected_k_label": selected_point.get("label"),
+        "selected_grid_index_x": selected_point["grid_index_x"],
+        "selected_grid_index_y": selected_point["grid_index_y"],
+        "intensity": intensity_rows,
+        "run_ids": list(sweep.child_run_ids),
+        "gap_indicators": [payload["gap_indicator"] for payload in payloads],
+        "probe_centers": [payload["probe_center"] for payload in payloads],
+        "probe_width": payloads[0]["probe_width"],
+        "broadening": payloads[0]["broadening"],
+    }
+
+
+def _ensure_compatible_k_space_axes(reference_payload: dict[str, object], candidate_payload: dict[str, object]) -> None:
+    if reference_payload["energy"] != candidate_payload["energy"]:
+        raise ValueError("k-space derived-analysis aggregation requires a common energy grid")
+    if reference_payload["k_surface"] != candidate_payload["k_surface"]:
+        raise ValueError("k-space derived-analysis aggregation requires a common k-surface")
+
+
+def _with_analysis_sweep_parameter(
+    parameters: dict[str, object],
+    sweep: SweepRecord,
+    parameter_value: object,
+) -> dict[str, object]:
+    if sweep.parameter_kind != ParameterKind.ANALYSIS:
+        return parameters
+    override_targets = {
+        "probe_center": "probe_center",
+        "analysis.probe_center": "probe_center",
+        "tr_arpes.probe_center": "probe_center",
+    }
+    target_key = override_targets.get(sweep.parameter_path)
+    if target_key is None:
+        return parameters
+    overridden = dict(parameters)
+    overridden[target_key] = parameter_value
+    return overridden
 
 
 def _infer_uniform_step(times: list[float]) -> float | None:

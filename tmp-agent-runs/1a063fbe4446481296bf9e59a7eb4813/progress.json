@@ -1,0 +1,79 @@
+{
+  "run_id": "1a063fbe4446481296bf9e59a7eb4813",
+  "state": "succeeded",
+  "phase": "succeeded",
+  "updated_at": "2026-03-21T09:39:17.457866Z",
+  "started_at": "2026-03-21T09:39:17.275527Z",
+  "wall_seconds_elapsed": 0.18181292197550647,
+  "physical_time_current": 0.2,
+  "physical_time_final": 0.2,
+  "physical_progress_fraction": 1.0,
+  "accepted_steps": 2,
+  "requested_steps": 2,
+  "rejected_steps": 0,
+  "saved_samples_written": 3,
+  "status_line": "simulation completed",
+  "solver_metrics": {},
+  "history": [
+    {
+      "timestamp": "2026-03-21T09:39:17.277068Z",
+      "wall_seconds_elapsed": 0.0,
+      "physical_time_current": null,
+      "physical_progress_fraction": null,
+      "saved_samples_written": 0,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:39:17.292348Z",
+      "wall_seconds_elapsed": 0.0,
+      "physical_time_current": null,
+      "physical_progress_fraction": null,
+      "saved_samples_written": 0,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:39:17.293507Z",
+      "wall_seconds_elapsed": 0.01774239999940619,
+      "physical_time_current": 0.0,
+      "physical_progress_fraction": 0.0,
+      "saved_samples_written": 0,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:39:17.323341Z",
+      "wall_seconds_elapsed": 0.03128555297735147,
+      "physical_time_current": 0.0,
+      "physical_progress_fraction": 0.0,
+      "saved_samples_written": 1,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:39:17.362538Z",
+      "wall_seconds_elapsed": 0.08660711298580281,
+      "physical_time_current": 0.2,
+      "physical_progress_fraction": 1.0,
+      "saved_samples_written": 3,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:39:17.384003Z",
+      "wall_seconds_elapsed": 0.1081615180009976,
+      "physical_time_current": 0.2,
+      "physical_progress_fraction": 1.0,
+      "saved_samples_written": 3,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    }
+  ]
+}

@@ -32,6 +32,7 @@ from backend.app.schemas import (
     ObservableCatalogResponse,
     ObservableResponse,
     RunDetail,
+    RunProgressRecord,
     RunResearchMetadataPatch,
     RunState,
     RunSummary,
@@ -122,6 +123,110 @@ def build_kbe_hfb_preset() -> PresetEntry:
     )
 
 
+def build_swave_apr_tsuji_aoki_preset() -> PresetEntry:
+    return PresetEntry(
+        name="square-4x4-swave-apr-tsuji-aoki",
+        category=PresetCategory.MEAN_FIELD,
+        validation_status=PresetValidationStatus.PROTOTYPE,
+        summary="Anderson pseudospin resonance (APR) with s-wave pairing under continuous sine drive.",
+        scope_note=(
+            "Mapped from Tsuji & Aoki (2015) Fig. 10: 1D chain, U=3.5 (half-filling), sine drive A=0.15, "
+            "Ω=2π/25≈0.251 rad/t targeting 2Ω=2Δ₀ resonance. Lattice here is 4×4 square (not DMFT). "
+            "Observable: equal-time pairing amplitude Φ(t). Prototype only — DMFT self-energy not included. "
+            "Ref: arXiv:1404.2711 (PRB 92, 064508, 2015)."
+        ),
+        primary_observable="pairing_s",
+        config=SimulationConfig(
+            name="square-4x4-swave-apr-tsuji-aoki",
+            solver="tdhfb",
+            lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
+            time={"t_final": 50.0, "dt": 0.05, "save_every": 1},
+            drive={
+                "drive_type": "sine",
+                "amplitude_x": 0.15,
+                "amplitude_y": 0.0,
+                "frequency": 0.25,
+                "phase": 0.0,
+                "center": 0.0,
+                "width": 1.0,
+            },
+            interaction={"onsite_u": -3.5, "nearest_neighbor_v": 0.0, "pairing_channel": "onsite"},
+            initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.15},
+            observables=["density", "energy", "vector_potential", "pairing", "pairing_s"],
+        ),
+    )
+
+
+def build_swave_pump_probe_kemper_preset() -> PresetEntry:
+    return PresetEntry(
+        name="square-4x4-swave-pump-probe-kemper",
+        category=PresetCategory.MEAN_FIELD,
+        validation_status=PresetValidationStatus.PROTOTYPE,
+        summary="Gaussian pump revealing Higgs oscillations in s-wave pairing, mapped from Holstein-model setup.",
+        scope_note=(
+            "Mapped from Kemper et al. (2015) Fig. 1–3: Holstein model on 2D square lattice, V_nn=0.25 eV, "
+            "half-filling, Gaussian pump E_max≈0.6–0.9 V/a₀. Holstein coupling replaced by effective on-site U. "
+            "After pump, pairing amplitude oscillates at 2Δ(t) — look for Higgs signal in FFT of pairing_s. "
+            "Prototype only — Holstein phonon self-energy not present. "
+            "Ref: arXiv:1412.2762 (PRB 92, 224517, 2015)."
+        ),
+        primary_observable="pairing_s",
+        config=SimulationConfig(
+            name="square-4x4-swave-pump-probe-kemper",
+            solver="tdhfb",
+            lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
+            time={"t_final": 20.0, "dt": 0.05, "save_every": 1},
+            drive={
+                "drive_type": "gaussian",
+                "amplitude_x": 0.3,
+                "amplitude_y": 0.0,
+                "frequency": 1.0,
+                "phase": 0.0,
+                "center": 3.0,
+                "width": 1.5,
+            },
+            interaction={"onsite_u": -2.0, "nearest_neighbor_v": 0.0, "pairing_channel": "onsite"},
+            initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.1},
+            observables=["density", "energy", "vector_potential", "pairing", "pairing_s"],
+        ),
+    )
+
+
+def build_dwave_higgs_thz_shimano_tsuji_preset() -> PresetEntry:
+    return PresetEntry(
+        name="square-4x4-dwave-higgs-thz-shimano-tsuji",
+        category=PresetCategory.MEAN_FIELD,
+        validation_status=PresetValidationStatus.PROTOTYPE,
+        summary="THz Gaussian pulse exciting d-wave Higgs mode via bond_d pairing channel.",
+        scope_note=(
+            "Motivated by Shimano & Tsuji review (2020) Sec. IV on d-wave cuprate Higgs. "
+            "On-site U + nearest-neighbor V with bond_d channel; Gaussian pulse near ω≈2Δ_d. "
+            "Physical parameters are illustrative (DMFT/FLEX not included). "
+            "Prototype only — use to explore d-wave order parameter dynamics under THz pump. "
+            "Ref: arXiv:1906.09401 (Rev. Mod. Phys. 92, 021003, 2020)."
+        ),
+        primary_observable="pairing_d",
+        config=SimulationConfig(
+            name="square-4x4-dwave-higgs-thz-shimano-tsuji",
+            solver="tdhfb",
+            lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
+            time={"t_final": 30.0, "dt": 0.05, "save_every": 1},
+            drive={
+                "drive_type": "gaussian",
+                "amplitude_x": 0.1,
+                "amplitude_y": 0.0,
+                "frequency": 2.0,
+                "phase": 0.0,
+                "center": 5.0,
+                "width": 1.5,
+            },
+            interaction={"onsite_u": -2.0, "nearest_neighbor_v": -1.5, "pairing_channel": "bond_d"},
+            initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.1},
+            observables=["density", "energy", "vector_potential", "pairing", "pairing_d"],
+        ),
+    )
+
+
 def build_higgs_demo_preset() -> PresetEntry:
     return PresetEntry(
         name="square-4x4-higgs-demo-kbe-hfb",
@@ -184,6 +289,9 @@ class RunService:
         if cancelled or status.state == RunState.QUEUED:
             self.repository.update_status(run_id, RunState.CANCELLED, message="run cancelled")
         return self.get_run(run_id)
+
+    def get_run_progress(self, run_id: str) -> RunProgressRecord:
+        return self.repository.read_run_progress(run_id)
 
     def read_log(self, run_id: str) -> str:
         return self.repository.read_log(run_id)
@@ -273,7 +381,15 @@ class RunService:
         )
 
     def get_presets(self) -> list[PresetEntry]:
-        return [build_higgs_demo_preset(), build_default_preset(), build_tdhfb_preset(), build_kbe_hfb_preset()]
+        return [
+            build_higgs_demo_preset(),
+            build_swave_apr_tsuji_aoki_preset(),
+            build_swave_pump_probe_kemper_preset(),
+            build_dwave_higgs_thz_shimano_tsuji_preset(),
+            build_default_preset(),
+            build_tdhfb_preset(),
+            build_kbe_hfb_preset(),
+        ]
 
     def get_schema(self) -> dict[str, Any]:
         return SimulationConfig.model_json_schema()

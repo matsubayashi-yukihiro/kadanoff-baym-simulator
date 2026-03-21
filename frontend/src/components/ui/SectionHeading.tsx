@@ -10,7 +10,7 @@ export function SectionHeading({
   return (
     <div className="flex items-start justify-between gap-6 mb-6">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted mb-1">
+        <p className="text-xs font-semibold text-ink-muted mb-1">
           {eyebrow}
         </p>
         <h2 className="font-heading text-xl font-semibold text-ink leading-snug">{title}</h2>

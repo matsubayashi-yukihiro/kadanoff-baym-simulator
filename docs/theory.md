@@ -26,6 +26,10 @@
   Nambu 表現の full two-time KBE と conserving self-energy
 - 現在の実装上の区別:
   `hfb`、heuristic prototype の `second_born`、reference path の `second_born_reference`
+- solver representation:
+  `real_space` と `k_space` の basis mode を区別し、同じ solver kind の内部表現として扱う
+- 事後解析としての `k` 空間 / `tr-ARPES`:
+  既存の real-space run artifact と Green 関数を source にする derived analysis surface
 
 を明示的に分けて扱う。
 
@@ -43,6 +47,23 @@
 したがって、この文書では full two-time KBE を理論基準として保ちつつ、
 コード参照時には `second_born_reference` が
 「現在の reference implementation」であることを区別して読む。
+
+設計原則として、equilibrium initializer は
+runtime propagator と同じ近似レベルに揃える。
+したがって、
+
+- `tdhfb` / `kbe_hfb(self_energy=hfb)` では `hfb` equilibrium
+- `kbe_hfb(self_energy=second_born_reference)` では `second_born_reference` equilibrium
+
+を既定とし、近似不一致の seed は debug / regression 用の明示 override としてのみ使う。
+
+`k` 空間 native solver representation と
+`k` 空間 / `tr-ARPES` derived analysis は別物である。
+後者は solver core の別系統ではなく、
+既存 run artifact から再構成する derived analysis として扱う。
+理論上は `G^<(k, t, t')` を起点にしつつ、v1 の実装では
+real-space / Green-function artifact から occupied spectrum と
+measurement-like intensity を導く bridge として定義する。
 
 ---
 
@@ -130,6 +151,7 @@
 - full two-time KBE
 - 観測量評価
 - 検証インフラ
+- k-space / spectral derived analysis
 
 を共有する共通基盤。
 
@@ -189,6 +211,49 @@
 - 浴やリードにより維持される非平衡定常状態
 - 非局所スクリーニングや GW 型補正
 - 現実物質に対する定量予測
+- `second_born_reference` を含む correlated `k` 空間 native closure
+
+ただし、`k` 空間 / `tr-ARPES` の derived analysis 自体は
+本プロジェクトの次フェーズの主線として扱う。
+
+また、periodic square lattice に限った `k_space` basis mode は
+solver core の段階的拡張対象として扱う。
+現行 backend ではまず `noninteracting`、`tdhfb`、`kbe_hfb(self_energy=hfb)` に加えて、
+reduced-Nambu equal-time GKBA contour-dressed scope に限った
+`kbe_hfb(self_energy=second_born_reference)` で
+既存 run artifact contract を保ったまま `real_space` / `k_space` を切り替えられるようにし、
+`second_born` heuristic prototype は未対応のまま残す。
+
+### 2.4 k 空間 / tr-ARPES derived analysis
+
+`k` 空間表現は、solver core の新しい実空間置換ではなく、
+既存 run artifact から再構成する derived analysis surface として扱う。
+
+最小構成では次を分ける。
+
+- `A(k, \omega, t)` またはそれに対応する spectral surface
+- occupied spectrum
+- `tr-ARPES` intensity
+
+`tr-ARPES` は measurement-like derived quantity であり、
+solver core の primary observable そのものではない。
+v1 では matrix element を持たない最小測定モデルとし、
+probe envelope, probe delay, broadening を使って intensity を定義する。
+
+source は既存の real-space run artifact と Green 関数である。
+したがって、まずは run から再計算可能な analysis として
+`k`-path 上の occupied spectrum と minimal tr-ARPES intensity を出し、
+後続で `second_born_reference` を source にした correlated extension へ進む。
+
+現行 backend 実装では、この source は
+two-time lesser Green 関数を保存する periodic `kbe_hfb` run と
+periodic `tdhfb` run を含む。
+`kbe_hfb` については `hfb` に加えて、
+real-space source としての `second_born_reference` run reuse、
+および periodic native `representation=k_space` source としての
+`second_born_reference` run reuse を含む。
+ただし、これは derived analysis の source contract の話であり、
+full two-time contour second Born と同一視しない。
 
 ---
 
@@ -201,6 +266,7 @@
 3. KBE + HFB
 4. KBE + second Born
 5. 拡張 Hubbard における bond pairing と d-wave 成分
+6. 既存 real-space / Green-function run artifact からの k-space / tr-ARPES 事後解析
 
 electron-phonon 系はこの主線の上に載るサブプロジェクトとして段階的に追加する。
 

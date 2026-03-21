@@ -1,0 +1,169 @@
+{
+  "accepted_time_steps": 2,
+  "adaptive_enabled": false,
+  "adaptive_error_estimate_history": [],
+  "adaptive_max_error_estimate": 0.0,
+  "continuity_residual_history": [],
+  "continuity_residual_supported": false,
+  "density_initial_slip_history": [
+    0.0,
+    0.00015915257399606864,
+    0.00028829453108752956
+  ],
+  "effective_chemical_potential": -0.14983316944791622,
+  "energy_conservation_residual_history": [
+    0.0,
+    0.0002594997672771275,
+    0.0009663883902188328
+  ],
+  "energy_drift": 0.0009664593144336209,
+  "energy_initial_slip_history": [
+    0.0,
+    0.0002594997672771271,
+    0.0009664593144336209
+  ],
+  "energy_work_mismatch_history": [
+    0.0,
+    0.0002594997672771275,
+    -0.0009663883902188328
+  ],
+  "equilibrium_density_update_residual": 0.0,
+  "equilibrium_matches_runtime_approximation": true,
+  "equilibrium_method_requested": "auto",
+  "equilibrium_method_resolved": "second_born_reference",
+  "equilibrium_mismatch_allowed": false,
+  "equilibrium_solver_method": "second_born_reference",
+  "equilibrium_solver_mode": "hfb_fallback_zero_temperature",
+  "equilibrium_stationarity_residual": 5.7209778026035e-09,
+  "final_continuity_residual": null,
+  "final_energy_work_mismatch": 0.0009663883902188328,
+  "final_pairing_magnitude": 0.0,
+  "final_particle_conservation_residual": 0.0011531781243503403,
+  "hfb_converged": true,
+  "hfb_fixed_point_accelerator": "anderson_diis",
+  "hfb_iterations": 1,
+  "hfb_self_consistency_error": 1.9936197137582212e-10,
+  "kbe_fixed_point_accelerator": "linear",
+  "kbe_fixed_point_max_iterations": 6,
+  "kbe_fixed_point_mixing": 0.5,
+  "kbe_fixed_point_tolerance": 1e-06,
+  "kbe_reference_solver_available": true,
+  "kbe_self_energy_mode": "second_born_reference",
+  "kbe_two_time_reconstruction": "gkba_causal_marching",
+  "max_continuity_residual": null,
+  "max_density_bound_violation": 0.0,
+  "max_density_initial_slip": 0.00028829453108752956,
+  "max_energy_initial_slip": 0.0009664593144336209,
+  "max_energy_work_mismatch": 0.0009663883902188328,
+  "max_equal_time_density_reconstruction_error": 0.0,
+  "max_equal_time_tdhfb_mismatch": 0.00028829455341450316,
+  "max_generalized_hermiticity_error": 0.0,
+  "max_lesser_hermiticity_error": 0.0,
+  "max_pairing_d_initial_slip": 0.0,
+  "max_pairing_d_magnitude": 0.0,
+  "max_pairing_initial_slip": 0.0,
+  "max_pairing_magnitude": 0.0,
+  "max_pairing_s_magnitude": 0.0,
+  "max_particle_conservation_residual": 0.0011531781243503403,
+  "max_retarded_causality_error": 0.0,
+  "max_retarded_equal_time_error": 0.0,
+  "max_second_born_collision_norm": 0.0030951610557258353,
+  "max_second_born_equation_residual": 4.5761040224300085e-05,
+  "max_second_born_memory_norm": 0.059529340017854114,
+  "max_second_born_mixed_memory_norm": 0.0,
+  "max_second_born_thermal_memory_norm": 0.0,
+  "max_stationarity_residual": 0.00028829487886500305,
+  "mixed_branch_factorized_difference": 0.0,
+  "mixed_branch_implementation_kind": "disabled",
+  "mixed_branch_reference_implementation": false,
+  "mixed_components_included": false,
+  "pairing_channel": "none",
+  "pairing_d_initial_slip_history": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "pairing_initial_slip_history": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "particle_conservation_residual_history": [
+    0.0,
+    0.0006366102959840525,
+    0.0011531781243503403
+  ],
+  "particle_number_drift": 0.0011531781243503403,
+  "particle_target": 2.0,
+  "rejected_time_steps": 0,
+  "representation_equivalence_reference": "real_space",
+  "requested_time_steps": 2,
+  "saved_samples": 3,
+  "second_born_collision_norm_history": [
+    0.001750779872382599,
+    0.0030951610557258353
+  ],
+  "second_born_contour_mode": "keldysh_only",
+  "second_born_contour_terms_included": false,
+  "second_born_converged": true,
+  "second_born_enabled": true,
+  "second_born_equation_residual_history": [
+    2.5262315270484486e-05,
+    4.5761040224300085e-05
+  ],
+  "second_born_explicit_self_energy": true,
+  "second_born_history_integration_max_order": 2,
+  "second_born_history_integration_order_history": [
+    1,
+    2
+  ],
+  "second_born_implementation_kind": "gkba_local_nambu_reference",
+  "second_born_iteration_history": [
+    6,
+    6
+  ],
+  "second_born_memory_norm_history": [
+    0.059529340017854114,
+    0.05950427061214309
+  ],
+  "second_born_memory_window": 2,
+  "second_born_mixed_memory_norm_history": [
+    0.0,
+    0.0
+  ],
+  "second_born_reference_implementation": true,
+  "second_born_reference_scope": "equal_time_gkba",
+  "second_born_residual_history": [
+    2.52623152696696e-06,
+    4.576104022491201e-06
+  ],
+  "second_born_solver_mode": "gkba_causal_marching",
+  "second_born_thermal_memory_norm_history": [
+    0.0,
+    0.0
+  ],
+  "site_count": 4,
+  "solver_representation": "real_space",
+  "stationarity_residual_history": [
+    0.0,
+    0.00015915267054594784,
+    0.00028829487886500305
+  ],
+  "thermal_branch_correlated": false,
+  "thermal_branch_enabled": false,
+  "thermal_branch_factorized_difference": 0.0,
+  "thermal_branch_implementation_kind": "disabled",
+  "thermal_branch_reference_implementation": false,
+  "time_grid_mode": "uniform",
+  "time_step_history": [
+    0.1,
+    0.1
+  ],
+  "time_steps": 2,
+  "two_time_grid_shape": [
+    3,
+    3,
+    8,
+    8
+  ]
+}

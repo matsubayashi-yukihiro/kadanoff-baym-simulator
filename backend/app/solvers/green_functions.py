@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
 
 from backend.app.solvers.nambu import ComplexMatrix
-from backend.app.solvers.tdhfb import HFBDynamicsResult
+
+if TYPE_CHECKING:
+    from backend.app.solvers.tdhfb import HFBDynamicsResult
 
 
 @dataclass(slots=True)

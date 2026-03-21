@@ -6,21 +6,21 @@
   :root {
     color-scheme: light;
     --page-width: 1780px;
-    --panel-bg: rgba(248, 251, 253, 0.92);
-    --panel-strong: rgba(252, 253, 255, 0.98);
-    --panel-border: rgba(32, 52, 79, 0.12);
-    --panel-shadow: 0 20px 50px rgba(17, 29, 46, 0.1);
-    --ink: #14202b;
-    --ink-subtle: #455468;
-    --ink-muted: #6c7a8e;
-    --accent: #166570;
-    --accent-strong: #0f4850;
-    --accent-soft: #b8e2dd;
-    --accent-secondary: #344767;
-    --success: #1f7a5c;
-    --danger: #a12b2b;
-    --queued: #8a6117;
-    --border-soft: rgba(32, 52, 79, 0.08);
+    --panel-bg: rgba(247, 248, 252, 0.92);
+    --panel-strong: rgba(252, 252, 255, 0.98);
+    --panel-border: rgba(12, 18, 41, 0.11);
+    --panel-shadow: 0 20px 50px rgba(12, 18, 41, 0.09);
+    --ink: #0c1229;
+    --ink-subtle: #374165;
+    --ink-muted: #6571a3;
+    --accent: #4c42e8;
+    --accent-strong: #3a30d0;
+    --accent-soft: #e8e6fb;
+    --accent-secondary: #5c51f0;
+    --success: #1a7a4a;
+    --danger: #c0334a;
+    --queued: #9b6d14;
+    --border-soft: rgba(12, 18, 41, 0.07);
   }
 
   * {
@@ -36,9 +36,9 @@
     margin: 0;
     min-width: 320px;
     color: var(--ink);
-    font-family: "IBM Plex Sans", "Avenir Next", "Segoe UI", sans-serif;
+    font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
     line-height: 1.5;
-    background: #f5f7fa;
+    background: #f4f5fb;
     min-height: 100vh;
   }
 
@@ -59,7 +59,7 @@
   input,
   select {
     width: 100%;
-    border: 1px solid rgba(32, 52, 79, 0.22);
+    border: 1px solid rgba(12, 18, 41, 0.2);
     border-radius: 4px;
     background: #fff;
     padding: 0.42rem 0.58rem;
@@ -72,18 +72,18 @@
 
   input:hover,
   select:hover {
-    border-color: rgba(22, 101, 112, 0.4);
+    border-color: rgba(76, 66, 232, 0.35);
   }
 
   input:focus,
   select:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(22, 101, 112, 0.12);
+    box-shadow: 0 0 0 2px rgba(76, 66, 232, 0.14);
   }
 
   button:focus {
-    outline: 2px solid rgba(22, 101, 112, 0.16);
+    outline: 2px solid rgba(76, 66, 232, 0.18);
     outline-offset: 2px;
   }
 }
@@ -110,14 +110,18 @@
 
   /* Panel header / subheader */
   .panel-header {
-    @apply flex items-center justify-between gap-3 mb-3.5;
+    @apply flex items-center justify-between gap-3;
+    padding-bottom: 0.65rem;
+    margin-bottom: 0.9rem;
+    border-bottom: 1px solid rgba(12, 18, 41, 0.07);
   }
 
   .panel-header h2,
   .panel-subheader h3 {
     @apply m-0 font-heading font-bold tracking-tight;
+
     font-size: 1.12rem;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
   }
 
   .panel-subheader {
@@ -127,8 +131,8 @@
 
   /* Eyebrow label */
   .eyebrow {
-    @apply m-0 text-accent text-xs font-bold uppercase;
-    letter-spacing: 0.18em;
+    @apply m-0 text-accent text-xs font-semibold;
+    letter-spacing: 0.06em;
   }
 
   /* Panel grids */
@@ -152,7 +156,7 @@
   }
 
   .section-title {
-    @apply text-ink-subtle text-sm font-bold uppercase;
+    @apply text-ink-subtle text-sm font-semibold;
     margin-bottom: 0.72rem;
     font-size: 0.82rem;
     letter-spacing: 0.08em;
@@ -164,7 +168,7 @@
   }
 
   .field-label {
-    @apply text-accent text-xs font-bold uppercase;
+    @apply text-accent text-xs font-semibold;
     letter-spacing: 0.08em;
   }
 
@@ -225,8 +229,8 @@
 
   .ghost-button {
     @apply text-accent-strong;
-    background: rgba(22, 101, 112, 0.06);
-    border: 1px solid rgba(22, 101, 112, 0.14);
+    background: rgba(76, 66, 232, 0.06);
+    border: 1px solid rgba(76, 66, 232, 0.16);
   }
 
   /* Chips */
@@ -234,12 +238,12 @@
     @apply border-none rounded-btn text-accent-strong transition-colors duration-150;
     padding: 0.42rem 0.75rem;
     font-size: 0.86rem;
-    background: rgba(22, 101, 112, 0.06);
-    border: 1px solid rgba(22, 101, 112, 0.14);
+    background: rgba(76, 66, 232, 0.06);
+    border: 1px solid rgba(76, 66, 232, 0.16);
   }
 
   .chip:hover {
-    background: rgba(22, 101, 112, 0.12);
+    background: rgba(76, 66, 232, 0.11);
   }
 
   .chip-row {
@@ -247,14 +251,15 @@
   }
 
   .chip-active {
-    color: #f3fbfb;
-    background: linear-gradient(135deg, var(--accent) 0%, #207885 100%);
+    color: #f0effd;
+    background: linear-gradient(135deg, var(--accent) 0%, #5c51f0 100%);
+    border-color: transparent;
   }
 
   .chip-overlay {
-    color: #f3fbfb;
-    background: linear-gradient(135deg, #345292 0%, #5b6fc0 100%);
-    border-color: rgba(52, 82, 146, 0.2);
+    color: #f0effd;
+    background: linear-gradient(135deg, #5c51f0 0%, #7b72f5 100%);
+    border-color: rgba(92, 81, 240, 0.2);
   }
 
   /* Button row */
@@ -266,7 +271,7 @@
   .status-pill {
     @apply inline-flex items-center justify-center rounded-full text-xs font-bold capitalize;
     padding: 0.34rem 0.72rem;
-    background: rgba(22, 101, 112, 0.1);
+    background: rgba(76, 66, 232, 0.09);
     color: var(--accent-strong);
   }
 
@@ -276,7 +281,7 @@
   }
 
   .status-running {
-    background: rgba(52, 71, 103, 0.12);
+    background: rgba(76, 66, 232, 0.1);
     @apply text-accent-secondary;
   }
 
@@ -294,7 +299,7 @@
   /* Validation pill */
   .validation-pill,
   .signal-badge {
-    @apply inline-flex items-center justify-center rounded-full text-xs font-bold uppercase;
+    @apply inline-flex items-center justify-center rounded-full text-xs font-semibold;
     padding: 0.28rem 0.65rem;
     font-size: 0.74rem;
     letter-spacing: 0.05em;
@@ -311,8 +316,8 @@
   }
 
   .validation-partial {
-    background: rgba(52, 71, 103, 0.1);
-    border-color: rgba(52, 71, 103, 0.16);
+    background: rgba(76, 66, 232, 0.09);
+    border-color: rgba(76, 66, 232, 0.18);
     @apply text-accent-secondary;
   }
 
@@ -329,12 +334,12 @@
   }
 
   .signal-badge {
-    background: rgba(32, 52, 79, 0.08);
+    background: rgba(12, 18, 41, 0.07);
     @apply text-ink-subtle;
   }
 
   .signal-badge-strong {
-    background: rgba(22, 101, 112, 0.12);
+    background: rgba(76, 66, 232, 0.1);
     @apply text-accent-strong;
   }
 
@@ -343,7 +348,7 @@
     @apply rounded-card text-ink-subtle;
     padding: 0.85rem 0.9rem;
     background: rgba(255, 255, 255, 0.72);
-    border: 1px solid rgba(32, 52, 79, 0.08);
+    border: 1px solid rgba(12, 18, 41, 0.07);
   }
 
   .state-banner.state-error {
@@ -367,7 +372,7 @@
     @apply rounded-card;
     padding: 0.85rem 0.9rem;
     background: rgba(255, 255, 255, 0.72);
-    border: 1px dashed rgba(32, 52, 79, 0.16);
+    border: 1px dashed rgba(12, 18, 41, 0.14);
   }
 
   .empty-card p {
@@ -378,18 +383,19 @@
   .run-focus {
     @apply rounded-card;
     padding: 0.7rem 0.8rem;
-    border: 1px solid rgba(22, 101, 112, 0.18);
-    background: rgba(248, 253, 253, 0.9);
+    border: 1px solid rgba(76, 66, 232, 0.18);
+    background: rgba(248, 248, 254, 0.9);
   }
 
   .focus-label {
-    @apply m-0 font-heading font-semibold;
+    @apply m-0 font-semibold;
+
     font-size: 1.2rem;
     margin-bottom: 0.25rem;
   }
 
   .focus-key {
-    @apply text-accent text-xs font-bold uppercase;
+    @apply text-accent text-xs font-semibold;
     letter-spacing: 0.08em;
   }
 
@@ -415,6 +421,8 @@
   .run-list {
     @apply grid;
     gap: 0.55rem;
+    max-height: 360px;
+    overflow-y: auto;
   }
 
   .run-card {
@@ -424,11 +432,11 @@
   }
 
   .run-card:hover {
-    border-color: rgba(22, 101, 112, 0.2);
+    border-color: rgba(76, 66, 232, 0.22);
   }
 
   .run-card-selected {
-    border-color: rgba(22, 101, 112, 0.26);
+    border-color: rgba(76, 66, 232, 0.28);
     @apply shadow-card-active;
   }
 
@@ -476,7 +484,7 @@
   }
 
   .metric-label {
-    @apply text-accent text-xs font-bold uppercase;
+    @apply text-accent text-xs font-semibold;
     letter-spacing: 0.08em;
   }
 
@@ -536,7 +544,7 @@
 
   .preset-card-active,
   .track-card-active {
-    border-color: rgba(22, 101, 112, 0.26);
+    border-color: rgba(76, 66, 232, 0.28);
     @apply shadow-card-active;
   }
 
@@ -552,9 +560,9 @@
 
   .preset-quickstart-card {
     @apply grid gap-2 p-3.5;
-    border: 1px solid rgba(22, 101, 112, 0.14);
+    border: 1px solid rgba(76, 66, 232, 0.14);
     border-radius: 6px;
-    background: rgba(248, 253, 253, 0.9);
+    background: rgba(248, 248, 254, 0.9);
   }
 
   .preset-quickstart-card p {
@@ -565,7 +573,8 @@
   .narrative-card h3,
   .context-card h3,
   .track-card h3 {
-    @apply m-0 font-heading font-bold;
+    @apply m-0 font-bold;
+
     font-size: 1.15rem;
     letter-spacing: -0.02em;
   }
@@ -621,7 +630,7 @@
     @apply text-right;
     min-width: 4.5rem;
     padding: 0.48rem 0.56rem;
-    border: 1px solid rgba(32, 52, 79, 0.08);
+    border: 1px solid rgba(12, 18, 41, 0.07);
   }
 
   /* Observable body / meta / diagnostic summary */
@@ -641,6 +650,57 @@
     @apply grid gap-1;
   }
 
+  /* Drive waveform preview */
+  .drive-waveform-shell {
+    margin-top: 0.85rem;
+  }
+
+  .drive-waveform-kind-label {
+    font-size: 0.72rem;
+    font-family: "JetBrains Mono", monospace;
+    color: var(--ink-muted);
+    margin-bottom: 0.35rem;
+    letter-spacing: 0.04em;
+  }
+
+  .drive-waveform-svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 6px;
+  }
+
+  .drive-waveform-hint {
+    @apply text-xs text-ink-muted;
+    margin: 0.5rem 0 0;
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  .drive-waveform-legend {
+    display: flex;
+    gap: 1rem;
+    margin-top: 0.5rem;
+    flex-wrap: wrap;
+  }
+
+  .drive-waveform-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.75rem;
+    color: var(--ink-muted);
+    font-family: "JetBrains Mono", monospace;
+  }
+
+  .drive-waveform-swatch {
+    display: inline-block;
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 50%;
+    border: 1px solid transparent;
+    flex-shrink: 0;
+  }
+
   /* Chart */
   .chart-shell {
     @apply grid;
@@ -658,16 +718,16 @@
 
   .chart-frame {
     fill: #0f1722;
-    stroke: rgba(184, 226, 221, 0.18);
+    stroke: rgba(168, 162, 244, 0.18);
   }
 
   .chart-grid {
-    stroke: rgba(214, 227, 239, 0.12);
+    stroke: rgba(200, 196, 252, 0.1);
     stroke-dasharray: 3 5;
   }
 
   .chart-grid-vertical {
-    stroke: rgba(214, 227, 239, 0.08);
+    stroke: rgba(200, 196, 252, 0.07);
   }
 
   .chart-zero-line {
@@ -677,21 +737,21 @@
 
   .chart-axis {
     fill: none;
-    stroke: rgba(230, 241, 249, 0.28);
+    stroke: rgba(200, 196, 252, 0.28);
   }
 
   .chart-axis-label {
-    fill: rgba(222, 233, 242, 0.72);
+    fill: rgba(210, 207, 248, 0.72);
     stroke: none;
-    font-family: var(--mono, "IBM Plex Mono", monospace);
+    font-family: "JetBrains Mono", "IBM Plex Mono", monospace;
     font-size: 10px;
   }
 
   .chart-axis-title {
-    fill: rgba(236, 244, 250, 0.9);
+    fill: rgba(220, 217, 252, 0.9);
     stroke: none;
     font-size: 11px;
-    font-family: var(--mono, "IBM Plex Mono", monospace);
+    font-family: "JetBrains Mono", "IBM Plex Mono", monospace;
     letter-spacing: 0.04em;
   }
 
@@ -715,7 +775,7 @@
     gap: 0.55rem;
     padding: 0.6rem 0.7rem;
     background: rgba(255, 255, 255, 0.72);
-    border: 1px solid rgba(32, 52, 79, 0.08);
+    border: 1px solid rgba(12, 18, 41, 0.07);
   }
 
   .legend-swatch {
@@ -764,7 +824,7 @@
 
   .validation-details[open] .validation-details-summary .signal-badge,
   .support-details[open] .support-details-summary .signal-badge {
-    background: rgba(23, 59, 69, 0.14);
+    background: rgba(76, 66, 232, 0.12);
     @apply text-accent-secondary;
   }
 
@@ -833,7 +893,7 @@
     @apply overflow-y-auto mt-2 rounded-card;
     max-height: 400px;
     background: #0f1722;
-    border: 1px solid rgba(184, 226, 221, 0.16);
+    border: 1px solid rgba(168, 162, 244, 0.2);
     padding: 12px;
   }
 
@@ -858,9 +918,10 @@
   /* Shell topbar */
   .shell-topbar {
     @apply relative z-[1] flex items-start justify-between gap-4 mb-3 shadow-topbar;
-    padding: 0.75rem 1rem;
-    border: 1px solid rgba(32, 52, 79, 0.1);
-    border-radius: 8px;
+    padding: 0.75rem 1rem 0.75rem 1.25rem;
+    border: 1px solid rgba(12, 18, 41, 0.1);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
     background: #fff;
   }
 
@@ -875,17 +936,18 @@
   .shell-divider {
     width: 1px;
     height: 0.95rem;
-    background: rgba(32, 52, 79, 0.18);
+    background: rgba(12, 18, 41, 0.16);
   }
 
   .shell-surface-label {
-    @apply text-ink-subtle text-sm font-bold uppercase;
+    @apply text-ink-subtle text-sm font-semibold;
     letter-spacing: 0.08em;
     font-size: 0.82rem;
   }
 
   .shell-topbar h1 {
-    @apply m-0 font-heading font-bold;
+    @apply m-0 font-bold;
+
     font-size: clamp(1.3rem, 2vw, 1.7rem);
     letter-spacing: -0.02em;
   }
@@ -929,7 +991,7 @@
   }
 
   .sidebar-card-label {
-    @apply text-ink-muted text-xs font-bold uppercase;
+    @apply text-ink-muted text-xs font-semibold;
     letter-spacing: 0.08em;
     font-size: 0.74rem;
   }
@@ -953,6 +1015,7 @@
     margin-bottom: 0.15rem;
     padding: 0.65rem 0.85rem;
     background: #fff;
+    border-top: 2px solid var(--accent);
   }
 
   .tabs-header {
@@ -960,7 +1023,8 @@
   }
 
   .tabs-header h2 {
-    @apply m-0 font-heading font-bold;
+    @apply m-0 font-bold;
+
     font-size: 1.2rem;
     letter-spacing: -0.02em;
   }
@@ -981,23 +1045,24 @@
     @apply grid gap-0.5 text-left;
     align-content: start;
     padding: 0.55rem 0.75rem;
-    border: 1px solid rgba(32, 52, 79, 0.1);
+    border: 1px solid rgba(12, 18, 41, 0.1);
     border-radius: 6px;
-    background: #fafbfc;
+    background: #f8f8fd;
   }
 
   .tab-button-active {
-    color: #fff;
+    color: #f0effd;
     background: var(--accent);
     border-color: var(--accent);
   }
 
   .tab-button-active .tab-description {
-    color: rgba(243, 251, 251, 0.82);
+    color: rgba(240, 239, 253, 0.82);
   }
 
   .tab-label {
-    @apply font-heading font-bold;
+    @apply font-bold;
+
     font-size: 1rem;
   }
 
@@ -1025,7 +1090,8 @@
   }
 
   .section-heading-row h2 {
-    @apply m-0 font-heading font-bold;
+    @apply m-0 font-bold;
+
     font-size: 1.35rem;
     letter-spacing: -0.02em;
   }
@@ -1047,7 +1113,7 @@
 
   /* Briefing / hero labels */
   .briefing-label {
-    @apply text-accent text-xs font-bold uppercase;
+    @apply text-accent text-xs font-semibold;
     letter-spacing: 0.08em;
   }
 
@@ -1056,8 +1122,8 @@
   }
 
   .hero-kicker {
-    @apply m-0 text-accent text-xs font-bold uppercase;
-    letter-spacing: 0.18em;
+    @apply m-0 text-accent text-xs font-semibold;
+    letter-spacing: 0.06em;
   }
 
   /* Hint text */
@@ -1075,7 +1141,7 @@
   /* Compare job grids */
   .compare-summary-table-wrap {
     @apply rounded-panel overflow-hidden;
-    border: 1px solid rgba(32, 52, 79, 0.08);
+    border: 1px solid rgba(12, 18, 41, 0.07);
     background: rgba(255, 255, 255, 0.78);
   }
 
@@ -1087,7 +1153,7 @@
   .compare-summary-table td {
     @apply align-top;
     padding: 0.9rem 1rem;
-    border-bottom: 1px solid rgba(32, 52, 79, 0.08);
+    border-bottom: 1px solid rgba(12, 18, 41, 0.07);
   }
 
   .compare-summary-table tr:last-child th,
@@ -1096,7 +1162,7 @@
   }
 
   .compare-summary-table th {
-    @apply text-ink-muted text-left text-xs font-bold uppercase;
+    @apply text-ink-muted text-left text-xs font-semibold;
     width: 180px;
     letter-spacing: 0.08em;
     font-size: 0.76rem;
@@ -1112,13 +1178,13 @@
 
   .compare-variant-card {
     @apply grid gap-2 p-3.5 rounded-card;
-    border: 1px solid rgba(32, 52, 79, 0.08);
+    border: 1px solid rgba(12, 18, 41, 0.07);
     background: rgba(255, 255, 255, 0.74);
   }
 
   .compare-variant-card-active {
-    border-color: rgba(22, 101, 112, 0.26);
-    background: rgba(248, 253, 253, 0.9);
+    border-color: rgba(76, 66, 232, 0.28);
+    background: rgba(248, 248, 254, 0.9);
     @apply shadow-card-active;
   }
 
@@ -1137,7 +1203,7 @@
   }
 
   .compare-variant-slot {
-    @apply text-ink-muted text-xs font-bold uppercase;
+    @apply text-ink-muted text-xs font-semibold;
     letter-spacing: 0.08em;
     font-size: 0.74rem;
   }
@@ -1152,7 +1218,7 @@
 
   .compare-variant-differences {
     @apply grid gap-1.5 mt-0.5 pt-3;
-    border-top: 1px solid rgba(32, 52, 79, 0.08);
+    border-top: 1px solid rgba(12, 18, 41, 0.07);
   }
 
   .compare-variant-differences p,
@@ -1275,8 +1341,8 @@
     font-size: 0.78rem;
     font-family: "IBM Plex Mono", monospace;
     color: var(--ink-muted);
-    background: rgba(32, 52, 79, 0.06);
-    border: 1px solid rgba(32, 52, 79, 0.12);
+    background: rgba(12, 18, 41, 0.05);
+    border: 1px solid rgba(12, 18, 41, 0.1);
     border-radius: 4px;
     padding: 0.2rem 0.55rem;
     white-space: nowrap;
@@ -1288,8 +1354,8 @@
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--accent);
-    background: rgba(22, 101, 112, 0.05);
-    border: 1px solid rgba(22, 101, 112, 0.18);
+    background: rgba(76, 66, 232, 0.05);
+    border: 1px solid rgba(76, 66, 232, 0.18);
     border-radius: 4px;
     padding: 0.32rem 0.7rem;
     cursor: pointer;
@@ -1297,7 +1363,7 @@
     transition: background 120ms ease;
   }
   .sjp-expand-btn:hover {
-    background: rgba(22, 101, 112, 0.1);
+    background: rgba(76, 66, 232, 0.1);
   }
   .sjp-params-body {
     padding: 0 1.5rem 1.25rem;
@@ -1310,8 +1376,8 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.65rem 1.5rem;
-    background: linear-gradient(135deg, #0f1722 0%, #182836 100%);
-    border-bottom: 1px solid rgba(184, 226, 221, 0.1);
+    background: linear-gradient(135deg, #0d0f22 0%, #10122a 100%);
+    border-bottom: 1px solid rgba(168, 162, 244, 0.12);
   }
   .sjp-run-identity-left {
     display: flex;
@@ -1320,7 +1386,7 @@
     min-width: 0;
   }
   .sjp-run-name {
-    color: #e4f0f2;
+    color: #e8e6fb;
     font-weight: 700;
     font-size: 0.97rem;
     letter-spacing: -0.01em;
@@ -1331,9 +1397,9 @@
     max-width: 28ch;
   }
   .sjp-run-id {
-    color: rgba(184, 226, 221, 0.42);
+    color: rgba(168, 162, 244, 0.45);
     font-size: 0.72rem;
-    font-family: "IBM Plex Mono", monospace;
+    font-family: "JetBrains Mono", "IBM Plex Mono", monospace;
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -1349,19 +1415,19 @@
     gap: 0.08rem;
   }
   .sjp-run-meta-label {
-    color: rgba(184, 226, 221, 0.38);
+    color: rgba(168, 162, 244, 0.42);
     font-size: 0.65rem;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.1em;
   }
   .sjp-run-meta-value {
-    color: rgba(232, 243, 245, 0.85);
+    color: rgba(224, 222, 252, 0.88);
     font-size: 0.82rem;
-    font-family: "IBM Plex Mono", monospace;
+    font-family: "JetBrains Mono", "IBM Plex Mono", monospace;
   }
   .sjp-run-status-msg {
-    color: rgba(184, 226, 221, 0.5);
+    color: rgba(168, 162, 244, 0.52);
     font-size: 0.78rem;
     font-style: italic;
     max-width: 34ch;
@@ -1389,6 +1455,32 @@
     overflow-y: auto;
     padding-bottom: 1rem;
   }
+  .run-progress-summary {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 0.9rem;
+  }
+  .run-progress-summary > div {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    background: rgba(248, 251, 253, 0.72);
+  }
+  .run-progress-chart {
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.9);
+    overflow: hidden;
+  }
+  .run-progress-metrics {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 0.9rem;
+  }
 
   /* Contour section tab bar */
   .sjp-contour-tabbar {
@@ -1397,14 +1489,14 @@
     border-radius: 8px;
     overflow: hidden;
     background: #fff;
-    box-shadow: 0 1px 3px rgba(17, 29, 46, 0.06);
+    box-shadow: 0 1px 3px rgba(12, 18, 41, 0.06);
   }
   .sjp-contour-tabbar-trailing {
     display: flex;
     align-items: center;
     padding: 0 1rem;
     border-left: 1px solid var(--panel-border);
-    background: rgba(248, 251, 253, 0.8);
+    background: rgba(247, 248, 252, 0.8);
     flex-shrink: 0;
   }
   .sjp-contour-tab {
@@ -1415,7 +1507,7 @@
     padding: 0.65rem 1rem;
     border: none;
     border-right: 1px solid var(--panel-border);
-    background: #fafbfc;
+    background: #f8f8fd;
     cursor: pointer;
     text-align: left;
     transition: background 120ms ease;
@@ -1424,7 +1516,7 @@
     border-right: none;
   }
   .sjp-contour-tab:hover {
-    background: rgba(22, 101, 112, 0.04);
+    background: rgba(76, 66, 232, 0.05);
   }
   .sjp-contour-tab.active {
     background: var(--accent);
@@ -1432,6 +1524,7 @@
   .sjp-tab-label {
     font-size: 0.92rem;
     font-weight: 700;
+
     letter-spacing: -0.01em;
     color: var(--ink);
   }
@@ -1472,6 +1565,8 @@
   .sjp-evidence-grid { grid-template-columns: 1fr; }
   .sjp-run-identity { flex-direction: column; align-items: flex-start; }
   .sjp-support-rail { position: static; max-height: none; overflow-y: visible; }
+  .run-progress-summary,
+  .run-progress-metrics { grid-template-columns: 1fr; }
   .sjp-contour-tabbar { flex-direction: column; }
   .sjp-contour-tab { border-right: none; border-bottom: 1px solid var(--panel-border); }
   .sjp-contour-tab:last-of-type { border-bottom: none; }
@@ -1584,7 +1679,7 @@
 
   .compare-summary-table tr {
     padding: 0.2rem 0;
-    border-bottom: 1px solid rgba(32, 52, 79, 0.08);
+    border-bottom: 1px solid rgba(12, 18, 41, 0.07);
   }
 
   .compare-summary-table tr:last-child {

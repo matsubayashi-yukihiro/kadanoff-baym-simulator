@@ -1,0 +1,92 @@
+{
+  "run_id": "2d890902502545999c77b09dc43dbebf",
+  "state": "succeeded",
+  "phase": "succeeded",
+  "updated_at": "2026-03-21T09:43:20.891758Z",
+  "started_at": "2026-03-21T09:39:17.076057Z",
+  "wall_seconds_elapsed": 243.8276776970015,
+  "physical_time_current": 0.2,
+  "physical_time_final": 0.2,
+  "physical_progress_fraction": 1.0,
+  "accepted_steps": 2,
+  "requested_steps": 2,
+  "rejected_steps": 0,
+  "saved_samples_written": 3,
+  "status_line": "simulation completed",
+  "solver_metrics": {
+    "current_dt": 0.1,
+    "latest_adaptive_error_estimate": 0.0
+  },
+  "history": [
+    {
+      "timestamp": "2026-03-21T09:39:17.082884Z",
+      "wall_seconds_elapsed": 0.0,
+      "physical_time_current": null,
+      "physical_progress_fraction": null,
+      "saved_samples_written": 0,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:39:17.102766Z",
+      "wall_seconds_elapsed": 0.0,
+      "physical_time_current": null,
+      "physical_progress_fraction": null,
+      "saved_samples_written": 0,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:39:17.103912Z",
+      "wall_seconds_elapsed": 0.027577909000683576,
+      "physical_time_current": 0.0,
+      "physical_progress_fraction": 0.0,
+      "saved_samples_written": 0,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:43:19.955884Z",
+      "wall_seconds_elapsed": 242.8917775049922,
+      "physical_time_current": 0.0,
+      "physical_progress_fraction": 0.0,
+      "saved_samples_written": 1,
+      "metric_1": null,
+      "metric_2": null,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:43:20.308002Z",
+      "wall_seconds_elapsed": 243.2438927339972,
+      "physical_time_current": 0.1,
+      "physical_progress_fraction": 0.5,
+      "saved_samples_written": 2,
+      "metric_1": 0.1,
+      "metric_2": 0.0,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:43:20.627593Z",
+      "wall_seconds_elapsed": 243.5633861569804,
+      "physical_time_current": 0.2,
+      "physical_progress_fraction": 1.0,
+      "saved_samples_written": 3,
+      "metric_1": 0.1,
+      "metric_2": 0.0,
+      "metric_3": null
+    },
+    {
+      "timestamp": "2026-03-21T09:43:20.668495Z",
+      "wall_seconds_elapsed": 243.60446043498814,
+      "physical_time_current": 0.2,
+      "physical_progress_fraction": 1.0,
+      "saved_samples_written": 3,
+      "metric_1": 0.1,
+      "metric_2": 0.0,
+      "metric_3": null
+    }
+  ]
+}

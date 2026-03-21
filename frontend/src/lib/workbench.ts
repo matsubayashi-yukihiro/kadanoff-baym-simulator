@@ -261,6 +261,108 @@ function buildFallbackTdhfbConfig(): { tdhfb: SimulationConfigInput; kbe: Simula
   return { tdhfb, kbe };
 }
 
+function createSwaveAprTsujiAokiConfig(): SimulationConfigInput {
+  const cfg = createDefaultConfig();
+  const driveDefaults = createDefaultConfig().drive as DriveConfigInput;
+  const interactionDefaults = createDefaultConfig().interaction as InteractionConfigInput;
+  const initialStateDefaults = createDefaultConfig().initial_state as InitialStateConfigInput;
+  cfg.name = "square-4x4-swave-apr-tsuji-aoki";
+  cfg.solver = "tdhfb";
+  cfg.time = { ...cfg.time, t_final: 50.0, dt: 0.05, save_every: 1 };
+  cfg.drive = {
+    ...((cfg.drive ?? driveDefaults) as DriveConfigInput),
+    drive_type: "sine",
+    amplitude_x: 0.15,
+    amplitude_y: 0.0,
+    frequency: 0.25,
+    phase: 0.0,
+    center: 0.0,
+    width: 1.0,
+  };
+  cfg.interaction = {
+    ...((cfg.interaction ?? interactionDefaults) as InteractionConfigInput),
+    onsite_u: -3.5,
+    nearest_neighbor_v: 0.0,
+    pairing_channel: "onsite",
+  };
+  cfg.initial_state = {
+    ...((cfg.initial_state ?? initialStateDefaults) as InitialStateConfigInput),
+    filling: 0.5,
+    temperature: 0.0,
+    seed_pairing: 0.15,
+  };
+  cfg.observables = ["density", "energy", "vector_potential", "pairing", "pairing_s"];
+  return cfg;
+}
+
+function createSwavePumpProbeKemperConfig(): SimulationConfigInput {
+  const cfg = createDefaultConfig();
+  const driveDefaults = createDefaultConfig().drive as DriveConfigInput;
+  const interactionDefaults = createDefaultConfig().interaction as InteractionConfigInput;
+  const initialStateDefaults = createDefaultConfig().initial_state as InitialStateConfigInput;
+  cfg.name = "square-4x4-swave-pump-probe-kemper";
+  cfg.solver = "tdhfb";
+  cfg.time = { ...cfg.time, t_final: 20.0, dt: 0.05, save_every: 1 };
+  cfg.drive = {
+    ...((cfg.drive ?? driveDefaults) as DriveConfigInput),
+    drive_type: "gaussian",
+    amplitude_x: 0.3,
+    amplitude_y: 0.0,
+    frequency: 1.0,
+    phase: 0.0,
+    center: 3.0,
+    width: 1.5,
+  };
+  cfg.interaction = {
+    ...((cfg.interaction ?? interactionDefaults) as InteractionConfigInput),
+    onsite_u: -2.0,
+    nearest_neighbor_v: 0.0,
+    pairing_channel: "onsite",
+  };
+  cfg.initial_state = {
+    ...((cfg.initial_state ?? initialStateDefaults) as InitialStateConfigInput),
+    filling: 0.5,
+    temperature: 0.0,
+    seed_pairing: 0.1,
+  };
+  cfg.observables = ["density", "energy", "vector_potential", "pairing", "pairing_s"];
+  return cfg;
+}
+
+function createDwaveHiggsTHzShimanoTsujiConfig(): SimulationConfigInput {
+  const cfg = createDefaultConfig();
+  const driveDefaults = createDefaultConfig().drive as DriveConfigInput;
+  const interactionDefaults = createDefaultConfig().interaction as InteractionConfigInput;
+  const initialStateDefaults = createDefaultConfig().initial_state as InitialStateConfigInput;
+  cfg.name = "square-4x4-dwave-higgs-thz-shimano-tsuji";
+  cfg.solver = "tdhfb";
+  cfg.time = { ...cfg.time, t_final: 30.0, dt: 0.05, save_every: 1 };
+  cfg.drive = {
+    ...((cfg.drive ?? driveDefaults) as DriveConfigInput),
+    drive_type: "gaussian",
+    amplitude_x: 0.1,
+    amplitude_y: 0.0,
+    frequency: 2.0,
+    phase: 0.0,
+    center: 5.0,
+    width: 1.5,
+  };
+  cfg.interaction = {
+    ...((cfg.interaction ?? interactionDefaults) as InteractionConfigInput),
+    onsite_u: -2.0,
+    nearest_neighbor_v: -1.5,
+    pairing_channel: "bond_d",
+  };
+  cfg.initial_state = {
+    ...((cfg.initial_state ?? initialStateDefaults) as InitialStateConfigInput),
+    filling: 0.5,
+    temperature: 0.0,
+    seed_pairing: 0.1,
+  };
+  cfg.observables = ["density", "energy", "vector_potential", "pairing", "pairing_d"];
+  return cfg;
+}
+
 export function createFallbackPresets(): PresetEntry[] {
   const oneBody = createDefaultConfig();
   const { tdhfb, kbe } = buildFallbackTdhfbConfig();
@@ -273,6 +375,33 @@ export function createFallbackPresets(): PresetEntry[] {
       scope_note: "Illustrative demo. Numbers are provisional draft values.",
       primary_observable: "pairing_d",
       config: createHiggsDemoPreset() as PresetEntry["config"],
+    },
+    {
+      name: "square-4x4-swave-apr-tsuji-aoki",
+      category: "mean_field",
+      validation_status: "prototype",
+      summary: "Anderson pseudospin resonance (APR) with s-wave pairing under continuous sine drive.",
+      scope_note: "Ref: arXiv:1404.2711 (Tsuji & Aoki, PRB 92, 064508, 2015). Prototype only.",
+      primary_observable: "pairing_s",
+      config: createSwaveAprTsujiAokiConfig() as PresetEntry["config"],
+    },
+    {
+      name: "square-4x4-swave-pump-probe-kemper",
+      category: "mean_field",
+      validation_status: "prototype",
+      summary: "Gaussian pump revealing Higgs oscillations in s-wave pairing, mapped from Holstein-model setup.",
+      scope_note: "Ref: arXiv:1412.2762 (Kemper et al., PRB 92, 224517, 2015). Prototype only.",
+      primary_observable: "pairing_s",
+      config: createSwavePumpProbeKemperConfig() as PresetEntry["config"],
+    },
+    {
+      name: "square-4x4-dwave-higgs-thz-shimano-tsuji",
+      category: "mean_field",
+      validation_status: "prototype",
+      summary: "THz Gaussian pulse exciting d-wave Higgs mode via bond_d pairing channel.",
+      scope_note: "Ref: arXiv:1906.09401 (Shimano & Tsuji, Rev. Mod. Phys. 92, 021003, 2020). Prototype only.",
+      primary_observable: "pairing_d",
+      config: createDwaveHiggsTHzShimanoTsujiConfig() as PresetEntry["config"],
     },
     {
       name: "square-4x4-baseline",
@@ -307,11 +436,42 @@ export function createFallbackPresets(): PresetEntry[] {
 /** Clone a config, transparently handling both PresetEntry and raw SimulationConfigInput. */
 export function cloneConfig(input: PresetEntry | PresetConfig | SimulationConfigInput): SimulationConfigInput {
   const raw = isPresetEntry(input) ? input.config : input;
-  return JSON.parse(JSON.stringify(raw)) as SimulationConfigInput;
+  return sanitizeSimulationConfig(JSON.parse(JSON.stringify(raw)) as Record<string, unknown>);
 }
 
 function isPresetEntry(x: unknown): x is PresetEntry {
   return typeof x === "object" && x !== null && "category" in x && "config" in x;
+}
+
+const SIMULATION_CONFIG_KEYS = new Set([
+  "name",
+  "solver",
+  "representation",
+  "lattice",
+  "time",
+  "drive",
+  "interaction",
+  "initial_state",
+  "kbe",
+  "adaptive",
+  "thermal_branch",
+  "observables",
+]);
+
+export function sanitizeSimulationConfig(input: unknown): SimulationConfigInput {
+  if (typeof input !== "object" || input === null) {
+    return createDefaultConfig();
+  }
+
+  const source =
+    "config" in input
+      && typeof (input as { config?: unknown }).config === "object"
+      && (input as { config?: unknown }).config !== null
+      ? (input as { config: Record<string, unknown> }).config
+      : (input as Record<string, unknown>);
+
+  const sanitizedEntries = Object.entries(source).filter(([key]) => SIMULATION_CONFIG_KEYS.has(key));
+  return JSON.parse(JSON.stringify(Object.fromEntries(sanitizedEntries))) as SimulationConfigInput;
 }
 
 export function describePreset(config: ConfigLike): PresetDescriptor {

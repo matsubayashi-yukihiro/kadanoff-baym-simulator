@@ -7,7 +7,7 @@ import {
   listRuns,
 } from "../api/client";
 import type { RunDetail, RunSummary, SimulationConfigInput } from "../api/types";
-import { isTerminalState, sortRuns, toErrorMessage } from "../lib/helpers";
+import { formatRunSubmitError, isTerminalState, sortRuns, toErrorMessage } from "../lib/helpers";
 
 type RunState = {
   runs: RunSummary[];
@@ -91,7 +91,7 @@ export const useRunStore = create<RunState>()((set, get) => ({
       set({ selectedRun: run, selectedRunId: run.run_id });
       await get().fetchRuns();
     } catch (error) {
-      set({ submitError: toErrorMessage(error) });
+      set({ submitError: formatRunSubmitError(error, config) });
     } finally {
       set({ isSubmitting: false });
     }
@@ -106,6 +106,7 @@ export const useRunStore = create<RunState>()((set, get) => ({
       const run = await apiCancelRun(selectedRunId);
       set({ selectedRun: run });
       await get().fetchRuns();
+      await get().fetchSelectedRun();
     } catch (error) {
       set({ cancelError: toErrorMessage(error) });
     } finally {
@@ -119,13 +120,17 @@ export const useRunStore = create<RunState>()((set, get) => ({
   },
 
   startPolling: () => {
+    let tick = 0;
     const timer = window.setInterval(() => {
       const { selectedRun } = get();
       if (selectedRun && !isTerminalState(selectedRun.state)) {
         get().fetchSelectedRun();
-        get().fetchRuns();
+        if (tick % 5 === 0) {
+          get().fetchRuns();
+        }
+        tick++;
       }
-    }, 1500);
+    }, 3000);
     return () => window.clearInterval(timer);
   },
 }));

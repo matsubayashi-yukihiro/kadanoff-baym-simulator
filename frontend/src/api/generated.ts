@@ -90,6 +90,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Run Progress */
+        get: operations["get_run_progress_api_v1_runs__run_id__progress_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/cancel": {
         parameters: {
             query?: never;
@@ -789,6 +806,8 @@ export interface components {
         DerivedAnalysisSourceKind: "run" | "job_group" | "sweep";
         /** DriveConfig */
         DriveConfig: {
+            /** @default gaussian */
+            drive_type: components["schemas"]["DriveKind"];
             /**
              * Amplitude X
              * @default 0
@@ -820,6 +839,26 @@ export interface components {
              */
             width: number;
         };
+        /**
+         * DriveKind
+         * @enum {string}
+         */
+        DriveKind: "gaussian" | "sine" | "sech2" | "trapezoid";
+        /** EquilibriumConfig */
+        EquilibriumConfig: {
+            /** @default auto */
+            method: components["schemas"]["EquilibriumMethod"];
+            /**
+             * Allow Approximation Mismatch
+             * @default false
+             */
+            allow_approximation_mismatch: boolean;
+        };
+        /**
+         * EquilibriumMethod
+         * @enum {string}
+         */
+        EquilibriumMethod: "auto" | "hfb" | "second_born_reference";
         /** EvidenceBundleCreate */
         EvidenceBundleCreate: {
             /** Study Id */
@@ -1308,6 +1347,89 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * RunProgressPhase
+         * @enum {string}
+         */
+        RunProgressPhase: "queued" | "equilibrium" | "propagating" | "thermal_branch" | "mixed_branch" | "finalizing" | "succeeded" | "failed" | "cancelled";
+        /** RunProgressPoint */
+        RunProgressPoint: {
+            /**
+             * Timestamp
+             * Format: date-time
+             */
+            timestamp: string;
+            /** Wall Seconds Elapsed */
+            wall_seconds_elapsed: number;
+            /** Physical Time Current */
+            physical_time_current?: number | null;
+            /** Physical Progress Fraction */
+            physical_progress_fraction?: number | null;
+            /**
+             * Saved Samples Written
+             * @default 0
+             */
+            saved_samples_written: number;
+            /** Metric 1 */
+            metric_1?: number | null;
+            /** Metric 2 */
+            metric_2?: number | null;
+            /** Metric 3 */
+            metric_3?: number | null;
+        };
+        /** RunProgressRecord */
+        RunProgressRecord: {
+            /** Run Id */
+            run_id: string;
+            state: components["schemas"]["RunState"];
+            phase: components["schemas"]["RunProgressPhase"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * Wall Seconds Elapsed
+             * @default 0
+             */
+            wall_seconds_elapsed: number;
+            /** Physical Time Current */
+            physical_time_current?: number | null;
+            /** Physical Time Final */
+            physical_time_final?: number | null;
+            /** Physical Progress Fraction */
+            physical_progress_fraction?: number | null;
+            /**
+             * Accepted Steps
+             * @default 0
+             */
+            accepted_steps: number;
+            /**
+             * Requested Steps
+             * @default 0
+             */
+            requested_steps: number;
+            /**
+             * Rejected Steps
+             * @default 0
+             */
+            rejected_steps: number;
+            /**
+             * Saved Samples Written
+             * @default 0
+             */
+            saved_samples_written: number;
+            /** Status Line */
+            status_line?: string | null;
+            /** Solver Metrics */
+            solver_metrics?: {
+                [key: string]: unknown;
+            };
+            /** History */
+            history?: components["schemas"]["RunProgressPoint"][];
+        };
         /** RunResearchMetadata */
         RunResearchMetadata: {
             /** Study Id */
@@ -1364,7 +1486,7 @@ export interface components {
          * RunState
          * @enum {string}
          */
-        RunState: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+        RunState: "queued" | "running" | "succeeded" | "succeeded_with_warnings" | "failed" | "cancelled";
         /** RunSummary */
         RunSummary: {
             /** Run Id */
@@ -1412,11 +1534,14 @@ export interface components {
             name?: string | null;
             /** @default noninteracting */
             solver: components["schemas"]["SolverKind"];
+            /** @default real_space */
+            representation: components["schemas"]["SolverRepresentation"];
             lattice: components["schemas"]["LatticeConfig"];
             time: components["schemas"]["TimeGridConfig"];
             drive?: components["schemas"]["DriveConfig"];
             interaction?: components["schemas"]["InteractionConfig"];
             initial_state?: components["schemas"]["InitialStateConfig"];
+            equilibrium?: components["schemas"]["EquilibriumConfig"];
             kbe?: components["schemas"]["KBEConfig"];
             adaptive?: components["schemas"]["AdaptiveConfig"];
             thermal_branch?: components["schemas"]["ThermalBranchConfig"];
@@ -1429,11 +1554,14 @@ export interface components {
             name?: string | null;
             /** @default noninteracting */
             solver: components["schemas"]["SolverKind"];
+            /** @default real_space */
+            representation: components["schemas"]["SolverRepresentation"];
             lattice: components["schemas"]["LatticeConfig"];
             time: components["schemas"]["TimeGridConfig"];
             drive?: components["schemas"]["DriveConfig"];
             interaction?: components["schemas"]["InteractionConfig"];
             initial_state?: components["schemas"]["InitialStateConfig"];
+            equilibrium?: components["schemas"]["EquilibriumConfig"];
             kbe?: components["schemas"]["KBEConfig"];
             adaptive?: components["schemas"]["AdaptiveConfig"];
             thermal_branch?: components["schemas"]["ThermalBranchConfig"];
@@ -1445,6 +1573,11 @@ export interface components {
          * @enum {string}
          */
         SolverKind: "noninteracting" | "tdhfb" | "kbe_hfb";
+        /**
+         * SolverRepresentation
+         * @enum {string}
+         */
+        SolverRepresentation: "real_space" | "k_space";
         /** StudyCreate */
         StudyCreate: {
             /** Title */
@@ -1803,6 +1936,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_progress_api_v1_runs__run_id__progress_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunProgressRecord"];
                 };
             };
             /** @description Validation Error */

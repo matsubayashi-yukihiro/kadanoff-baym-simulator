@@ -2,8 +2,6 @@ import type { RunDetail, RunSummary } from "../api/types";
 import { formatDateTime } from "../lib/format";
 
 type RunControlPanelProps = {
-  isSubmitting: boolean;
-  isCancelling: boolean;
   runs: RunSummary[];
   runsLoading: boolean;
   runsError: string | null;
@@ -13,16 +11,12 @@ type RunControlPanelProps = {
   cancelError: string | null;
   selectedRun: RunDetail | null;
   selectedRunId: string | null;
-  onCreateRun: () => void;
-  onCancelRun: () => void;
   onRefresh: () => void;
   onSelectRun: (runId: string) => void;
 };
 
 export function RunControlPanel(props: RunControlPanelProps) {
   const {
-    isSubmitting,
-    isCancelling,
     runs,
     runsLoading,
     runsError,
@@ -32,12 +26,9 @@ export function RunControlPanel(props: RunControlPanelProps) {
     cancelError,
     selectedRun,
     selectedRunId,
-    onCreateRun,
-    onCancelRun,
     onRefresh,
     onSelectRun,
   } = props;
-  const canCancel = Boolean(selectedRun && selectedRun.state !== "succeeded" && selectedRun.state !== "failed" && selectedRun.state !== "cancelled");
 
   return (
     <section className="panel">
@@ -79,6 +70,10 @@ export function RunControlPanel(props: RunControlPanelProps) {
                 <span>{selectedRun.solver}</span>
               </div>
               <div>
+                <span className="focus-key">Representation</span>
+                <span>{selectedRun.config?.representation ?? "real_space"}</span>
+              </div>
+              <div>
                 <span className="focus-key">Message</span>
                 <span>{selectedRun.status_message ?? "-"}</span>
               </div>
@@ -97,7 +92,7 @@ export function RunControlPanel(props: RunControlPanelProps) {
         {runLoading ? <span className="state-inline">Updating selected run...</span> : null}
       </div>
 
-      {runsLoading ? <p className="state-banner">Loading runs...</p> : null}
+      {runsLoading && runs.length === 0 ? <p className="state-banner">Loading runs...</p> : null}
       {runsError ? <p className="state-banner state-error">{runsError}</p> : null}
       {!runsLoading && runs.length === 0 ? (
         <div className="empty-card">
@@ -106,8 +101,11 @@ export function RunControlPanel(props: RunControlPanelProps) {
         </div>
       ) : null}
 
+      {runs.length > 8 && (
+        <p className="text-xs text-ink-muted mb-1">Showing last 8 runs</p>
+      )}
       <div className="run-list">
-        {runs.map((run) => {
+        {runs.slice(-8).map((run) => {
           const role = run.research_metadata?.run_role;
           const vStatus = run.research_metadata?.validation_status;
           return (

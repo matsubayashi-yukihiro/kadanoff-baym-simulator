@@ -79,3 +79,39 @@ def test_noninteracting_solver_tracks_local_continuity_equation_under_drive():
     )
     assert artifacts.diagnostics["max_continuity_residual"] < 1e-12
     assert artifacts.diagnostics["final_continuity_residual"] < 1e-12
+
+
+def test_noninteracting_k_space_representation_matches_real_space_under_drive():
+    base_config = {
+        "solver": "noninteracting",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.4, "dt": 0.05},
+        "drive": {
+            "amplitude_x": 0.25,
+            "amplitude_y": 0.1,
+            "frequency": 2.4,
+            "phase": 0.15,
+            "center": 0.2,
+            "width": 0.1,
+        },
+        "observables": ["density", "current_x", "current_y", "energy", "vector_potential"],
+    }
+
+    real_space = solve(SimulationConfig.model_validate(base_config))
+    k_space = solve(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    assert real_space.observables["density"].time.tolist() == k_space.observables["density"].time.tolist()
+    for observable_name in ("density", "current_x", "current_y", "energy", "vector_potential"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-10)

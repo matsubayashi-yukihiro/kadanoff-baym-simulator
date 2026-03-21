@@ -7,6 +7,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from backend.app.schemas import KBESelfEnergyMode, SimulationConfig
+from backend.app.schemas.progress import RunProgressPhase
 from backend.app.solvers.contour import (
     causal_history_rule,
     history_average_matrix,
@@ -23,9 +24,11 @@ from backend.app.solvers.green_functions import (
     build_factorized_matsubara_green_function,
     build_factorized_mixed_branch as build_shared_factorized_mixed_branch,
 )
+from backend.app.solvers.progress import ProgressCallback
 from backend.app.solvers.nambu import ComplexMatrix, build_bdg_hamiltonian, extract_density_blocks
 from backend.app.solvers.numerics import linear_mix
 from backend.app.solvers.tdhfb import HFBDynamicsResult
+from backend.app.jobs.progress import SolverProgressUpdate
 
 
 PROTOTYPE_IMPLEMENTATION_KIND = "heuristic_prototype"
@@ -46,6 +49,7 @@ def apply_second_born_corrections(
     hfb_green_functions: TwoTimeGreenFunctionContainer,
     matsubara_branch: MatsubaraBranchContainer | None,
     mixed_branch: MixedBranchContainer | None,
+    progress_callback: ProgressCallback | None = None,
 ) -> SecondBornCorrectionResult:
     onsite_strength = abs(config.interaction.onsite_u)
     sample_count = len(dynamics.times)
@@ -89,6 +93,7 @@ def apply_second_born_corrections(
     mixed_memory_norm_history: list[float] = []
     history_order_history: list[int] = []
     converged = True
+    used_relaxed_convergence = False
 
     for time_index in range(1, sample_count):
         base_density = dynamics.generalized_densities[time_index]
@@ -246,6 +251,28 @@ def apply_second_born_corrections(
             guess_density = updated_density
             guess_row_lesser = updated_row_lesser
             guess_row_retarded = updated_row_retarded
+            if progress_callback is not None:
+                progress_callback(
+                    SolverProgressUpdate(
+                        phase=RunProgressPhase.PROPAGATING,
+                        status_line=f"prototype second Born fixed-point at t={float(dynamics.times[time_index]):.3f}",
+                        physical_time_current=float(dynamics.times[time_index]),
+                        physical_time_final=float(dynamics.times[-1]),
+                        physical_progress_fraction=(
+                            float(dynamics.times[time_index] / dynamics.times[-1]) if dynamics.times[-1] > 0 else 1.0
+                        ),
+                        accepted_steps=int(time_index),
+                        requested_steps=int(sample_count - 1),
+                        saved_samples_written=int(np.count_nonzero(dynamics.saved_indices <= time_index)),
+                        solver_metrics={
+                            "current_time_index": int(time_index),
+                            "latest_fixed_point_iterations": int(iteration),
+                            "latest_fixed_point_residual": last_residual,
+                            "latest_memory_norm": last_memory_norm,
+                            "history_integration_order": int(history_rule.order),
+                        },
+                    )
+                )
             if last_residual <= config.kbe.tolerance:
                 converged_step = True
                 iteration_history.append(iteration)
@@ -255,6 +282,7 @@ def apply_second_born_corrections(
 
         if not converged_step and last_residual <= 5.0 * config.kbe.tolerance:
             converged_step = True
+            used_relaxed_convergence = True
 
         converged = converged and converged_step
         corrected.append(guess_density)
@@ -277,6 +305,7 @@ def apply_second_born_corrections(
     diagnostics.update(
         {
             "second_born_converged": converged,
+            "second_born_convergence_criterion": "relaxed_5x" if used_relaxed_convergence else "strict",
             "second_born_iteration_history": iteration_history,
             "second_born_residual_history": residual_history,
             "second_born_memory_norm_history": memory_norm_history,
@@ -310,6 +339,7 @@ def apply_second_born_corrections(
 def build_matsubara_branch(
     config: SimulationConfig,
     dynamics: HFBDynamicsResult,
+    progress_callback: ProgressCallback | None = None,
 ) -> MatsubaraBranchBuildResult:
     factorized_branch = _build_factorized_matsubara_branch(config, dynamics)
     if factorized_branch is None:
@@ -403,6 +433,25 @@ def build_matsubara_branch(
         memory_norm_history.append(max_memory_norm)
         order_history.append(max_order)
         iterations = iteration
+        if progress_callback is not None:
+            progress_callback(
+                SolverProgressUpdate(
+                    phase=RunProgressPhase.THERMAL_BRANCH,
+                    status_line=f"thermal branch iteration {iteration}",
+                    physical_time_current=float(dynamics.times[-1]),
+                    physical_time_final=float(dynamics.times[-1]),
+                    physical_progress_fraction=1.0,
+                    accepted_steps=int(len(dynamics.times) - 1),
+                    requested_steps=int(config.time.n_steps),
+                    saved_samples_written=int(len(dynamics.saved_indices)),
+                    solver_metrics={
+                        "thermal_branch_iterations": int(iteration),
+                        "latest_fixed_point_residual": max_residual,
+                        "latest_memory_norm": max_memory_norm,
+                        "history_integration_order": int(max_order),
+                    },
+                )
+            )
         if max_residual <= config.kbe.tolerance:
             converged = True
             break
@@ -443,6 +492,7 @@ def build_mixed_branch(
     matsubara_branch: MatsubaraBranchContainer | None,
     reference_densities: list[ComplexMatrix],
     factorized_branch: MixedBranchContainer | None,
+    progress_callback: ProgressCallback | None = None,
 ) -> MixedBranchBuildResult:
     if matsubara_branch is None:
         return MixedBranchBuildResult(
@@ -518,6 +568,25 @@ def build_mixed_branch(
             left[time_index] - left_reference,
         )
         memory_norm_history.append(float(np.max(gamma_site)) if len(gamma_site) else 0.0)
+        if progress_callback is not None:
+            progress_callback(
+                SolverProgressUpdate(
+                    phase=RunProgressPhase.MIXED_BRANCH,
+                    status_line=f"mixed branch t-index {time_index}",
+                    physical_time_current=float(dynamics.times[time_index]),
+                    physical_time_final=float(dynamics.times[-1]),
+                    physical_progress_fraction=(
+                        float(dynamics.times[time_index] / dynamics.times[-1]) if dynamics.times[-1] > 0 else 1.0
+                    ),
+                    accepted_steps=int(time_index),
+                    requested_steps=int(sample_count - 1),
+                    saved_samples_written=int(np.count_nonzero(dynamics.saved_indices <= time_index)),
+                    solver_metrics={
+                        "current_time_index": int(time_index),
+                        "latest_memory_norm": float(np.max(gamma_site)) if len(gamma_site) else 0.0,
+                    },
+                )
+            )
 
     branch = MixedBranchContainer(
         times=dynamics.times,

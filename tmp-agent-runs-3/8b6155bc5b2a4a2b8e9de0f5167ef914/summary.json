@@ -1,0 +1,159 @@
+{
+  "run_id": "8b6155bc5b2a4a2b8e9de0f5167ef914",
+  "name": "hfb-source",
+  "solver": "kbe_hfb",
+  "state": "succeeded",
+  "created_at": "2026-03-21T09:40:06.301435Z",
+  "updated_at": "2026-03-21T09:40:06.710641Z",
+  "started_at": "2026-03-21T09:40:06.530428Z",
+  "finished_at": "2026-03-21T09:40:06.710641Z",
+  "status_message": "simulation completed",
+  "lattice": {
+    "kind": "square",
+    "nx": 2,
+    "ny": 2,
+    "boundary": "periodic",
+    "hopping": 1.0,
+    "chemical_potential": 0.0
+  },
+  "time_grid": {
+    "t_final": 0.2,
+    "dt": 0.1,
+    "save_every": 1
+  },
+  "available_observables": [
+    {
+      "name": "density",
+      "time_key": "density__time",
+      "series": [
+        {
+          "label": "mean",
+          "key": "density__mean"
+        },
+        {
+          "label": "min",
+          "key": "density__min"
+        },
+        {
+          "label": "max",
+          "key": "density__max"
+        }
+      ],
+      "units": null,
+      "metadata": {
+        "solver": "kbe_hfb",
+        "pairing_channel": "none"
+      }
+    },
+    {
+      "name": "energy",
+      "time_key": "energy__time",
+      "series": [
+        {
+          "label": "total",
+          "key": "energy__total"
+        }
+      ],
+      "units": null,
+      "metadata": {
+        "solver": "kbe_hfb",
+        "pairing_channel": "none"
+      }
+    },
+    {
+      "name": "pairing",
+      "time_key": "pairing__time",
+      "series": [
+        {
+          "label": "real",
+          "key": "pairing__real"
+        },
+        {
+          "label": "imag",
+          "key": "pairing__imag"
+        },
+        {
+          "label": "magnitude",
+          "key": "pairing__magnitude"
+        }
+      ],
+      "units": null,
+      "metadata": {
+        "solver": "kbe_hfb",
+        "pairing_channel": "none"
+      }
+    },
+    {
+      "name": "pairing_s",
+      "time_key": "pairing_s__time",
+      "series": [
+        {
+          "label": "real",
+          "key": "pairing_s__real"
+        },
+        {
+          "label": "imag",
+          "key": "pairing_s__imag"
+        },
+        {
+          "label": "magnitude",
+          "key": "pairing_s__magnitude"
+        }
+      ],
+      "units": null,
+      "metadata": {
+        "solver": "kbe_hfb",
+        "pairing_channel": "none"
+      }
+    },
+    {
+      "name": "pairing_d",
+      "time_key": "pairing_d__time",
+      "series": [
+        {
+          "label": "real",
+          "key": "pairing_d__real"
+        },
+        {
+          "label": "imag",
+          "key": "pairing_d__imag"
+        },
+        {
+          "label": "magnitude",
+          "key": "pairing_d__magnitude"
+        }
+      ],
+      "units": null,
+      "metadata": {
+        "solver": "kbe_hfb",
+        "pairing_channel": "none"
+      }
+    }
+  ],
+  "diagnostics_excerpt": {
+    "final_energy": -4.00000000000048,
+    "final_density": 0.4999999999999998,
+    "final_pairing_magnitude": 0.0,
+    "pairing_s_final": 0.0,
+    "pairing_d_final": 0.0,
+    "particle_number_drift": 8.881784197001252e-16,
+    "max_stationarity_residual": 6.126713647294873e-8,
+    "time_grid_mode": "uniform",
+    "max_continuity_residual": 1.8938489412825083e-7,
+    "max_equal_time_tdhfb_mismatch": 0.0
+  },
+  "research_metadata": {
+    "study_id": null,
+    "run_role": null,
+    "validation_status": "unchecked",
+    "failure_tags": [],
+    "group_id": null,
+    "sweep_id": null,
+    "variant_label": null,
+    "preset_id": "hfb-source",
+    "tags": [],
+    "config_hash": "d2ffaf0694e6d30dbc6e9893742731d66c0106e7f22e5a05cc93e87a18b542eb",
+    "code_version": "761c74e66b732fe0ea0137eadf6341ed6f5bfed1",
+    "storage_uri": "/home/matsubayashi/TDKB/tmp-agent-runs-3/8b6155bc5b2a4a2b8e9de0f5167ef914"
+  }
+}

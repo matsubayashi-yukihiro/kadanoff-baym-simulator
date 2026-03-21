@@ -1,12 +1,15 @@
 import type { ReactNode } from "react";
 
 import type { SimulationConfigInput } from "../api/types";
+import { DriveWaveformChart } from "./DriveWaveformChart";
 import { CollapsibleSection } from "./ui/CollapsibleSection";
 import {
   createDefaultConfig,
+  K_SPACE_COMPATIBLE_SELF_ENERGIES,
   SUPPORTED_KBE_SELF_ENERGIES,
   SUPPORTED_OBSERVABLES,
   SUPPORTED_PAIRING_CHANNELS,
+  SUPPORTED_REPRESENTATIONS,
   SUPPORTED_SOLVERS,
 } from "../lib/defaultConfig";
 import type {
@@ -48,6 +51,14 @@ export function ConfigPanel(props: ConfigPanelProps) {
   const thermalBranch: ThermalBranchConfigInput = (config.thermal_branch ?? thermalBranchDefaults) as ThermalBranchConfigInput;
   const observables = new Set(config.observables ?? defaults.observables ?? []);
   const showKbeControls = (config.solver ?? "noninteracting") === "kbe_hfb";
+  const representation = config.representation ?? "real_space";
+  const kbeSelfEnergy = kbe.self_energy ?? "hfb";
+  const kSpaceIncompatible =
+    representation === "k_space" &&
+    (config.solver ?? "noninteracting") === "kbe_hfb" &&
+    !(K_SPACE_COMPATIBLE_SELF_ENERGIES as readonly string[]).includes(kbeSelfEnergy);
+  const kSpaceNeedsPeriodicBoundary =
+    representation === "k_space" && (config.lattice.boundary ?? "periodic") !== "periodic";
 
   function updateTopLevel<K extends keyof SimulationConfigInput>(key: K, value: SimulationConfigInput[K]) {
     onConfigChange({
@@ -236,7 +247,33 @@ export function ConfigPanel(props: ConfigPanelProps) {
             ))}
           </select>
         </Field>
+        <Field label="Representation" hint="k_space: periodic square lattice only">
+          <select
+            aria-label="Representation"
+            value={representation}
+            onChange={(event) =>
+              updateTopLevel("representation", event.target.value as SimulationConfigInput["representation"])
+            }
+            disabled={disabled}
+          >
+            {SUPPORTED_REPRESENTATIONS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        </Field>
       </div>
+      {kSpaceNeedsPeriodicBoundary && (
+        <p className="field-hint" style={{ color: "var(--color-warning, #b45309)", marginBottom: "0.5rem" }}>
+          k_space requires periodic boundary condition.
+        </p>
+      )}
+      {kSpaceIncompatible && (
+        <p className="field-hint" style={{ color: "var(--color-warning, #b45309)", marginBottom: "0.5rem" }}>
+          k_space is not supported with self_energy={kbeSelfEnergy}. Only hfb is supported in k-space.
+        </p>
+      )}
 
       <CollapsibleSection title="Lattice" defaultOpen={true}>
         <div className="panel-grid panel-grid-3">
@@ -335,6 +372,18 @@ export function ConfigPanel(props: ConfigPanelProps) {
 
       <CollapsibleSection title="Drive" defaultOpen={false}>
         <div className="panel-grid panel-grid-3">
+          <Field label="Waveform type">
+            <select
+              value={drive.drive_type ?? "gaussian"}
+              onChange={(event) => updateDrive("drive_type", event.target.value as "gaussian" | "sine" | "sech2" | "trapezoid")}
+              disabled={disabled}
+            >
+              <option value="gaussian">Gaussian pulse</option>
+              <option value="sine">Pure sinusoidal</option>
+              <option value="sech2">Sech² pulse</option>
+              <option value="trapezoid">Trapezoid pulse</option>
+            </select>
+          </Field>
           <Field label="A_x amplitude">
             <input
               type="number"
@@ -391,6 +440,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
             />
           </Field>
         </div>
+        <DriveWaveformChart drive={drive} tFinal={config.time.t_final ?? 5} />
       </CollapsibleSection>
 
       <CollapsibleSection title="Interaction and Initial State" defaultOpen={false}>

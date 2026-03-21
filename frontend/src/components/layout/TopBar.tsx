@@ -14,7 +14,7 @@ export function TopBar() {
     <header className="w-full px-6 py-4 flex items-start justify-between gap-4">
       <div>
         <div className="flex items-center gap-3 mb-1">
-          <p className="text-xs font-semibold uppercase tracking-wider text-accent">TDKB</p>
+          <p className="text-xs font-semibold text-accent">TDKB</p>
           <span className="w-px h-4 bg-border-soft" aria-hidden="true" />
           <span className="text-xs text-ink-muted">Research Workbench</span>
         </div>

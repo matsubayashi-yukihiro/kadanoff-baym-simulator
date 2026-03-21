@@ -1,0 +1,70 @@
+{
+  "adaptive": {
+    "atol": 1e-07,
+    "enabled": false,
+    "max_dt": null,
+    "max_growth": 2.0,
+    "min_dt": null,
+    "min_shrink": 0.25,
+    "rtol": 1e-05
+  },
+  "drive": {
+    "amplitude_x": 0.1,
+    "amplitude_y": 0.0,
+    "center": 0.1,
+    "drive_type": "gaussian",
+    "frequency": 1.5,
+    "phase": 0.0,
+    "width": 0.2
+  },
+  "equilibrium": {
+    "allow_approximation_mismatch": false,
+    "method": "auto"
+  },
+  "initial_state": {
+    "filling": 0.5,
+    "seed_pairing": 0.0,
+    "temperature": 0.0
+  },
+  "interaction": {
+    "nearest_neighbor_v": 0.0,
+    "onsite_u": -0.3,
+    "pairing_channel": "none"
+  },
+  "kbe": {
+    "max_fixed_point_iterations": 6,
+    "memory_window": null,
+    "mixing": 0.5,
+    "self_energy": "second_born_reference",
+    "tolerance": 1e-06
+  },
+  "lattice": {
+    "boundary": "periodic",
+    "chemical_potential": 0.0,
+    "hopping": 1.0,
+    "kind": "square",
+    "nx": 2,
+    "ny": 2
+  },
+  "name": "sbref-source",
+  "observables": [
+    "density",
+    "energy",
+    "pairing",
+    "pairing_s",
+    "pairing_d"
+  ],
+  "representation": "real_space",
+  "solver": "kbe_hfb",
+  "thermal_branch": {
+    "enabled": false,
+    "max_iterations": 8,
+    "mixing": 0.3,
+    "n_tau": 16
+  },
+  "time": {
+    "dt": 0.1,
+    "save_every": 1,
+    "t_final": 0.2
+  }
+}

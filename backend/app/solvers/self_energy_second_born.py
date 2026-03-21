@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from backend.app.schemas import SimulationConfig
+from backend.app.schemas.progress import RunProgressPhase
 from backend.app.solvers.contour import (
     causal_history_rule,
     history_average_matrix,
@@ -21,9 +22,13 @@ from backend.app.solvers.green_functions import (
     build_factorized_matsubara_green_function,
     build_factorized_mixed_branch as build_shared_factorized_mixed_branch,
 )
+from backend.app.solvers.progress import ProgressCallback
 from backend.app.solvers.nambu import ComplexMatrix, build_bdg_hamiltonian
 from backend.app.solvers.numerics import linear_mix
-from backend.app.solvers.tdhfb import HFBDynamicsResult
+from backend.app.jobs.progress import SolverProgressUpdate
+
+if TYPE_CHECKING:
+    from backend.app.solvers.tdhfb import HFBDynamicsResult
 
 
 REFERENCE_IMPLEMENTATION_KIND = "gkba_local_nambu_reference"
@@ -43,6 +48,7 @@ def apply_reference_second_born_corrections(
     dynamics: HFBDynamicsResult,
     matsubara_branch: MatsubaraBranchContainer | None = None,
     mixed_branch: MixedBranchContainer | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> SecondBornReferenceResult:
     onsite_strength = abs(config.interaction.onsite_u)
     sample_count = len(dynamics.times)
@@ -89,6 +95,7 @@ def apply_reference_second_born_corrections(
     history_order_history: list[int] = []
     equation_residual_history: list[float] = []
     converged = True
+    used_relaxed_convergence = False
     thermal_branch_average = _matsubara_average_matrix(matsubara_branch)
 
     for time_index in range(1, sample_count):
@@ -215,6 +222,29 @@ def apply_reference_second_born_corrections(
             last_collision_norm = float(np.max(np.abs(collision))) if collision.size else 0.0
             last_equation_residual = float(np.max(np.abs((updated_density - base_density) / step_dt + collision + collision.conjugate().T)))
             guess_density = updated_density
+            if progress_callback is not None:
+                progress_callback(
+                    SolverProgressUpdate(
+                        phase=RunProgressPhase.PROPAGATING,
+                        status_line=f"second Born fixed-point at t={float(dynamics.times[time_index]):.3f}",
+                        physical_time_current=float(dynamics.times[time_index]),
+                        physical_time_final=float(dynamics.times[-1]),
+                        physical_progress_fraction=(
+                            float(dynamics.times[time_index] / dynamics.times[-1]) if dynamics.times[-1] > 0 else 1.0
+                        ),
+                        accepted_steps=int(time_index),
+                        requested_steps=int(sample_count - 1),
+                        saved_samples_written=int(np.count_nonzero(dynamics.saved_indices <= time_index)),
+                        solver_metrics={
+                            "current_time_index": int(time_index),
+                            "latest_fixed_point_iterations": int(iteration),
+                            "latest_fixed_point_residual": last_residual,
+                            "latest_equation_residual": last_equation_residual,
+                            "latest_memory_norm": last_memory_norm,
+                            "history_integration_order": int(history_rule.order),
+                        },
+                    )
+                )
             if last_residual <= config.kbe.tolerance:
                 converged_step = True
                 iteration_history.append(iteration)
@@ -224,6 +254,7 @@ def apply_reference_second_born_corrections(
 
         if not converged_step and last_residual <= 5.0 * config.kbe.tolerance:
             converged_step = True
+            used_relaxed_convergence = True
 
         converged = converged and converged_step
         corrected.append(guess_density)
@@ -247,6 +278,7 @@ def apply_reference_second_born_corrections(
     diagnostics.update(
         {
             "second_born_converged": converged,
+            "second_born_convergence_criterion": "relaxed_5x" if used_relaxed_convergence else "strict",
             "second_born_iteration_history": iteration_history,
             "second_born_residual_history": residual_history,
             "second_born_memory_norm_history": memory_norm_history,
@@ -313,6 +345,7 @@ def build_reference_green_functions(
 def build_matsubara_branch_reference(
     config: SimulationConfig,
     dynamics: HFBDynamicsResult,
+    progress_callback: ProgressCallback | None = None,
 ) -> MatsubaraBranchBuildResult:
     factorized_branch = _build_factorized_matsubara_branch(config, dynamics)
     if factorized_branch is None:
@@ -408,6 +441,25 @@ def build_matsubara_branch_reference(
         memory_norm_history.append(max_memory_norm)
         order_history.append(max_order)
         iterations = iteration
+        if progress_callback is not None:
+            progress_callback(
+                SolverProgressUpdate(
+                    phase=RunProgressPhase.THERMAL_BRANCH,
+                    status_line=f"thermal branch iteration {iteration}",
+                    physical_time_current=float(dynamics.times[-1]),
+                    physical_time_final=float(dynamics.times[-1]),
+                    physical_progress_fraction=1.0,
+                    accepted_steps=int(len(dynamics.times) - 1),
+                    requested_steps=int(config.time.n_steps),
+                    saved_samples_written=int(len(dynamics.saved_indices)),
+                    solver_metrics={
+                        "thermal_branch_iterations": int(iteration),
+                        "latest_fixed_point_residual": max_residual,
+                        "latest_memory_norm": max_memory_norm,
+                        "history_integration_order": int(max_order),
+                    },
+                )
+            )
         if max_residual <= config.kbe.tolerance:
             converged = True
             break
@@ -443,6 +495,7 @@ def build_mixed_branch_reference(
     dynamics: HFBDynamicsResult,
     reference_densities: list[ComplexMatrix],
     factorized_branch: MixedBranchContainer | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> MixedBranchBuildResult:
     if matsubara_branch is None:
         return MixedBranchBuildResult(
@@ -559,6 +612,28 @@ def build_mixed_branch_reference(
             right_guess = updated_right
             left_guess = updated_left
             iterations = iteration
+            if progress_callback is not None:
+                progress_callback(
+                    SolverProgressUpdate(
+                        phase=RunProgressPhase.MIXED_BRANCH,
+                        status_line=f"mixed branch t-index {time_index} iteration {iteration}",
+                        physical_time_current=float(dynamics.times[time_index]),
+                        physical_time_final=float(dynamics.times[-1]),
+                        physical_progress_fraction=(
+                            float(dynamics.times[time_index] / dynamics.times[-1]) if dynamics.times[-1] > 0 else 1.0
+                        ),
+                        accepted_steps=int(time_index),
+                        requested_steps=int(len(dynamics.times) - 1),
+                        saved_samples_written=int(np.count_nonzero(dynamics.saved_indices <= time_index)),
+                        solver_metrics={
+                            "current_time_index": int(time_index),
+                            "latest_fixed_point_iterations": int(iteration),
+                            "latest_fixed_point_residual": last_residual,
+                            "latest_memory_norm": last_memory_norm,
+                            "history_integration_order": int(history_rule.order),
+                        },
+                    )
+                )
             if last_residual <= config.kbe.tolerance:
                 converged_step = True
                 break

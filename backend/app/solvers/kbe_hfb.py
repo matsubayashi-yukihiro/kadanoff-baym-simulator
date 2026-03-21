@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from backend.app.schemas import KBESelfEnergyMode, SimulationConfig
+from backend.app.schemas.progress import RunProgressPhase
 from backend.app.solvers.base import (
     MixedGreenFunctionData,
     ObservableData,
@@ -14,6 +15,7 @@ from backend.app.solvers.base import (
     ThermalBranchGreenFunctionData,
     TwoTimeGreenFunctionData,
 )
+from backend.app.solvers.progress import ProgressCallback
 from backend.app.solvers.green_functions import (
     MatsubaraBranchBuildResult,
     MixedBranchContainer,
@@ -47,11 +49,13 @@ from backend.app.solvers.self_energy_second_born_prototype import (
     build_matsubara_branch,
     build_mixed_branch,
 )
+from backend.app.solvers.stationarity import stationarity_diagnostics
 from backend.app.solvers.tdhfb import HFBDynamicsResult, simulate_hfb_dynamics
+from backend.app.jobs.progress import SolverProgressUpdate
 
 
-def solve(config: SimulationConfig) -> SimulationArtifacts:
-    dynamics = simulate_hfb_dynamics(config)
+def solve(config: SimulationConfig, progress_callback: ProgressCallback | None = None) -> SimulationArtifacts:
+    dynamics = simulate_hfb_dynamics(config, progress_callback=progress_callback)
     diagnostics = dict(dynamics.diagnostics)
     observables = dynamics.observables
     summary_excerpt = dict(dynamics.summary_excerpt)
@@ -65,7 +69,7 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
 
     hfb_green_functions = _build_hfb_green_functions(config, dynamics)
     green_function_reference = hfb_green_functions
-    matsubara_result, contour_seed_mixed = _build_contour_seed(config, dynamics)
+    matsubara_result, contour_seed_mixed = _build_contour_seed(config, dynamics, progress_callback=progress_callback)
     (
         reference_densities,
         observables,
@@ -78,6 +82,7 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
         hfb_green_functions=hfb_green_functions,
         matsubara_result=matsubara_result,
         contour_seed_mixed=contour_seed_mixed,
+        progress_callback=progress_callback,
     )
     diagnostics.update(second_born_diagnostics)
     if second_born_summary_excerpt is not None:
@@ -99,6 +104,7 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
         matsubara_result=matsubara_result,
         reference_densities=reference_densities,
         contour_seed_mixed=contour_seed_mixed,
+        progress_callback=progress_callback,
     )
     diagnostics.update(matsubara_result.diagnostics)
     diagnostics.update(mixed_result.diagnostics)
@@ -130,12 +136,13 @@ def _build_hfb_green_functions(
 def _build_contour_seed(
     config: SimulationConfig,
     dynamics: HFBDynamicsResult,
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[MatsubaraBranchBuildResult, MixedBranchContainer | None]:
     if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
-        matsubara_result = build_matsubara_branch_reference(config, dynamics)
+        matsubara_result = build_matsubara_branch_reference(config, dynamics, progress_callback=progress_callback)
         contour_seed_mixed = build_reference_factorized_mixed_branch(dynamics, matsubara_result.branch)
         return matsubara_result, contour_seed_mixed
-    matsubara_result = build_matsubara_branch(config, dynamics)
+    matsubara_result = build_matsubara_branch(config, dynamics, progress_callback=progress_callback)
     contour_seed_mixed = build_factorized_mixed_branch(dynamics, matsubara_result.branch)
     return matsubara_result, contour_seed_mixed
 
@@ -147,6 +154,7 @@ def _solve_second_born_path(
     hfb_green_functions: TwoTimeGreenFunctionContainer | None,
     matsubara_result: MatsubaraBranchBuildResult,
     contour_seed_mixed: MixedBranchContainer | None,
+    progress_callback: ProgressCallback | None = None,
 ) -> tuple[
     list[ComplexMatrix],
     dict[str, ObservableData],
@@ -162,6 +170,7 @@ def _solve_second_born_path(
             hfb_green_functions=hfb_green_functions,
             matsubara_branch=matsubara_result.branch,
             mixed_branch=contour_seed_mixed,
+            progress_callback=progress_callback,
         )
         observables, trajectory_diagnostics, summary_excerpt = _analyze_trajectory(
             config=config,
@@ -184,6 +193,7 @@ def _solve_second_born_path(
             dynamics=dynamics,
             matsubara_branch=matsubara_result.branch,
             mixed_branch=contour_seed_mixed,
+            progress_callback=progress_callback,
         )
         observables, trajectory_diagnostics, summary_excerpt = _analyze_trajectory(
             config=config,
@@ -249,14 +259,46 @@ def _build_mixed_branch_result(
     matsubara_result: MatsubaraBranchBuildResult,
     reference_densities: list[ComplexMatrix],
     contour_seed_mixed: MixedBranchContainer | None,
+    progress_callback: ProgressCallback | None = None,
 ) -> MixedBranchBuildResult:
     if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
+        if progress_callback is not None:
+            progress_callback(
+                SolverProgressUpdate(
+                    phase=RunProgressPhase.MIXED_BRANCH,
+                    status_line="building mixed branch",
+                    physical_time_current=float(config.time.t_final),
+                    physical_time_final=float(config.time.t_final),
+                    physical_progress_fraction=1.0,
+                    accepted_steps=int(len(dynamics.times) - 1),
+                    requested_steps=int(config.time.n_steps),
+                    saved_samples_written=int(len(dynamics.saved_indices)),
+                    solver_metrics={},
+                ),
+                force=True,
+            )
         return build_mixed_branch_reference(
             config=config,
             matsubara_branch=matsubara_result.branch,
             dynamics=dynamics,
             reference_densities=reference_densities,
             factorized_branch=contour_seed_mixed,
+            progress_callback=progress_callback,
+        )
+    if progress_callback is not None and config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN:
+        progress_callback(
+            SolverProgressUpdate(
+                phase=RunProgressPhase.MIXED_BRANCH,
+                status_line="building mixed branch",
+                physical_time_current=float(config.time.t_final),
+                physical_time_final=float(config.time.t_final),
+                physical_progress_fraction=1.0,
+                accepted_steps=int(len(dynamics.times) - 1),
+                requested_steps=int(config.time.n_steps),
+                saved_samples_written=int(len(dynamics.saved_indices)),
+                solver_metrics={},
+            ),
+            force=True,
         )
     return build_mixed_branch(
         config=config,
@@ -264,6 +306,7 @@ def _build_mixed_branch_result(
         matsubara_branch=matsubara_result.branch,
         reference_densities=reference_densities,
         factorized_branch=contour_seed_mixed,
+        progress_callback=progress_callback,
     )
 
 
@@ -467,6 +510,15 @@ def _analyze_trajectory(
             float(continuity_residual_norm_array[-1]) if continuity_residual_supported else None
         ),
     }
+    diagnostics.update(
+        stationarity_diagnostics(
+            generalized_densities=generalized_densities,
+            density_mean=density_mean_array,
+            energy=energy_array,
+            pairing_primary=pairing_primary_array,
+            pairing_d=pairing_d_array,
+        )
+    )
     diagnostics.update(conservation_diagnostics)
     summary_excerpt = {
         "final_energy": float(energy_array[-1]),
@@ -475,6 +527,7 @@ def _analyze_trajectory(
         "pairing_s_final": float(np.abs(pairing_s_array[-1])),
         "pairing_d_final": float(np.abs(pairing_d_array[-1])),
         "particle_number_drift": diagnostics["particle_number_drift"],
+        "max_stationarity_residual": diagnostics["max_stationarity_residual"],
         "max_particle_conservation_residual": diagnostics["max_particle_conservation_residual"],
         "max_energy_work_mismatch": diagnostics["max_energy_work_mismatch"],
         "time_grid_mode": dynamics.diagnostics["time_grid_mode"],

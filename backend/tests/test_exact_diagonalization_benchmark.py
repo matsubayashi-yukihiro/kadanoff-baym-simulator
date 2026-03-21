@@ -176,6 +176,10 @@ def _second_born_reference_short_window_config(
             "temperature": 0.2,
             "seed_pairing": 0.0,
         },
+        "equilibrium": {
+            "method": "hfb",
+            "allow_approximation_mismatch": True,
+        },
         "kbe": {
             "self_energy": "second_born_reference",
             "max_fixed_point_iterations": 10,
@@ -269,6 +273,10 @@ def _second_born_reference_thermal_branch_config() -> SimulationConfig:
                 "filling": 0.5,
                 "temperature": 0.2,
                 "seed_pairing": 0.0,
+            },
+            "equilibrium": {
+                "method": "hfb",
+                "allow_approximation_mismatch": True,
             },
             "kbe": {
                 "self_energy": "second_born_reference",
@@ -686,6 +694,73 @@ def test_second_born_reference_thermal_branch_remains_close_to_exact_density_ben
         _observable_trajectory(reference, "current_y", label="second_born_reference"),
     )
 
+    assert reference.diagnostics["second_born_reference_implementation"] is True
+    assert reference.diagnostics["thermal_branch_reference_implementation"] is True
+    assert reference.diagnostics["mixed_branch_reference_implementation"] is True
+    assert reference.diagnostics["second_born_contour_mode"] == "full_contour"
+    assert density_error.max_abs_error < 5e-3
+    assert current_x_error.max_abs_error < 5e-3
+    assert current_y_error.max_abs_error < 5e-3
+
+
+def test_second_born_reference_k_space_thermal_branch_remains_close_to_exact_density_benchmark():
+    config = SimulationConfig.model_validate(
+        {
+            **_second_born_reference_thermal_branch_config().model_dump(mode="json"),
+            "representation": "k_space",
+        }
+    )
+
+    exact = run_exact_diagonalization_benchmark(config, integration_dt=0.01)
+    reference = solve_kbe_hfb(config)
+    density_error = summarize_trajectory_error(
+        exact_diagonalization_trajectory(exact, "density"),
+        _observable_trajectory(reference, "density", label="second_born_reference_k_space"),
+    )
+    current_x_error = summarize_trajectory_error(
+        exact_diagonalization_trajectory(exact, "current_x"),
+        _observable_trajectory(reference, "current_x", label="second_born_reference_k_space"),
+    )
+    current_y_error = summarize_trajectory_error(
+        exact_diagonalization_trajectory(exact, "current_y"),
+        _observable_trajectory(reference, "current_y", label="second_born_reference_k_space"),
+    )
+
+    assert reference.diagnostics["solver_representation"] == "k_space"
+    assert reference.diagnostics["second_born_reference_implementation"] is True
+    assert reference.diagnostics["thermal_branch_reference_implementation"] is True
+    assert reference.diagnostics["mixed_branch_reference_implementation"] is True
+    assert reference.diagnostics["second_born_contour_mode"] == "full_contour"
+    assert density_error.max_abs_error < 5e-3
+    assert current_x_error.max_abs_error < 5e-3
+    assert current_y_error.max_abs_error < 5e-3
+
+
+def test_second_born_reference_k_space_thermal_branch_longer_window_remains_close_to_exact_density_benchmark():
+    config = SimulationConfig.model_validate(
+        {
+            **_second_born_reference_thermal_branch_config().model_dump(mode="json"),
+            "representation": "k_space",
+            "time": {"t_final": 0.3, "dt": 0.05},
+        }
+    )
+
+    exact = run_exact_diagonalization_benchmark(config, integration_dt=0.01)
+    reference = solve_kbe_hfb(config)
+    density_error = summarize_trajectory_error(
+        exact_diagonalization_trajectory(exact, "density"),
+        _observable_trajectory(reference, "density", label="second_born_reference_k_space_longer"),
+    )
+    current_x_error = summarize_trajectory_error(
+        exact_diagonalization_trajectory(exact, "current_x"),
+        _observable_trajectory(reference, "current_x", label="second_born_reference_k_space_longer"),
+    )
+    current_y_error = summarize_trajectory_error(
+        exact_diagonalization_trajectory(exact, "current_y"),
+        _observable_trajectory(reference, "current_y", label="second_born_reference_k_space_longer"),
+    )
+
+    assert reference.diagnostics["solver_representation"] == "k_space"
     assert reference.diagnostics["second_born_reference_implementation"] is True
     assert reference.diagnostics["thermal_branch_reference_implementation"] is True
     assert reference.diagnostics["mixed_branch_reference_implementation"] is True

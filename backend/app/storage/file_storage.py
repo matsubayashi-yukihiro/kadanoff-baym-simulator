@@ -4,6 +4,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 from uuid import uuid4
 
@@ -20,6 +21,9 @@ from backend.app.schemas import (
     ObservableResponse,
     ObservableSeries,
     ObservableSeriesDescriptor,
+    RunProgressPhase,
+    RunProgressPoint,
+    RunProgressRecord,
     RunDetail,
     RunResearchMetadata,
     RunState,
@@ -74,6 +78,18 @@ class FileRunStorage:
         self._write_model(self._path(run_id, "status.json"), status)
         self._write_model(self._path(run_id, "summary.json"), summary)
         self._write_json(self._path(run_id, "diagnostics.json"), {})
+        self._write_model(
+            self._path(run_id, "progress.json"),
+            RunProgressRecord(
+                run_id=run_id,
+                state=RunState.QUEUED,
+                phase=RunProgressPhase.QUEUED,
+                updated_at=now,
+                physical_time_final=float(config.time.t_final),
+                requested_steps=int(config.time.n_steps),
+                status_line="run queued",
+            ),
+        )
         self._path(run_id, "run.log").write_text("run created\n", encoding="utf-8")
         return summary
 
@@ -101,6 +117,9 @@ class FileRunStorage:
 
     def read_diagnostics(self, run_id: str) -> dict[str, Any]:
         return json.loads(self._path(run_id, "diagnostics.json").read_text(encoding="utf-8"))
+
+    def read_progress(self, run_id: str) -> RunProgressRecord:
+        return RunProgressRecord.model_validate_json(self._path(run_id, "progress.json").read_text(encoding="utf-8"))
 
     def update_status(
         self,
@@ -143,6 +162,12 @@ class FileRunStorage:
             }
         )
         self._write_model(self._path(run_id, "summary.json"), updated_summary)
+        self._sync_progress_with_status(
+            run_id,
+            state=state,
+            started_at=updated_status.started_at,
+            message=message if error is None else error,
+        )
         return updated_status
 
     def attach_pid(self, run_id: str, pid: int) -> None:
@@ -232,6 +257,86 @@ class FileRunStorage:
     def read_observable_catalog(self, run_id: str) -> list[ObservableDescriptor]:
         return self.read_summary(run_id).available_observables
 
+    def update_progress(
+        self,
+        run_id: str,
+        *,
+        phase: RunProgressPhase | None = None,
+        state: RunState | None = None,
+        started_at: datetime | None = None,
+        wall_seconds_elapsed: float | None = None,
+        physical_time_current: float | None = None,
+        physical_time_final: float | None = None,
+        physical_progress_fraction: float | None = None,
+        accepted_steps: int | None = None,
+        requested_steps: int | None = None,
+        rejected_steps: int | None = None,
+        saved_samples_written: int | None = None,
+        status_line: str | None = None,
+        solver_metrics: dict[str, Any] | None = None,
+        history_limit: int = 120,
+        append_history: bool = True,
+        metric_1: float | None = None,
+        metric_2: float | None = None,
+        metric_3: float | None = None,
+    ) -> RunProgressRecord:
+        progress = self.read_progress(run_id)
+        now = self._utcnow()
+        next_state = state or progress.state
+        next_phase = phase or progress.phase
+        next_started_at = started_at if started_at is not None else progress.started_at
+        next_wall_seconds = wall_seconds_elapsed if wall_seconds_elapsed is not None else progress.wall_seconds_elapsed
+        next_solver_metrics = (
+            dict(progress.solver_metrics) if solver_metrics is None else dict(solver_metrics)
+        )
+        updated = progress.model_copy(
+            update={
+                "state": next_state,
+                "phase": next_phase,
+                "updated_at": now,
+                "started_at": next_started_at,
+                "wall_seconds_elapsed": next_wall_seconds,
+                "physical_time_current": (
+                    physical_time_current if physical_time_current is not None else progress.physical_time_current
+                ),
+                "physical_time_final": (
+                    physical_time_final if physical_time_final is not None else progress.physical_time_final
+                ),
+                "physical_progress_fraction": (
+                    physical_progress_fraction
+                    if physical_progress_fraction is not None
+                    else progress.physical_progress_fraction
+                ),
+                "accepted_steps": accepted_steps if accepted_steps is not None else progress.accepted_steps,
+                "requested_steps": requested_steps if requested_steps is not None else progress.requested_steps,
+                "rejected_steps": rejected_steps if rejected_steps is not None else progress.rejected_steps,
+                "saved_samples_written": (
+                    saved_samples_written if saved_samples_written is not None else progress.saved_samples_written
+                ),
+                "status_line": status_line if status_line is not None else progress.status_line,
+                "solver_metrics": next_solver_metrics,
+            }
+        )
+        history = list(updated.history)
+        if append_history:
+            history.append(
+                RunProgressPoint(
+                    timestamp=now,
+                    wall_seconds_elapsed=updated.wall_seconds_elapsed,
+                    physical_time_current=updated.physical_time_current,
+                    physical_progress_fraction=updated.physical_progress_fraction,
+                    saved_samples_written=updated.saved_samples_written,
+                    metric_1=metric_1,
+                    metric_2=metric_2,
+                    metric_3=metric_3,
+                )
+            )
+            if len(history) > history_limit:
+                history = history[-history_limit:]
+            updated = updated.model_copy(update={"history": history})
+        self._write_model(self._path(run_id, "progress.json"), updated)
+        return updated
+
     def read_observable(self, run_id: str, name: str) -> ObservableResponse:
         descriptor = next((item for item in self.read_observable_catalog(run_id) if item.name == name), None)
         if descriptor is None:
@@ -308,6 +413,19 @@ class FileRunStorage:
             real=np.real(selected).astype(float).tolist(),
             imag=np.imag(selected).astype(float).tolist(),
         )
+
+    def read_green_function_component_array(
+        self,
+        run_id: str,
+        component: str,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        metadata = self._read_green_function_metadata(run_id)
+        component_file = metadata["component_files"].get(component)
+        if component_file is None:
+            raise KeyError(component)
+        times = np.load(self._path(run_id, metadata["times_file"]))
+        values = np.load(self._path(run_id, component_file))
+        return times, values
 
     def read_thermal_branch_catalog(self, run_id: str) -> ThermalBranchCatalogResponse:
         metadata = self._read_thermal_branch_metadata(run_id)
@@ -494,11 +612,43 @@ class FileRunStorage:
 
     @staticmethod
     def _write_model(path: Path, model: Any) -> None:
-        path.write_text(model.model_dump_json(indent=2), encoding="utf-8")
+        _atomic_write(path, model.model_dump_json(indent=2))
 
     @staticmethod
     def _write_json(path: Path, payload: Any) -> None:
-        path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        _atomic_write(path, json.dumps(payload, indent=2, sort_keys=True))
+
+    def _sync_progress_with_status(
+        self,
+        run_id: str,
+        *,
+        state: RunState,
+        started_at: datetime | None,
+        message: str | None,
+    ) -> None:
+        try:
+            progress = self.read_progress(run_id)
+        except FileNotFoundError:
+            return
+        phase = progress.phase
+        append_history = False
+        if state == RunState.CANCELLED:
+            phase = RunProgressPhase.CANCELLED
+        elif state == RunState.SUCCEEDED:
+            phase = RunProgressPhase.SUCCEEDED
+        elif state == RunState.FAILED:
+            phase = RunProgressPhase.FAILED
+        elif state == RunState.RUNNING and progress.phase == RunProgressPhase.QUEUED:
+            phase = RunProgressPhase.PROPAGATING
+            append_history = True
+        self.update_progress(
+            run_id,
+            phase=phase,
+            state=state,
+            started_at=started_at,
+            status_line=message,
+            append_history=append_history,
+        )
 
     def _write_green_functions(
         self,
@@ -621,6 +771,14 @@ class FileRunStorage:
 
 def _slug(value: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]+", "_", value).strip("_").lower()
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        handle.write(content)
+        temp_path = Path(handle.name)
+    temp_path.replace(path)
 
 
 def _normalize_slice_bounds(

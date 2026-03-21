@@ -1,0 +1,21 @@
+{
+  "component_files": {
+    "lesser": "green_lesser.npy",
+    "retarded": "green_retarded.npy"
+  },
+  "components": [
+    "retarded",
+    "lesser"
+  ],
+  "full_time_point_count": 3,
+  "nambu_dimension": 32,
+  "save_every": 1,
+  "shape": [
+    3,
+    3,
+    32,
+    32
+  ],
+  "time_point_count": 3,
+  "times_file": "green_times.npy"
+}

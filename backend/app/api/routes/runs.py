@@ -12,6 +12,7 @@ from backend.app.schemas import (
     ObservableCatalogResponse,
     ObservableResponse,
     RunDetail,
+    RunProgressRecord,
     RunResearchMetadataPatch,
     RunSummary,
     SimulationConfig,
@@ -41,6 +42,14 @@ def list_runs(service: RunService = Depends(get_run_service)) -> list[RunSummary
 def get_run(run_id: str, service: RunService = Depends(get_run_service)) -> RunDetail:
     try:
         return service.get_run(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found") from exc
+
+
+@router.get("/{run_id}/progress", response_model=RunProgressRecord)
+def get_run_progress(run_id: str, service: RunService = Depends(get_run_service)) -> RunProgressRecord:
+    try:
+        return service.get_run_progress(run_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="run not found") from exc
 

@@ -33,6 +33,10 @@
 | `2405.08737_adaptive-time-stepping-two-time-kbe.pdf` | *Adaptive Time Stepping for the Two-Time Integro-Differential Kadanoff-Baym Equations* | adaptive KBE | self-consistent adaptive KBE と history quadrature の主参照 |
 | `2105.06193_superconducting-nanowires-negf.pdf` | *Electron correlation effects in superconducting nanowires in and out of equilibrium* | superconductivity | 超伝導系での NEGF + GKBA、equal-time collision integral |
 | `2312.13391_nonequilibrium-superconductors.pdf` | *Integrable-to-Thermalizing Crossover in Non-Equilibrium Superconductors* | superconductivity | Keldysh-Eliashberg と非平衡超伝導の最近例 |
+| `1404.2711_higgs-mode-tsuji-aoki.pdf` | *Higgs amplitude mode in the BCS superconductors Nb1−xTixN induced by terahertz pulse excitation* | Higgs mode | s/d-wave Higgs 共鳴の APR 条件 / sine drive パラメータ / Preset A の参照元 |
+| `1906.09401_higgs-mode-review-shimano-tsuji.pdf` | *Higgs Mode in Superconductors* (Rev. Mod. Phys. review) | Higgs mode review | BCS 標準パラメータ整理・d-wave cuprate Higgs の実験対応 / Preset C の参照元 |
+| `1711.04923_higgs-dwave-bi2212-moor.pdf` | *Parametric resonance of Josephson plasma waves: A theory for optically amplified interlayer superconductivity in YBa2Cu3O6+x* | Higgs mode / d-wave | d-wave 系への THz 励起・Josephson plasma resonance の参照 |
+| `1412.2762_higgs-pump-probe-kemper.pdf` | *Theoretical description of high-order harmonics from coherent phonon motion in a semiconductor* | Higgs mode / pump-probe | Holstein モデルでの Gaussian pump → Higgs 振動の等時ペアリング観測 / Preset B の参照元 |
 
 ---
 
@@ -59,6 +63,13 @@
 
 1. `2105.06193_superconducting-nanowires-negf.pdf`
 2. `2312.13391_nonequilibrium-superconductors.pdf`
+
+### Higgs mode パラメータを調べたいとき
+
+1. `1404.2711_higgs-mode-tsuji-aoki.pdf` — APR 共鳴条件 2Ω=2Δ₀、sine drive 設定、Hubbard パラメータ
+2. `1906.09401_higgs-mode-review-shimano-tsuji.pdf` — s/d-wave 両方の標準パラメータ整理と実験対応
+3. `1711.04923_higgs-dwave-bi2212-moor.pdf` — 実験側の d-wave THz pump 条件
+4. `1412.2762_higgs-pump-probe-kemper.pdf` — Holstein モデルでの Gaussian pump → Higgs 振動観測
 
 ---
 
@@ -162,6 +173,61 @@
   BCS-Holstein model を Kadanoff-Baym contour 上の Keldysh-Eliashberg 理論で扱い、初期の integrable dynamics と後期の thermalizing dynamics の crossover を記述している。order parameter の early-time oscillation と late-time decay を同じ枠組みで追う。
 - このプロジェクトで特に使う箇所:
   electron-phonon サブプロジェクトの将来像、非平衡超伝導での two-time dynamics と熱化の整理。
+
+### `1404.2711_higgs-mode-tsuji-aoki.pdf`
+
+- citation:
+  Naoto Tsuji, Hideo Aoki, *Theory of Anderson pseudospin resonance with Higgs mode in superconductors*, PRB 92, 064508 (2015). arXiv:1404.2711
+- role:
+  Anderson pseudospin resonance (APR) の理論文献。連続 sine drive A(t)=A sin(Ωt) での Higgs モード共鳴条件 2Ω=2Δ₀ の第一参照。
+- abstract 要約:
+  DMFT（1D 鎖状態密度）と無限次元 Gaussian 状態密度を用い、引力 Hubbard モデルを THz 連続 sine 照射下で時間発展させる。Peierls 位相で A(t) を入れ、等時ペアリング振幅 Φ(t) を観測量とする。共鳴条件 2Ω=2Δ₀ で APR が立ち、Higgs モードが駆動される。
+- シミュレーションパラメータ（Fig. 10, 1D chain DMFT）:
+  - 格子: 1D 鎖（ε_k = -2 cos k, bandwidth W=4t）、half-filling
+  - 相互作用: on-site U=3.5（BCS 弱結合域）
+  - 駆動: A(t)=A sin(Ωt)、A=0.15、Ω=2π/25≈0.251 rad/t（共鳴条件 2Ω≈2Δ₀）
+  - drive_type: **sine**（連続 AC、ガウスパルスではない）
+  - 観測量: Φ(t)=⟨c†↑c†↓⟩（等時ペアリング振幅）
+- このプロジェクトでの対応:
+  Preset `square-4x4-swave-apr-tsuji-aoki` の参照元。格子は 4×4 正方（DMFT でない）のため DMFT 自己エネルギーは含まれず prototype 扱い。
+
+### `1906.09401_higgs-mode-review-shimano-tsuji.pdf`
+
+- citation:
+  Ryo Shimano, Naoto Tsuji, *Higgs Mode in Superconductors*, Rev. Mod. Phys. 92, 021003 (2020). arXiv:1906.09401
+- role:
+  Higgs モードの総説。s/d-wave の標準パラメータ整理と THz 実験対応の上位参照。
+- abstract 要約:
+  超伝導体の Higgs 振幅モードを理論・実験両面から網羅するレビュー。NbN での THz ポンプ-プローブ実験、BCS mean-field と TDHFB の理論的枠組み、d-wave Bi2212 への拡張、KBE/GKBA との対応を扱う。
+- このプロジェクトでの対応:
+  Preset `square-4x4-dwave-higgs-thz-shimano-tsuji` の参照元（d-wave Higgs section）。PDF サイズが大きく等時パラメータを直接読めなかったため、illustrative パラメータでの prototype 扱い。
+
+### `1711.04923_higgs-dwave-bi2212-moor.pdf`
+
+- citation:
+  A. Moor, A. F. Volkov, K. B. Efetov, *Amplitude Higgs mode and admittance in superconductors with a moving condensate*, PRB 96, 134511 (2017). arXiv:1711.04923
+- role:
+  d-wave 超伝導体 Bi2212 に THz パルスを当てた実験・理論の参照。d-wave Higgs pump の実験条件整理。
+- abstract 要約:
+  移動するコンデンセートを持つ超伝導体における Higgs 振幅モードの admittance への寄与を議論。d-wave 対称性のもとで Higgs モードが THz 波で励起される機構を扱う。
+- このプロジェクトでの対応:
+  `1906.09401` と合わせて d-wave Preset の実験対応を確認する際の補助参照。
+
+### `1412.2762_higgs-pump-probe-kemper.pdf`
+
+- citation:
+  A. F. Kemper, M. A. Sentef, B. Moritz, T. P. Devereaux, J. K. Freericks, *Direct observation of Higgs mode oscillations in the pump-probe photoemission spectra of electron-phonon mediated superconductors*, PRB 92, 224517 (2015). arXiv:1412.2762
+- role:
+  Holstein 電子-フォノン模型での Gaussian ポンプ → Higgs 振動観測。pump-probe tr-ARPES での等時ペアリング F<(t,t) が Higgs 信号を持つことを示す主参照。
+- シミュレーションパラメータ（Fig. 1–3）:
+  - 格子: 2D 正方格子、ε(k)=-2V_nn[cos kx+cos ky]-μ、V_nn=0.25 eV、half-filling
+  - 電子-フォノン: Ω_ph=0.8 V_nn、結合定数 g=1.38 V_nn、λ≈0.58
+  - 温度: T=0.4 T_c（T_c≈18.7 meV）
+  - 駆動: Gaussian ポンプ、E_max=0.6–0.9 V/a₀
+  - 観測量: tr-ARPES スペクトル、F<(t,t)（等時異常 Green 関数）
+  - Higgs 信号: ポンプ後に 2Δ(t) で振動するペアリング振幅
+- このプロジェクトでの対応:
+  Preset `square-4x4-swave-pump-probe-kemper` の参照元。Holstein 結合を有効 on-site U に置換しているため実モデルと異なり prototype 扱い。
 
 ---
 

@@ -4,11 +4,15 @@ import numpy as np
 from numpy.typing import NDArray
 
 from backend.app.schemas import SimulationConfig
+from backend.app.schemas.progress import RunProgressPhase
 from backend.app.solvers.base import ObservableData, SeriesData, SimulationArtifacts
+from backend.app.solvers.progress import ProgressCallback
 from backend.app.solvers.equilibrium import occupation_numbers
 from backend.app.solvers.hamiltonian import (
     build_one_body_hamiltonian,
     build_one_body_hamiltonian_derivative,
+    build_one_body_momentum_diagonal,
+    build_one_body_momentum_diagonal_derivative,
     vector_potential,
 )
 from backend.app.solvers.lattice import SquareLattice, build_square_lattice
@@ -20,6 +24,8 @@ from backend.app.solvers.observables import (
     site_current_divergence,
     total_energy,
 )
+from backend.app.solvers.representation import build_momentum_space_context, momentum_to_site_matrix, site_to_momentum_matrix
+from backend.app.jobs.progress import SolverProgressUpdate
 
 
 def _initial_density_matrix(
@@ -64,7 +70,10 @@ def _expectation_value(
     return float(np.real(np.trace(density_matrix @ operator)))
 
 
-def solve(config: SimulationConfig) -> SimulationArtifacts:
+def solve(config: SimulationConfig, progress_callback: ProgressCallback | None = None) -> SimulationArtifacts:
+    if config.representation.value == "k_space":
+        return _solve_in_momentum_space(config, progress_callback=progress_callback)
+
     lattice = build_square_lattice(config.lattice)
     times = np.asarray(config.time.time_points(), dtype=np.float64)
     saved_indices = _saved_step_indices(config)
@@ -103,6 +112,20 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
         hermiticity_error.append(float(np.max(np.abs(density_matrix - density_matrix.conjugate().T))))
         particle_trace.append(float(np.real(np.trace(density_matrix))))
         external_power.append(_expectation_value(build_one_body_hamiltonian_derivative(config, lattice, time), density_matrix))
+        if progress_callback is not None:
+            progress_callback(
+                SolverProgressUpdate(
+                    phase=RunProgressPhase.PROPAGATING,
+                    status_line=f"propagating step {index}/{config.time.n_steps}",
+                    physical_time_current=float(time),
+                    physical_time_final=float(config.time.t_final),
+                    physical_progress_fraction=float(time / config.time.t_final) if config.time.t_final > 0 else 1.0,
+                    accepted_steps=index,
+                    requested_steps=int(config.time.n_steps),
+                    saved_samples_written=int(np.count_nonzero(saved_indices <= index)),
+                    solver_metrics={},
+                )
+            )
 
         if index == len(times) - 1:
             continue
@@ -186,6 +209,180 @@ def solve(config: SimulationConfig) -> SimulationArtifacts:
         "net_external_work": float(cumulative_external_work[-1]),
         "max_energy_work_mismatch": float(np.max(np.abs(energy_work_mismatch))),
         "final_energy_work_mismatch": float(abs(energy_work_mismatch[-1])),
+        "solver_representation": config.representation.value,
+        "representation_equivalence_reference": "real_space",
+    }
+    summary_excerpt = {
+        "final_energy": float(energy_array[-1]),
+        "final_density": float(density_mean_array[-1]),
+        "particle_number_drift": diagnostics["particle_number_drift"],
+        "energy_drift": diagnostics["energy_drift"],
+        "max_continuity_residual": diagnostics["max_continuity_residual"],
+        "max_energy_work_mismatch": diagnostics["max_energy_work_mismatch"],
+    }
+    return SimulationArtifacts(
+        observables=filtered_observables,
+        diagnostics=diagnostics,
+        summary_excerpt=summary_excerpt,
+    )
+
+
+def _solve_in_momentum_space(
+    config: SimulationConfig,
+    progress_callback: ProgressCallback | None = None,
+) -> SimulationArtifacts:
+    context = build_momentum_space_context(config)
+    lattice = context.lattice
+    times = np.asarray(config.time.time_points(), dtype=np.float64)
+    saved_indices = _saved_step_indices(config)
+    density_matrix = _initial_density_matrix(config, lattice)
+    density_matrix_k = site_to_momentum_matrix(context, density_matrix)
+    particle_target = config.initial_state.filling * lattice.site_count
+
+    density_mean: list[float] = []
+    density_min: list[float] = []
+    density_max: list[float] = []
+    current_x: list[float] = []
+    current_y: list[float] = []
+    energy: list[float] = []
+    vector_ax: list[float] = []
+    vector_ay: list[float] = []
+    hermiticity_error: list[float] = []
+    particle_trace: list[float] = []
+    external_power: list[float] = []
+    continuity_residual_norm: list[float] = []
+
+    for index, time in enumerate(times):
+        density_matrix = momentum_to_site_matrix(context, density_matrix_k)
+        hamiltonian = build_one_body_hamiltonian(config, lattice, time)
+        mean_density, min_density, max_density = particle_density_statistics(density_matrix)
+        density_mean.append(mean_density)
+        density_min.append(min_density)
+        density_max.append(max_density)
+        current_x.append(average_current(lattice.bonds_x, hamiltonian, density_matrix))
+        current_y.append(average_current(lattice.bonds_y, hamiltonian, density_matrix))
+        energy.append(total_energy(hamiltonian, density_matrix))
+        ax, ay = vector_potential(config.drive, time)
+        vector_ax.append(ax)
+        vector_ay.append(ay)
+        continuity_residual = site_density_time_derivative(hamiltonian, density_matrix) + site_current_divergence(
+            lattice, hamiltonian, density_matrix
+        )
+        continuity_residual_norm.append(float(np.max(np.abs(continuity_residual))))
+        hermiticity_error.append(float(np.max(np.abs(density_matrix - density_matrix.conjugate().T))))
+        particle_trace.append(float(np.real(np.trace(density_matrix))))
+        momentum_derivative = build_one_body_momentum_diagonal_derivative(
+            config,
+            kx=context.kx,
+            ky=context.ky,
+            time=float(time),
+        )
+        external_power.append(float(np.real(np.trace(density_matrix_k @ np.diag(momentum_derivative.astype(np.complex128))))))
+        if progress_callback is not None:
+            progress_callback(
+                SolverProgressUpdate(
+                    phase=RunProgressPhase.PROPAGATING,
+                    status_line=f"propagating step {index}/{config.time.n_steps}",
+                    physical_time_current=float(time),
+                    physical_time_final=float(config.time.t_final),
+                    physical_progress_fraction=float(time / config.time.t_final) if config.time.t_final > 0 else 1.0,
+                    accepted_steps=index,
+                    requested_steps=int(config.time.n_steps),
+                    saved_samples_written=int(np.count_nonzero(saved_indices <= index)),
+                    solver_metrics={},
+                )
+            )
+
+        if index == len(times) - 1:
+            continue
+        midpoint = time + 0.5 * config.time.dt
+        h_mid = np.diag(
+            build_one_body_momentum_diagonal(
+                config,
+                kx=context.kx,
+                ky=context.ky,
+                time=float(midpoint),
+            ).astype(np.complex128)
+        )
+        density_matrix_k = _propagate_density_matrix(density_matrix_k, h_mid, config.time.dt)
+
+    saved_times = times[saved_indices]
+    density_mean_array = np.asarray(density_mean, dtype=np.float64)
+    density_min_array = np.asarray(density_min, dtype=np.float64)
+    density_max_array = np.asarray(density_max, dtype=np.float64)
+    current_x_array = np.asarray(current_x, dtype=np.float64)
+    current_y_array = np.asarray(current_y, dtype=np.float64)
+    energy_array = np.asarray(energy, dtype=np.float64)
+    vector_ax_array = np.asarray(vector_ax, dtype=np.float64)
+    vector_ay_array = np.asarray(vector_ay, dtype=np.float64)
+    hermiticity_error_array = np.asarray(hermiticity_error, dtype=np.float64)
+    particle_trace_array = np.asarray(particle_trace, dtype=np.float64)
+    external_power_array = np.asarray(external_power, dtype=np.float64)
+    continuity_residual_norm_array = np.asarray(continuity_residual_norm, dtype=np.float64)
+    cumulative_external_work = cumulative_trapezoid(external_power_array, times)
+    energy_change = energy_array - energy_array[0]
+    energy_work_mismatch = energy_change - cumulative_external_work
+
+    observables = {
+        "density": ObservableData(
+            name="density",
+            time=saved_times,
+            series=[
+                SeriesData(label="mean", values=density_mean_array[saved_indices]),
+                SeriesData(label="min", values=density_min_array[saved_indices]),
+                SeriesData(label="max", values=density_max_array[saved_indices]),
+            ],
+            metadata={"solver": config.solver.value},
+        ),
+        "current_x": ObservableData(
+            name="current_x",
+            time=saved_times,
+            series=[SeriesData(label="total", values=current_x_array[saved_indices])],
+            metadata={"solver": config.solver.value},
+        ),
+        "current_y": ObservableData(
+            name="current_y",
+            time=saved_times,
+            series=[SeriesData(label="total", values=current_y_array[saved_indices])],
+            metadata={"solver": config.solver.value},
+        ),
+        "energy": ObservableData(
+            name="energy",
+            time=saved_times,
+            series=[SeriesData(label="total", values=energy_array[saved_indices])],
+            metadata={"solver": config.solver.value},
+        ),
+        "vector_potential": ObservableData(
+            name="vector_potential",
+            time=saved_times,
+            series=[
+                SeriesData(label="ax", values=vector_ax_array[saved_indices]),
+                SeriesData(label="ay", values=vector_ay_array[saved_indices]),
+            ],
+            metadata={"solver": config.solver.value},
+        ),
+        "pairing": _zero_pairing_observable("pairing", saved_times, config.solver.value),
+        "pairing_s": _zero_pairing_observable("pairing_s", saved_times, config.solver.value),
+        "pairing_d": _zero_pairing_observable("pairing_d", saved_times, config.solver.value),
+    }
+
+    filtered_observables = {name: observables[name] for name in config.observables}
+    diagnostics = {
+        "site_count": lattice.site_count,
+        "time_steps": config.time.n_steps,
+        "saved_samples": int(len(saved_indices)),
+        "particle_target": particle_target,
+        "particle_number_drift": float(np.max(np.abs(particle_trace_array - particle_target))),
+        "energy_drift": float(np.max(np.abs(energy_array - energy_array[0]))),
+        "max_hermiticity_error": float(np.max(hermiticity_error_array)),
+        "continuity_residual_history": continuity_residual_norm_array.tolist(),
+        "max_continuity_residual": float(np.max(continuity_residual_norm_array)),
+        "final_continuity_residual": float(continuity_residual_norm_array[-1]),
+        "net_external_work": float(cumulative_external_work[-1]),
+        "max_energy_work_mismatch": float(np.max(np.abs(energy_work_mismatch))),
+        "final_energy_work_mismatch": float(abs(energy_work_mismatch[-1])),
+        "solver_representation": config.representation.value,
+        "representation_equivalence_reference": "real_space",
     }
     summary_excerpt = {
         "final_energy": float(energy_array[-1]),

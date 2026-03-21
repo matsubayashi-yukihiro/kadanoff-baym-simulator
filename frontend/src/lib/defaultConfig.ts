@@ -9,6 +9,10 @@ export type ThermalBranchConfigInput = NonNullable<SimulationConfigInput["therma
 
 export const SUPPORTED_SOLVERS = ["noninteracting", "tdhfb", "kbe_hfb"] as const;
 export const SUPPORTED_KBE_SELF_ENERGIES = ["hfb", "second_born", "second_born_reference"] as const;
+export const SUPPORTED_REPRESENTATIONS = ["real_space", "k_space"] as const;
+
+// k_space requires periodic boundary and specific solver/self_energy combos
+export const K_SPACE_COMPATIBLE_SELF_ENERGIES = ["hfb"] as const;
 
 export const SUPPORTED_PAIRING_CHANNELS = ["none", "onsite", "bond_s", "bond_d"] as const;
 
@@ -27,6 +31,7 @@ export function createDefaultConfig(): SimulationConfigInput {
   return {
     name: "square-4x4-baseline",
     solver: "noninteracting",
+    representation: "real_space",
     lattice: {
       kind: "square",
       nx: 4,
@@ -41,6 +46,7 @@ export function createDefaultConfig(): SimulationConfigInput {
       save_every: 1,
     },
     drive: {
+      drive_type: "gaussian" as const,
       amplitude_x: 0.25,
       amplitude_y: 0.0,
       frequency: 3.0,

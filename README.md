@@ -11,7 +11,8 @@ Current backend validation scope:
 
 - validated within the current reference problems: noninteracting one-body propagation, exact 2x2 benchmark agreement, `dt` convergence, local continuity residual, energy-work balance
 - partially validated: TDHFB / BdG and KBE + HFB equal-time constraints and short-window benchmark rows
-- prototype only or not yet validated: heuristic `second_born`, full contour second Born, and self-consistent reference thermal / mixed contour dressing
+- validated within equal-time GKBA contour-dressed scope: `second_born_reference`, including self-consistent reference thermal / mixed contour dressing
+- prototype only or not yet validated: heuristic `second_born`, full contour second Born, and k-space / `tr-ARPES` derived analysis
 
 ## Docker Compose
 

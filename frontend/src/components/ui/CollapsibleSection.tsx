@@ -16,7 +16,7 @@ export function CollapsibleSection({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs font-bold uppercase tracking-wider text-ink-subtle bg-gray-50 hover:bg-gray-100 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-ink-subtle bg-gray-50 hover:bg-gray-100 transition-colors"
       >
         {title}
         <span className={`text-ink-muted text-xs transition-transform ${open ? "rotate-180" : ""}`}>

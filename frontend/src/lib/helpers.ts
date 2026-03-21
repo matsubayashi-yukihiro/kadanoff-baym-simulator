@@ -1,5 +1,5 @@
 import { ApiError } from "../api/client";
-import type { RunDetail, RunSummary } from "../api/types";
+import type { RunDetail, RunSummary, SimulationConfigInput } from "../api/types";
 
 export function sortRuns(runs: RunSummary[]): RunSummary[] {
   return [...runs].sort((left, right) => getRunSortKey(right) - getRunSortKey(left));
@@ -25,4 +25,15 @@ export function toErrorMessage(error: unknown): string {
     return error.message;
   }
   return "request failed";
+}
+
+export function formatRunSubmitError(error: unknown, config: SimulationConfigInput): string {
+  const base = toErrorMessage(error);
+  const lines = [base];
+
+  if (error instanceof ApiError && error.status === 422) {
+    lines.push(`submitted top-level fields: ${Object.keys(config).join(", ")}`);
+  }
+
+  return lines.join("\n");
 }

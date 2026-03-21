@@ -5,12 +5,17 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from backend.app.schemas import PairingChannel, SimulationConfig
+from backend.app.schemas import PairingChannel, SimulationConfig, SolverRepresentation
 from backend.app.solvers.equilibrium import occupation_numbers
 from backend.app.solvers.fixed_point import AndersonMixer
 from backend.app.solvers.hamiltonian import build_one_body_hamiltonian
 from backend.app.solvers.lattice import Bond, SquareLattice
 from backend.app.solvers.numerics import solve_bracketed_root
+from backend.app.solvers.representation import (
+    MomentumSpaceContext,
+    build_momentum_space_context,
+    extract_k_blocks_from_generalized_density,
+)
 
 
 ComplexMatrix = NDArray[np.complex128]
@@ -38,6 +43,15 @@ class HFBEquilibriumState:
     converged: bool
     self_consistency_error: float
     stationarity_residual: float
+    momentum_density_blocks: NDArray[np.complex128] | None = None
+    momentum_context: MomentumSpaceContext | None = None
+    momentum_generalized_density: ComplexMatrix | None = None
+    method: str = "hfb"
+    requested_method: str = "auto"
+    matches_runtime_approximation: bool = True
+    mismatch_allowed: bool = False
+    density_update_residual: float = 0.0
+    solver_mode: str = "hfb"
 
 
 def saved_step_indices(config: SimulationConfig) -> NDArray[np.int64]:
@@ -236,6 +250,12 @@ def effective_energy(generalized_density: ComplexMatrix, bdg_hamiltonian: Comple
 
 
 def solve_hfb_equilibrium(config: SimulationConfig, lattice: SquareLattice) -> HFBEquilibriumState:
+    if config.representation == SolverRepresentation.K_SPACE:
+        return _solve_hfb_equilibrium_kspace(config, lattice)
+    return _solve_hfb_equilibrium_real_space(config, lattice)
+
+
+def _solve_hfb_equilibrium_real_space(config: SimulationConfig, lattice: SquareLattice) -> HFBEquilibriumState:
     site_count = lattice.site_count
     particle_target = config.initial_state.filling * site_count
     normal_density = _initial_normal_density(config, lattice)
@@ -400,3 +420,160 @@ def _bond_average(bonds: tuple[Bond, ...], matrix: ComplexMatrix) -> complex:
             np.asarray([matrix[bond.source, bond.target] for bond in bonds], dtype=np.complex128)
         )
     )
+
+
+def _solve_hfb_equilibrium_kspace(config: SimulationConfig, lattice: SquareLattice) -> HFBEquilibriumState:
+    real_space_config = SimulationConfig.model_validate(
+        {
+            **config.model_dump(mode="json"),
+            "representation": SolverRepresentation.REAL_SPACE.value,
+        }
+    )
+    equilibrium = _solve_hfb_equilibrium_real_space(real_space_config, lattice)
+    context = build_momentum_space_context(config)
+    density_blocks = extract_k_blocks_from_generalized_density(context, equilibrium.generalized_density)
+    momentum_generalized_density = context.nambu_site_to_momentum @ equilibrium.generalized_density @ context.nambu_momentum_to_site
+    return HFBEquilibriumState(
+        generalized_density=equilibrium.generalized_density,
+        normal_hamiltonian=equilibrium.normal_hamiltonian,
+        pairing_field=equilibrium.pairing_field,
+        hartree_potential=equilibrium.hartree_potential,
+        effective_chemical_potential=equilibrium.effective_chemical_potential,
+        iterations=equilibrium.iterations,
+        converged=equilibrium.converged,
+        self_consistency_error=equilibrium.self_consistency_error,
+        stationarity_residual=equilibrium.stationarity_residual,
+        momentum_density_blocks=density_blocks,
+        momentum_context=context,
+        momentum_generalized_density=momentum_generalized_density,
+    )
+
+
+def _initial_kspace_pairing_diagonal(
+    config: SimulationConfig,
+    context: MomentumSpaceContext,
+) -> NDArray[np.complex128]:
+    channel = pairing_channel(config)
+    if channel == PairingChannel.NONE:
+        return np.zeros(context.site_count, dtype=np.complex128)
+    seed_value = config.initial_state.seed_pairing
+    if abs(seed_value) <= 1e-12:
+        seed_value = 1e-6
+    if channel == PairingChannel.ONSITE:
+        return np.full(context.site_count, seed_value, dtype=np.complex128)
+    if channel == PairingChannel.BOND_D:
+        return 2.0 * seed_value * (context.cos_kx - context.cos_ky)
+    return 2.0 * seed_value * (context.cos_kx + context.cos_ky)
+
+
+def _solve_kspace_thermal_state_for_particle_target(
+    *,
+    config: SimulationConfig,
+    context: MomentumSpaceContext,
+    density_blocks: NDArray[np.complex128],
+    particle_target: float,
+) -> tuple[float, NDArray[np.complex128]]:
+    target = min(max(particle_target, 0.0), float(context.site_count))
+    search_span = max(
+        2.0,
+        8.0 * config.lattice.hopping + 4.0 * abs(config.interaction.onsite_u) + 8.0 * abs(config.interaction.nearest_neighbor_v),
+    )
+    evaluated_states: dict[float, tuple[float, float, NDArray[np.complex128]]] = {}
+
+    def evaluate(shift: float) -> tuple[float, float, NDArray[np.complex128]]:
+        if shift not in evaluated_states:
+            evaluated_states[shift] = _kspace_thermal_state_for_shift(config, context, density_blocks, shift)
+        return evaluated_states[shift]
+
+    lower_shift = -search_span
+    upper_shift = search_span
+    lower_state = evaluate(lower_shift)
+    upper_state = evaluate(upper_shift)
+    for _ in range(18):
+        if lower_state[1] <= target <= upper_state[1]:
+            break
+        search_span *= 2.0
+        lower_shift = -search_span
+        upper_shift = search_span
+        lower_state = evaluate(lower_shift)
+        upper_state = evaluate(upper_shift)
+
+    if target <= lower_state[1]:
+        return lower_state[0], lower_state[2]
+    if target >= upper_state[1]:
+        return upper_state[0], upper_state[2]
+
+    chosen_shift = solve_bracketed_root(
+        lambda shift: evaluate(shift)[1] - target,
+        lower=lower_shift,
+        upper=upper_shift,
+    )
+    chosen_state = evaluate(chosen_shift)
+    return chosen_state[0], chosen_state[2]
+
+
+def _kspace_thermal_state_for_shift(
+    config: SimulationConfig,
+    context: MomentumSpaceContext,
+    density_blocks: NDArray[np.complex128],
+    effective_chemical_potential: float,
+) -> tuple[float, float, NDArray[np.complex128]]:
+    _, _, _, bdg_blocks = _build_kspace_bdg_blocks(
+        config=config,
+        context=context,
+        density_blocks=density_blocks,
+        effective_chemical_potential=effective_chemical_potential,
+        time=0.0,
+    )
+    candidate_density = thermal_generalized_density(
+        nambu_from_k_blocks(context, bdg_blocks),
+        config.initial_state.temperature,
+    )
+    candidate_density_blocks = extract_k_blocks_from_k_nambu_matrix(candidate_density)
+    particle_number = float(np.real(np.sum(candidate_density_blocks[:, 0, 0])))
+    return effective_chemical_potential, particle_number, candidate_density_blocks
+
+
+def _build_kspace_bdg_blocks(
+    *,
+    config: SimulationConfig,
+    context: MomentumSpaceContext,
+    density_blocks: NDArray[np.complex128],
+    effective_chemical_potential: float,
+    time: float,
+) -> tuple[NDArray[np.float64], NDArray[np.complex128], float, NDArray[np.complex128]]:
+    normal_diagonal = build_one_body_momentum_diagonal(config, kx=context.kx, ky=context.ky, time=time).astype(np.float64)
+    density_mean = float(np.mean(np.real(density_blocks[:, 0, 0])))
+    hartree_scalar = density_mean * (
+        config.interaction.onsite_u + 4.0 * config.interaction.nearest_neighbor_v
+    )
+    normal_diagonal = normal_diagonal - effective_chemical_potential + hartree_scalar
+
+    pairing_diagonal = np.zeros(context.site_count, dtype=np.complex128)
+    channel = pairing_channel(config)
+    if channel != PairingChannel.NONE:
+        seed_value = config.initial_state.seed_pairing
+        if abs(seed_value) <= 1e-12:
+            seed_value = 1e-6
+        anomalous = density_blocks[:, 0, 1]
+        if channel == PairingChannel.ONSITE:
+            pairing_diagonal = np.full(context.site_count, seed_value, dtype=np.complex128)
+            if abs(config.interaction.onsite_u) > 1e-12:
+                pairing_diagonal = pairing_diagonal - config.interaction.onsite_u * np.mean(anomalous)
+        else:
+            seed_x = seed_value
+            seed_y = -seed_value if channel == PairingChannel.BOND_D else seed_value
+            if abs(config.interaction.nearest_neighbor_v) <= 1e-12:
+                delta_x = complex(seed_x)
+                delta_y = complex(seed_y)
+            else:
+                delta_x = complex(seed_x - config.interaction.nearest_neighbor_v * np.mean(anomalous * context.cos_kx))
+                delta_y = complex(seed_y - config.interaction.nearest_neighbor_v * np.mean(anomalous * context.cos_ky))
+            pairing_diagonal = 2.0 * delta_x * context.cos_kx + 2.0 * delta_y * context.cos_ky
+
+    bdg_blocks = np.zeros((context.site_count, 2, 2), dtype=np.complex128)
+    bdg_blocks[:, 0, 0] = normal_diagonal.astype(np.complex128)
+    bdg_blocks[:, 0, 1] = pairing_diagonal
+    bdg_blocks[:, 1, 0] = pairing_diagonal.conjugate()
+    bdg_blocks[:, 1, 1] = -normal_diagonal.astype(np.complex128)
+    return normal_diagonal, pairing_diagonal, hartree_scalar, bdg_blocks

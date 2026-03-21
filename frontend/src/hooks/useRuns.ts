@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { cancelRun as apiCancelRun, createRun as apiCreateRun, getRun, listRuns } from "../api/client";
 import type { RunDetail, RunSummary, SimulationConfigInput } from "../api/types";
-import { isTerminalState, sortRuns, toErrorMessage } from "../lib/helpers";
+import { formatRunSubmitError, isTerminalState, sortRuns, toErrorMessage } from "../lib/helpers";
 
 const POLL_INTERVAL_MS = 1500;
 
@@ -129,7 +129,7 @@ export function useRuns(initialRunId: string | null): UseRunsReturn {
       setSelectedRunId(run.run_id);
       setRefreshVersion((current) => current + 1);
     } catch (error) {
-      setSubmitError(toErrorMessage(error));
+      setSubmitError(formatRunSubmitError(error, config));
     } finally {
       setIsSubmitting(false);
     }

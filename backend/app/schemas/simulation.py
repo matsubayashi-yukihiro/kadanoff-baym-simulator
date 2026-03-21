@@ -16,10 +16,28 @@ class SolverKind(str, Enum):
     KBE_HFB = "kbe_hfb"
 
 
+class SolverRepresentation(str, Enum):
+    REAL_SPACE = "real_space"
+    K_SPACE = "k_space"
+
+
 class KBESelfEnergyMode(str, Enum):
     HFB = "hfb"
     SECOND_BORN = "second_born"
     SECOND_BORN_REFERENCE = "second_born_reference"
+
+
+class EquilibriumMethod(str, Enum):
+    AUTO = "auto"
+    HFB = "hfb"
+    SECOND_BORN_REFERENCE = "second_born_reference"
+
+
+class DriveKind(str, Enum):
+    GAUSSIAN = "gaussian"
+    SINE = "sine"
+    SECH2 = "sech2"
+    TRAPEZOID = "trapezoid"
 
 
 class PairingChannel(str, Enum):
@@ -65,6 +83,7 @@ class TimeGridConfig(BaseModel):
 class DriveConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    drive_type: DriveKind = DriveKind.GAUSSIAN
     amplitude_x: float = 0.0
     amplitude_y: float = 0.0
     frequency: float = Field(default=0.0, ge=0.0)
@@ -87,6 +106,13 @@ class InitialStateConfig(BaseModel):
     filling: float = Field(default=0.5, ge=0.0, le=1.0)
     temperature: float = Field(default=0.0, ge=0.0)
     seed_pairing: float = 0.0
+
+
+class EquilibriumConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: EquilibriumMethod = EquilibriumMethod.AUTO
+    allow_approximation_mismatch: bool = False
 
 
 class KBEConfig(BaseModel):
@@ -131,11 +157,13 @@ class SimulationConfig(BaseModel):
 
     name: str | None = Field(default=None, max_length=120)
     solver: SolverKind = SolverKind.NONINTERACTING
+    representation: SolverRepresentation = SolverRepresentation.REAL_SPACE
     lattice: LatticeConfig
     time: TimeGridConfig
     drive: DriveConfig = Field(default_factory=DriveConfig)
     interaction: InteractionConfig = Field(default_factory=InteractionConfig)
     initial_state: InitialStateConfig = Field(default_factory=InitialStateConfig)
+    equilibrium: EquilibriumConfig = Field(default_factory=EquilibriumConfig)
     kbe: KBEConfig = Field(default_factory=KBEConfig)
     adaptive: AdaptiveConfig = Field(default_factory=AdaptiveConfig)
     thermal_branch: ThermalBranchConfig = Field(default_factory=ThermalBranchConfig)
@@ -202,7 +230,41 @@ class SimulationConfig(BaseModel):
     def validate_extended_kbe_options(self) -> "SimulationConfig":
         if self.thermal_branch.enabled and self.initial_state.temperature <= 0.0:
             raise ValueError("thermal_branch.enabled requires initial_state.temperature > 0")
+        if self.representation == SolverRepresentation.K_SPACE:
+            if self.lattice.boundary != BoundaryCondition.PERIODIC:
+                raise ValueError("representation='k_space' requires lattice.boundary='periodic'")
+            if self.lattice.kind != "square":
+                raise ValueError("representation='k_space' currently supports lattice.kind='square' only")
+            if self.solver == SolverKind.KBE_HFB and self.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN:
+                raise ValueError(
+                    "representation='k_space' currently supports kbe.self_energy='hfb' or "
+                    "'second_born_reference' only"
+                )
+        expected_method = self.runtime_equilibrium_method()
+        if (
+            self.equilibrium.method != EquilibriumMethod.AUTO
+            and self.equilibrium.method != expected_method
+            and not self.equilibrium.allow_approximation_mismatch
+        ):
+            raise ValueError(
+                "equilibrium.method must match the runtime approximation unless "
+                "equilibrium.allow_approximation_mismatch=true"
+            )
         return self
+
+    def runtime_equilibrium_method(self) -> EquilibriumMethod:
+        if self.solver == SolverKind.TDHFB:
+            return EquilibriumMethod.HFB
+        if self.solver == SolverKind.KBE_HFB:
+            if self.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
+                return EquilibriumMethod.SECOND_BORN_REFERENCE
+            return EquilibriumMethod.HFB
+        return EquilibriumMethod.HFB
+
+    def resolved_equilibrium_method(self) -> EquilibriumMethod:
+        if self.equilibrium.method == EquilibriumMethod.AUTO:
+            return self.runtime_equilibrium_method()
+        return self.equilibrium.method
 
 
 class PresetCategory(str, Enum):

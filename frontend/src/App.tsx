@@ -11,6 +11,7 @@ import { ObservablePanel } from "./components/ObservablePanel";
 import { PresetLibraryPanel } from "./components/PresetLibraryPanel";
 import { ResearchArtifactsPanel } from "./components/ResearchArtifactsPanel";
 import { RunLogPanel } from "./components/RunLogPanel";
+import { RunProgressPanel } from "./components/RunProgressPanel";
 import { RunControlPanel } from "./components/RunControlPanel";
 import { SpectrumPanel } from "./components/SpectrumPanel";
 import { ThermalBranchPanel } from "./components/ThermalBranchPanel";
@@ -21,6 +22,7 @@ import { useMixedGreenFunctions } from "./hooks/useMixedGreenFunctions";
 import { useObservables } from "./hooks/useObservables";
 import { usePresets } from "./hooks/usePresets";
 import { useResearchArtifacts } from "./hooks/useResearchArtifacts";
+import { useRunProgress } from "./hooks/useRunProgress";
 import { useRuns } from "./hooks/useRuns";
 import { useThermalBranch } from "./hooks/useThermalBranch";
 import { readUrlState, useUrlStateSync } from "./hooks/useUrlState";
@@ -70,6 +72,7 @@ export default function App() {
   const { selectedRunId, selectedRun, isSubmitting, isCancelling } = runState;
 
   const observables = useObservables(selectedRunId, selectedRun, initialUrlState.observable ?? null);
+  const runProgress = useRunProgress(selectedRunId, selectedRun?.state === "queued" || selectedRun?.state === "running");
   const green = useGreenFunctions(selectedRunId, selectedRun, initialUrlState.component ?? null);
   const thermal = useThermalBranch(selectedRunId, selectedRun);
   const mixed = useMixedGreenFunctions(selectedRunId, selectedRun);
@@ -314,6 +317,13 @@ export default function App() {
                   </div>
 
                   <div className="flow-column evidence-support-rail control-rail-sticky">
+                    <RunProgressPanel
+                      run={selectedRun}
+                      progress={runProgress.progress}
+                      loading={runProgress.loading}
+                      error={runProgress.error}
+                      isStale={runProgress.isStale}
+                    />
                     <DiagnosticsPanel run={selectedRun} />
                     <RunLogPanel run={selectedRun} />
                     <ResearchArtifactsPanel

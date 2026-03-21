@@ -1,10 +1,14 @@
 import { useState, useMemo } from "react";
-import type { SimulationConfigInput } from "../api/types";
+import type { SimulationConfigInput, SweepLaunchRequest } from "../api/types";
 import { SWEEP_TEMPLATES } from "../lib/workbench";
 
 type SweepRailPanelProps = {
   draftConfig: SimulationConfigInput;
   baselinePresetName: string | null;
+  onLaunch?: (req: SweepLaunchRequest) => void;
+  isLaunching?: boolean;
+  sweepName?: string;
+  onSweepNameChange?: (name: string) => void;
 };
 
 const SWEEPABLE_PATHS = [
@@ -82,7 +86,7 @@ function parseValues(valuesStr: string): number[] {
 }
 
 export function SweepRailPanel(props: SweepRailPanelProps) {
-  const { draftConfig, baselinePresetName } = props;
+  const { draftConfig, baselinePresetName, onLaunch, isLaunching, sweepName, onSweepNameChange } = props;
 
   const [selectedPath, setSelectedPath] = useState<SweepablePath>(
     "drive.amplitude_x",
@@ -114,11 +118,40 @@ export function SweepRailPanel(props: SweepRailPanelProps) {
         <span className="signal-badge">{parameterKind}</span>
       </div>
 
-      <p className="state-banner state-warning">
-        Planning-only state. Sweep APIs and managed scan artifacts are not yet
-        available. Use this panel to frame the sweep axis and point count before
-        backend support lands.
-      </p>
+      {onLaunch && (
+        <div style={{ marginBottom: "0.75rem" }}>
+          {onSweepNameChange && (
+            <label className="field" style={{ marginBottom: "0.5rem", display: "block" }}>
+              <span className="field-label">Sweep Name</span>
+              <input
+                value={sweepName ?? "sweep-1"}
+                onChange={(e) => onSweepNameChange(e.target.value)}
+                disabled={isLaunching}
+                placeholder="sweep-1"
+              />
+            </label>
+          )}
+          <button
+            type="button"
+            className="primary-button"
+            disabled={isLaunching || parsedValues.length === 0 || !(sweepName ?? "sweep-1")}
+            onClick={() => {
+              onLaunch({
+                study_id: "__none__",
+                name: sweepName ?? "sweep-1",
+                parameter_kind: parameterKind,
+                parameter_path: selectedPath,
+                parameter_label: selectedPath.split(".").pop() ?? selectedPath,
+                values: parsedValues,
+                baseline_value: Number(baselineValue) || null,
+                base_config: draftConfig as Record<string, unknown>,
+              });
+            }}
+          >
+            {isLaunching ? "Launching…" : `Launch Sweep (${parsedValues.length} runs)`}
+          </button>
+        </div>
+      )}
 
       <div className="sidebar-stack">
         <article className="sidebar-card">

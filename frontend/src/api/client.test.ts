@@ -155,6 +155,80 @@ describe("api client", () => {
       }),
     );
   });
+
+  it("includes validation locations and rejected extra inputs in ApiError messages", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          jsonResponse(422, {
+            detail: [
+              { loc: ["body", "category"], msg: "Extra inputs are not permitted", input: "demo" },
+              { loc: ["body", "validation_status"], msg: "Extra inputs are not permitted", input: "prototype" },
+            ],
+          }),
+        ),
+      ) as unknown as typeof fetch,
+    );
+
+    await expect(createRun(createDefaultConfig())).rejects.toEqual(
+      expect.objectContaining<ApiError>({
+        name: "ApiError",
+        status: 422,
+        message:
+          'category: Extra inputs are not permitted (input="demo")\nvalidation_status: Extra inputs are not permitted (input="prototype")',
+      }),
+    );
+  });
+
+  it("retries createRun without legacy-unsupported default fields", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/runs") && init?.method === "POST") {
+        const body = JSON.parse(String(init.body));
+        if ("representation" in body || "drive_type" in (body.drive ?? {})) {
+          return Promise.resolve(
+            jsonResponse(422, {
+              detail: [
+                { loc: ["body", "drive", "drive_type"], msg: "Extra inputs are not permitted", input: "gaussian" },
+                { loc: ["body", "representation"], msg: "Extra inputs are not permitted", input: "real_space" },
+              ],
+            }),
+          );
+        }
+        return Promise.resolve(
+          jsonResponse(202, {
+            run_id: "run-compat",
+            name: "baseline",
+            solver: "noninteracting",
+            state: "queued",
+            created_at: "2026-03-15T00:00:00Z",
+            updated_at: "2026-03-15T00:00:00Z",
+            started_at: null,
+            finished_at: null,
+            status_message: "run queued",
+            lattice: { nx: 4, ny: 4 },
+            time_grid: { dt: 0.1, t_final: 1.0 },
+            available_observables: [],
+            diagnostics_excerpt: {},
+            config: createDefaultConfig(),
+            diagnostics: {},
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const run = await createRun(createDefaultConfig());
+
+    expect(run.run_id).toBe("run-compat");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const retriedBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+    expect(retriedBody.representation).toBeUndefined();
+    expect(retriedBody.drive.drive_type).toBeUndefined();
+  });
 });
 
 const STUDY_FIXTURE = {

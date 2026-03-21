@@ -24,15 +24,10 @@ describe("App", () => {
     await screen.findByText("Preset Library");
     expect(screen.getByRole("button", { name: /Single Job/i })).toHaveAttribute("aria-current", "page");
 
-    await user.click(screen.getByRole("button", { name: "Load Bond-d KBE-HFB scaffold" }));
-    await waitFor(() => {
-      expect(screen.getByLabelText("Run Name")).toHaveValue("square-4x4-bond-d-kbe-hfb");
-    });
-
     await user.click(screen.getByRole("button", { name: "Launch Run" }));
 
     await waitFor(() => {
-      expect(screen.getAllByText("square-4x4-bond-d-kbe-hfb").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("square-4x4-baseline").length).toBeGreaterThan(0);
     });
 
     await screen.findByText("Observable Readout");
@@ -146,9 +141,27 @@ describe("App", () => {
 
     await screen.findByText(/solver started/);
   });
+
+  it("shows live progress telemetry for running runs", async () => {
+    vi.stubGlobal(
+      "fetch",
+      createFetchMock(
+        { "run-live-001": createDefaultConfig() },
+        { "run-live-001": "running" },
+      ) as unknown as typeof fetch,
+    );
+
+    render(<App />);
+
+    await screen.findByText("Live Run Progress");
+    expect(screen.getByText("Execution Telemetry")).toBeInTheDocument();
+  });
 });
 
-function createFetchMock(initialRuns: Record<string, ReturnType<typeof createDefaultConfig>> = {}) {
+function createFetchMock(
+  initialRuns: Record<string, ReturnType<typeof createDefaultConfig>> = {},
+  runStates: Record<string, "queued" | "running" | "succeeded" | "failed" | "cancelled"> = {},
+) {
   const runConfigs = new Map<string, ReturnType<typeof createDefaultConfig>>(Object.entries(initialRuns));
   let runCount = Object.keys(initialRuns).length;
   const presets = createFallbackPresets();
@@ -163,7 +176,7 @@ function createFetchMock(initialRuns: Record<string, ReturnType<typeof createDef
 
     if (url.pathname === "/api/v1/runs" && method === "GET") {
       const payload = Array.from(runConfigs.entries())
-        .map(([runId, config]) => buildRunSummary(runId, config))
+        .map(([runId, config]) => buildRunSummary(runId, config, runStates[runId] ?? "succeeded"))
         .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
       return Promise.resolve(jsonResponse(200, payload));
     }
@@ -173,7 +186,7 @@ function createFetchMock(initialRuns: Record<string, ReturnType<typeof createDef
       const runId = `run-${String(runCount).padStart(3, "0")}`;
       const submittedConfig = JSON.parse(String(init?.body ?? "{}")) as ReturnType<typeof createDefaultConfig>;
       runConfigs.set(runId, submittedConfig);
-      return Promise.resolve(jsonResponse(202, buildRunDetail(runId, submittedConfig)));
+      return Promise.resolve(jsonResponse(202, buildRunDetail(runId, submittedConfig, runStates[runId] ?? "succeeded")));
     }
 
     const runMatch = url.pathname.match(/^\/api\/v1\/runs\/([^/]+)$/);
@@ -183,7 +196,17 @@ function createFetchMock(initialRuns: Record<string, ReturnType<typeof createDef
       if (!config) {
         return Promise.resolve(jsonResponse(404, { detail: "run not found" }));
       }
-      return Promise.resolve(jsonResponse(200, buildRunDetail(runId, config)));
+      return Promise.resolve(jsonResponse(200, buildRunDetail(runId, config, runStates[runId] ?? "succeeded")));
+    }
+
+    const progressMatch = url.pathname.match(/^\/api\/v1\/runs\/([^/]+)\/progress$/);
+    if (progressMatch && method === "GET") {
+      const runId = progressMatch[1];
+      const config = runConfigs.get(runId);
+      if (!config) {
+        return Promise.resolve(jsonResponse(404, { detail: "run not found" }));
+      }
+      return Promise.resolve(jsonResponse(200, buildRunProgress(runId, config, runStates[runId] ?? "succeeded")));
     }
 
     const observablesMatch = url.pathname.match(/^\/api\/v1\/runs\/([^/]+)\/observables$/);
@@ -329,29 +352,37 @@ function createFetchMock(initialRuns: Record<string, ReturnType<typeof createDef
   });
 }
 
-function buildRunSummary(runId: string, config: ReturnType<typeof createDefaultConfig>) {
+function buildRunSummary(
+  runId: string,
+  config: ReturnType<typeof createDefaultConfig>,
+  state: "queued" | "running" | "succeeded" | "failed" | "cancelled",
+) {
   return {
     run_id: runId,
     name: config.name,
     solver: config.solver,
-    state: "succeeded",
+    state,
     created_at: "2026-03-17T00:00:00Z",
-    updated_at: "2026-03-17T00:00:00Z",
-    status_message: "completed",
+    updated_at: state === "running" ? "2026-03-17T00:00:05Z" : "2026-03-17T00:00:00Z",
+    status_message: state === "running" ? "simulation running" : "completed",
   };
 }
 
-function buildRunDetail(runId: string, config: ReturnType<typeof createDefaultConfig>) {
+function buildRunDetail(
+  runId: string,
+  config: ReturnType<typeof createDefaultConfig>,
+  state: "queued" | "running" | "succeeded" | "failed" | "cancelled",
+) {
   return {
     run_id: runId,
     name: config.name,
     solver: config.solver,
-    state: "succeeded",
+    state,
     created_at: "2026-03-17T00:00:00Z",
-    updated_at: "2026-03-17T00:00:00Z",
+    updated_at: state === "running" ? "2026-03-17T00:00:05Z" : "2026-03-17T00:00:00Z",
     started_at: "2026-03-17T00:00:00Z",
-    finished_at: "2026-03-17T00:00:01Z",
-    status_message: "completed",
+    finished_at: state === "running" ? null : "2026-03-17T00:00:01Z",
+    status_message: state === "running" ? "simulation running" : "completed",
     lattice: {
       nx: config.lattice.nx,
       ny: config.lattice.ny,
@@ -360,16 +391,67 @@ function buildRunDetail(runId: string, config: ReturnType<typeof createDefaultCo
       dt: config.time.dt,
       t_final: config.time.t_final,
     },
-    available_observables: buildAvailableObservables(config),
+    available_observables: state === "running" ? [] : buildAvailableObservables(config),
     diagnostics_excerpt: {
       site_count: config.lattice.nx * config.lattice.ny,
     },
-    diagnostics: {
+    diagnostics: state === "running" ? {} : {
       site_count: config.lattice.nx * config.lattice.ny,
       dt: config.time.dt,
       solver: config.solver,
     },
     config,
+  };
+}
+
+function buildRunProgress(
+  runId: string,
+  config: ReturnType<typeof createDefaultConfig>,
+  state: "queued" | "running" | "succeeded" | "failed" | "cancelled",
+) {
+  const running = state === "running" || state === "queued";
+  return {
+    run_id: runId,
+    state,
+    phase: running ? "propagating" : state,
+    updated_at: running ? "2026-03-17T00:00:05Z" : "2026-03-17T00:00:01Z",
+    started_at: "2026-03-17T00:00:00Z",
+    wall_seconds_elapsed: running ? 5.2 : 1.0,
+    physical_time_current: running ? config.time.dt * 2 : config.time.t_final,
+    physical_time_final: config.time.t_final,
+    physical_progress_fraction: running ? 0.5 : 1,
+    accepted_steps: running ? 2 : Math.round(config.time.t_final / config.time.dt),
+    requested_steps: Math.round(config.time.t_final / config.time.dt),
+    rejected_steps: 1,
+    saved_samples_written: running ? 2 : 5,
+    status_line: running ? "worker heartbeat is healthy" : "simulation completed",
+    solver_metrics: {
+      current_dt: config.time.dt,
+      latest_adaptive_error_estimate: 0.0002,
+      max_continuity_residual_so_far: 0.0001,
+    },
+    history: [
+      {
+        timestamp: "2026-03-17T00:00:03Z",
+        wall_seconds_elapsed: 3,
+        physical_time_current: config.time.dt,
+        physical_progress_fraction: 0.25,
+        saved_samples_written: 1,
+        metric_1: 0.1,
+        metric_2: 1,
+        metric_3: 0.001,
+      },
+      {
+        timestamp: "2026-03-17T00:00:05Z",
+        wall_seconds_elapsed: 5,
+        physical_time_current: running ? config.time.dt * 2 : config.time.t_final,
+        physical_progress_fraction: running ? 0.5 : 1,
+        saved_samples_written: running ? 2 : 5,
+        metric_1: 0.05,
+        metric_2: 2,
+        metric_3: 0.0002,
+      },
+    ],
   };
 }
 

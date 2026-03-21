@@ -223,6 +223,395 @@ def test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero():
             assert hfb_series.values.tolist() == pytest.approx(reference_series.values.tolist(), abs=1e-12)
 
 
+def test_kbe_second_born_reference_k_space_representation_reduces_to_hfb_when_onsite_u_zero():
+    base_config = {
+        "solver": "kbe_hfb",
+        "representation": "k_space",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.3, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.25,
+            "amplitude_y": 0.1,
+            "frequency": 2.0,
+            "phase": 0.2,
+            "center": 0.15,
+            "width": 0.08,
+        },
+        "interaction": {
+            "onsite_u": 0.0,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.1,
+            "seed_pairing": 0.0,
+        },
+        "observables": ["density", "current_x", "current_y", "energy"],
+    }
+
+    hfb = solve_kbe_hfb(SimulationConfig.model_validate({**base_config, "kbe": {"self_energy": "hfb"}}))
+    reference = solve_kbe_hfb(
+        SimulationConfig.model_validate(
+            {
+                **base_config,
+                "kbe": {
+                    "self_energy": "second_born_reference",
+                    "max_fixed_point_iterations": 8,
+                    "tolerance": 1e-8,
+                    "mixing": 0.5,
+                },
+            }
+        )
+    )
+
+    assert reference.diagnostics["solver_representation"] == "k_space"
+    assert reference.diagnostics["second_born_enabled"] is True
+    assert reference.diagnostics["second_born_reference_implementation"] is True
+    assert reference.diagnostics["second_born_solver_mode"] == "hfb_limit"
+    assert reference.diagnostics["max_second_born_memory_norm"] == 0.0
+    assert reference.diagnostics["max_equal_time_tdhfb_mismatch"] < 1e-12
+    for observable_name in ("density", "current_x", "current_y", "energy"):
+        for hfb_series, reference_series in zip(
+            hfb.observables[observable_name].series,
+            reference.observables[observable_name].series,
+            strict=True,
+        ):
+            assert hfb_series.values.tolist() == pytest.approx(reference_series.values.tolist(), abs=1e-12)
+
+
+def test_kbe_hfb_k_space_representation_matches_real_space_in_hfb_mode():
+    base_config = {
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.08,
+            "amplitude_y": 0.04,
+            "frequency": 1.7,
+            "phase": 0.1,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -4.0,
+            "nearest_neighbor_v": -2.5,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.2,
+        },
+        "kbe": {"self_energy": "hfb"},
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
+    k_space = solve_kbe_hfb(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    assert k_space.diagnostics["max_equal_time_tdhfb_mismatch"] < 1e-8
+    assert k_space.diagnostics["max_lesser_hermiticity_error"] < 1e-8
+    assert k_space.diagnostics["max_retarded_equal_time_error"] < 1e-8
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_kbe_second_born_reference_k_space_representation_matches_real_space():
+    base_config = {
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.06,
+            "amplitude_y": 0.02,
+            "frequency": 1.6,
+            "phase": 0.1,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -0.8,
+            "nearest_neighbor_v": -0.4,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.2,
+            "seed_pairing": 0.1,
+        },
+        "equilibrium": {
+            "method": "hfb",
+            "allow_approximation_mismatch": True,
+        },
+        "kbe": {
+            "self_energy": "second_born_reference",
+            "max_fixed_point_iterations": 8,
+            "tolerance": 1e-6,
+            "mixing": 0.5,
+        },
+        "thermal_branch": {
+            "enabled": True,
+            "n_tau": 8,
+            "max_iterations": 10,
+            "mixing": 0.4,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
+    k_space = solve_kbe_hfb(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    assert k_space.diagnostics["second_born_reference_implementation"] is True
+    assert k_space.diagnostics["second_born_contour_mode"] == "full_contour"
+    assert k_space.diagnostics["max_lesser_hermiticity_error"] < 1e-8
+    assert k_space.diagnostics["max_retarded_equal_time_error"] < 1e-8
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_kbe_hfb_k_space_representation_matches_real_space_on_moderate_longer_window():
+    base_config = {
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.3, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.08,
+            "amplitude_y": 0.03,
+            "frequency": 1.7,
+            "phase": 0.1,
+            "center": 0.12,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -3.5,
+            "nearest_neighbor_v": -2.0,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.15,
+        },
+        "kbe": {"self_energy": "hfb"},
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
+    k_space = solve_kbe_hfb(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    assert k_space.diagnostics["max_equal_time_tdhfb_mismatch"] < 1e-8
+    assert k_space.diagnostics["max_lesser_hermiticity_error"] < 1e-8
+    assert k_space.diagnostics["max_retarded_equal_time_error"] < 1e-8
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_kbe_hfb_k_space_representation_matches_real_space_on_longer_window():
+    base_config = {
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.4, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.1,
+            "amplitude_y": 0.03,
+            "frequency": 1.8,
+            "phase": 0.1,
+            "center": 0.16,
+            "width": 0.14,
+        },
+        "interaction": {
+            "onsite_u": -3.5,
+            "nearest_neighbor_v": -2.0,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.15,
+        },
+        "kbe": {"self_energy": "hfb"},
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
+    k_space = solve_kbe_hfb(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    assert k_space.diagnostics["max_equal_time_tdhfb_mismatch"] < 1e-8
+    assert k_space.diagnostics["max_lesser_hermiticity_error"] < 1e-8
+    assert k_space.diagnostics["max_retarded_equal_time_error"] < 1e-8
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_kbe_hfb_k_space_representation_matches_real_space_on_larger_lattice():
+    base_config = {
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 5,
+            "ny": 5,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.3, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.08,
+            "amplitude_y": 0.03,
+            "frequency": 1.6,
+            "phase": 0.1,
+            "center": 0.12,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -2.8,
+            "nearest_neighbor_v": -1.6,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.12,
+        },
+        "kbe": {"self_energy": "hfb"},
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
+    k_space = solve_kbe_hfb(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    assert k_space.diagnostics["max_equal_time_tdhfb_mismatch"] < 1e-8
+    assert k_space.diagnostics["max_lesser_hermiticity_error"] < 1e-8
+    assert k_space.diagnostics["max_retarded_equal_time_error"] < 1e-8
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_kbe_second_born_reference_k_space_representation_matches_real_space_on_larger_system_longer_window():
+    base_config = {
+        "solver": "kbe_hfb",
+        "lattice": {
+            "nx": 3,
+            "ny": 3,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.3, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.05,
+            "amplitude_y": 0.03,
+            "frequency": 1.4,
+            "phase": 0.1,
+            "center": 0.15,
+            "width": 0.15,
+        },
+        "interaction": {
+            "onsite_u": -0.8,
+            "nearest_neighbor_v": -0.4,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.2,
+            "seed_pairing": 0.08,
+        },
+        "equilibrium": {
+            "method": "hfb",
+            "allow_approximation_mismatch": True,
+        },
+        "kbe": {
+            "self_energy": "second_born_reference",
+            "max_fixed_point_iterations": 8,
+            "tolerance": 1e-6,
+            "mixing": 0.5,
+        },
+        "thermal_branch": {
+            "enabled": True,
+            "n_tau": 8,
+            "max_iterations": 10,
+            "mixing": 0.4,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
+    k_space = solve_kbe_hfb(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    assert k_space.diagnostics["second_born_reference_implementation"] is True
+    assert k_space.diagnostics["second_born_contour_mode"] == "full_contour"
+    assert k_space.diagnostics["max_lesser_hermiticity_error"] < 1e-8
+    assert k_space.diagnostics["max_retarded_equal_time_error"] < 1e-8
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
 def test_kbe_hfb_tracks_local_continuity_equation_in_source_free_normal_state():
     config = SimulationConfig.model_validate(
         {

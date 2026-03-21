@@ -163,3 +163,241 @@ def test_tdhfb_tracks_local_continuity_equation_in_source_free_normal_state():
     )
     assert artifacts.diagnostics["max_continuity_residual"] < 1e-11
     assert artifacts.diagnostics["final_continuity_residual"] < 1e-11
+
+
+def test_tdhfb_k_space_representation_matches_real_space_for_periodic_drive():
+    base_config = {
+        "solver": "tdhfb",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.1,
+            "amplitude_y": 0.0,
+            "frequency": 1.8,
+            "phase": 0.1,
+            "center": 0.1,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -4.0,
+            "nearest_neighbor_v": -2.5,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.2,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve(SimulationConfig.model_validate(base_config))
+    k_space = solve(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_tdhfb_k_space_representation_matches_real_space_on_moderate_longer_window():
+    base_config = {
+        "solver": "tdhfb",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.3, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.1,
+            "amplitude_y": 0.03,
+            "frequency": 1.8,
+            "phase": 0.1,
+            "center": 0.12,
+            "width": 0.12,
+        },
+        "interaction": {
+            "onsite_u": -3.5,
+            "nearest_neighbor_v": -2.0,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.15,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve(SimulationConfig.model_validate(base_config))
+    k_space = solve(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_tdhfb_k_space_representation_matches_real_space_on_longer_window():
+    base_config = {
+        "solver": "tdhfb",
+        "lattice": {
+            "nx": 4,
+            "ny": 4,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.4, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.1,
+            "amplitude_y": 0.03,
+            "frequency": 1.8,
+            "phase": 0.1,
+            "center": 0.16,
+            "width": 0.14,
+        },
+        "interaction": {
+            "onsite_u": -3.5,
+            "nearest_neighbor_v": -2.0,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.15,
+        },
+        "observables": [
+            "density",
+            "energy",
+            "pairing",
+            "pairing_s",
+            "pairing_d",
+        ],
+    }
+
+    real_space = solve(SimulationConfig.model_validate(base_config))
+    k_space = solve(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    for observable_name in (
+        "density",
+        "energy",
+        "pairing",
+        "pairing_s",
+        "pairing_d",
+    ):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_tdhfb_k_space_representation_matches_real_space_on_larger_lattice():
+    base_config = {
+        "solver": "tdhfb",
+        "lattice": {
+            "nx": 6,
+            "ny": 6,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.3, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.08,
+            "amplitude_y": 0.04,
+            "frequency": 1.5,
+            "phase": 0.15,
+            "center": 0.15,
+            "width": 0.14,
+        },
+        "interaction": {
+            "onsite_u": -2.8,
+            "nearest_neighbor_v": -1.6,
+            "pairing_channel": "bond_d",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.12,
+        },
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+
+    real_space = solve(SimulationConfig.model_validate(base_config))
+    k_space = solve(SimulationConfig.model_validate({**base_config, "representation": "k_space"}))
+
+    assert k_space.diagnostics["solver_representation"] == "k_space"
+    for observable_name in ("density", "energy", "pairing", "pairing_s", "pairing_d"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+def test_tdhfb_writes_two_time_green_functions_for_derived_analysis_source():
+    config = SimulationConfig.model_validate(
+        {
+            "solver": "tdhfb",
+            "representation": "k_space",
+            "lattice": {
+                "nx": 2,
+                "ny": 2,
+                "boundary": "periodic",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": 0.2, "dt": 0.1},
+            "drive": {
+                "amplitude_x": 0.05,
+                "amplitude_y": 0.02,
+                "frequency": 1.5,
+                "center": 0.1,
+                "width": 0.12,
+            },
+            "interaction": {
+                "onsite_u": -1.2,
+                "nearest_neighbor_v": 0.0,
+                "pairing_channel": "none",
+            },
+            "initial_state": {
+                "filling": 0.5,
+                "temperature": 0.0,
+                "seed_pairing": 0.0,
+            },
+            "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        }
+    )
+
+    artifacts = solve(config)
+    assert artifacts.two_time_green_functions is not None
+    times = artifacts.two_time_green_functions.times
+    lesser = artifacts.two_time_green_functions.components["lesser"]
+    retarded = artifacts.two_time_green_functions.components["retarded"]
+
+    assert lesser.shape[0] == len(times)
+    assert lesser.shape[1] == len(times)
+    assert retarded.shape == lesser.shape
+    assert np.max(np.abs(retarded[np.arange(len(times)), np.arange(len(times))] + 1j * np.eye(retarded.shape[2]))) < 1e-10

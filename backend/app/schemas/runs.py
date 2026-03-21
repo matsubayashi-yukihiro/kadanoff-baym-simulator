@@ -14,6 +14,7 @@ class RunState(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    SUCCEEDED_WITH_WARNINGS = "succeeded_with_warnings"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
