@@ -13,3 +13,11 @@ wheels/
 pdfs/
 embedded-research-runtime
 .err/
+
+# SQLite runtime files
+*.sqlite-shm
+*.sqlite-wal
+
+# Runtime data
+backend/data/runs/
+tmp-debug-runs/
