@@ -231,6 +231,7 @@ def _disabled_second_born_diagnostics() -> dict[str, Any]:
     return {
         "second_born_enabled": False,
         "second_born_converged": True,
+        "second_born_convergence_criterion": "strict",
         "second_born_applied_fallback": "second_born_mode_not_selected",
         "thermal_branch_applied_fallback": None,
         "mixed_branch_applied_fallback": None,
@@ -238,8 +239,10 @@ def _disabled_second_born_diagnostics() -> dict[str, Any]:
         "second_born_residual_history": [],
         "second_born_memory_norm_history": [],
         "second_born_collision_norm_history": [],
+        "second_born_equation_residual_history": [],
         "max_second_born_memory_norm": 0.0,
         "max_second_born_collision_norm": 0.0,
+        "max_second_born_equation_residual": 0.0,
         "second_born_solver_mode": "disabled",
         "second_born_reference_implementation": False,
         "second_born_implementation_kind": "disabled",

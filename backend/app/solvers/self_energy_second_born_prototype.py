@@ -107,6 +107,7 @@ def apply_second_born_corrections(
     thermal_memory_norm_history: list[float] = []
     mixed_memory_norm_history: list[float] = []
     history_order_history: list[int] = []
+    equation_residual_history: list[float] = []
     converged = True
     used_relaxed_convergence = False
 
@@ -118,6 +119,7 @@ def apply_second_born_corrections(
         guess_row_lesser = base_row_lesser.copy()
         guess_row_retarded = base_row_retarded.copy()
         step_dt = float(dynamics.times[time_index] - dynamics.times[time_index - 1])
+        equation_tolerance = config.kbe.tolerance / max(step_dt, 1e-12)
         history_start = 0 if config.kbe.memory_window is None else max(0, time_index - config.kbe.memory_window)
         window_indices = np.arange(history_start, time_index, dtype=np.int64)
         history_rule = causal_history_rule(dynamics.times, history_start=history_start, stop_index=time_index)
@@ -134,6 +136,7 @@ def apply_second_born_corrections(
             thermal_memory_norm_history.append(0.0)
             mixed_memory_norm_history.append(0.0)
             history_order_history.append(history_rule.order)
+            equation_residual_history.append(0.0)
             continue
 
         last_residual = 0.0
@@ -141,6 +144,7 @@ def apply_second_born_corrections(
         last_collision_norm = 0.0
         last_thermal_norm = 0.0
         last_mixed_norm = 0.0
+        last_equation_residual = 0.0
         converged_step = False
 
         for iteration in range(1, config.kbe.max_fixed_point_iterations + 1):
@@ -263,6 +267,21 @@ def apply_second_born_corrections(
                     np.max(np.abs(row_retarded_collision)) if row_retarded_collision.size else 0.0,
                 )
             )
+            last_equation_residual = float(
+                max(
+                    np.max(np.abs((updated_density - base_density) / step_dt - density_collision)),
+                    (
+                        np.max(np.abs((updated_row_lesser - base_row_lesser) / step_dt - row_lesser_collision))
+                        if updated_row_lesser.size
+                        else 0.0
+                    ),
+                    (
+                        np.max(np.abs((updated_row_retarded - base_row_retarded) / step_dt - row_retarded_collision))
+                        if updated_row_retarded.size
+                        else 0.0
+                    ),
+                )
+            )
             guess_density = updated_density
             guess_row_lesser = updated_row_lesser
             guess_row_retarded = updated_row_retarded
@@ -283,19 +302,24 @@ def apply_second_born_corrections(
                             "current_time_index": int(time_index),
                             "latest_fixed_point_iterations": int(iteration),
                             "latest_fixed_point_residual": last_residual,
+                            "latest_equation_residual": last_equation_residual,
                             "latest_memory_norm": last_memory_norm,
                             "history_integration_order": int(history_rule.order),
                         },
                     )
                 )
-            if last_residual <= config.kbe.tolerance:
+            if last_residual <= config.kbe.tolerance and last_equation_residual <= equation_tolerance:
                 converged_step = True
                 iteration_history.append(iteration)
                 break
         else:
             iteration_history.append(config.kbe.max_fixed_point_iterations)
 
-        if not converged_step and last_residual <= 5.0 * config.kbe.tolerance:
+        if (
+            not converged_step
+            and last_residual <= 5.0 * config.kbe.tolerance
+            and last_equation_residual <= 5.0 * equation_tolerance
+        ):
             converged_step = True
             used_relaxed_convergence = True
 
@@ -312,6 +336,7 @@ def apply_second_born_corrections(
         thermal_memory_norm_history.append(last_thermal_norm)
         mixed_memory_norm_history.append(last_mixed_norm)
         history_order_history.append(history_rule.order)
+        equation_residual_history.append(last_equation_residual)
 
     diagnostics = _base_second_born_diagnostics(
         sample_count=sample_count,
@@ -328,6 +353,7 @@ def apply_second_born_corrections(
             "second_born_thermal_memory_norm_history": thermal_memory_norm_history,
             "second_born_mixed_memory_norm_history": mixed_memory_norm_history,
             "second_born_history_integration_order_history": history_order_history,
+            "second_born_equation_residual_history": equation_residual_history,
             "max_second_born_memory_norm": float(max(memory_norm_history)) if memory_norm_history else 0.0,
             "max_second_born_collision_norm": float(max(collision_norm_history)) if collision_norm_history else 0.0,
             "max_second_born_thermal_memory_norm": (
@@ -335,6 +361,9 @@ def apply_second_born_corrections(
             ),
             "max_second_born_mixed_memory_norm": float(max(mixed_memory_norm_history)) if mixed_memory_norm_history else 0.0,
             "second_born_history_integration_max_order": max(history_order_history) if history_order_history else 1,
+            "max_second_born_equation_residual": (
+                float(max(equation_residual_history)) if equation_residual_history else 0.0
+            ),
             "second_born_contour_terms_included": contour_mode != "keldysh_only",
             "second_born_contour_mode": contour_mode,
             "second_born_solver_mode": "two_time_causal_marching",
@@ -683,6 +712,7 @@ def _base_second_born_diagnostics(*, sample_count: int, memory_window: int | Non
     return {
         "second_born_enabled": True,
         "second_born_converged": True,
+        "second_born_convergence_criterion": "strict",
         "second_born_applied_fallback": None,
         "thermal_branch_applied_fallback": None,
         "mixed_branch_applied_fallback": None,
@@ -693,10 +723,12 @@ def _base_second_born_diagnostics(*, sample_count: int, memory_window: int | Non
         "second_born_thermal_memory_norm_history": [0.0] * zero_history_length,
         "second_born_mixed_memory_norm_history": [0.0] * zero_history_length,
         "second_born_history_integration_order_history": [1] * zero_history_length,
+        "second_born_equation_residual_history": [0.0] * zero_history_length,
         "max_second_born_memory_norm": 0.0,
         "max_second_born_collision_norm": 0.0,
         "max_second_born_thermal_memory_norm": 0.0,
         "max_second_born_mixed_memory_norm": 0.0,
+        "max_second_born_equation_residual": 0.0,
         "second_born_memory_window": int(memory_window or max(sample_count - 1, 0)),
         "second_born_history_integration_max_order": 1,
         "second_born_reference_implementation": False,

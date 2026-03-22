@@ -45,16 +45,33 @@
 
 ---
 
+## 2.1 `k` 空間表示とフーリエ変換規約（theory §7.3.1 / §8.2.1 / §14.3.1）
+
+| 理論量 / 役割 | 主なコード | 補足 |
+| --- | --- | --- |
+| 離散フーリエ基底 `c_i \leftrightarrow c_k` | `backend/app/solvers/representation.py` | `build_momentum_space_context`, `site_to_momentum_matrix`, `momentum_to_site_matrix` |
+| Nambu 基底変換（site/k） | `backend/app/solvers/representation.py` | `site_to_momentum_nambu`, `momentum_to_site_nambu` |
+| `k` ブロック行列化 / 逆変換 | `backend/app/solvers/representation.py` | `nambu_from_k_blocks`, `extract_k_blocks_from_k_nambu_matrix`, `extract_k_blocks_from_generalized_density` |
+| `\xi_k(t)`（一体項の `k` 対角成分） | `backend/app/solvers/hamiltonian.py` | `build_one_body_momentum_diagonal` |
+| `\mathbf H_{\mathrm{BdG}}(k,t)` ブロック構築 | `backend/app/solvers/nambu.py` | `build_kspace_bdg_blocks` |
+| `\rho_k(t)` block 伝播 | `backend/app/solvers/nambu.py` | `propagate_kspace_density_blocks`, `enforce_kspace_density_block_constraints` |
+| `k` 空間時間発展（block / full fallback） | `backend/app/solvers/tdhfb.py` | `_propagate_generalized_densities_kspace`, `_resolve_kspace_path_mode`, `_advance_generalized_density_step_kspace_blocks` |
+
+---
+
 ## 3. HFB / TDHFB
 
 | 理論量 / 役割 | 主なコード | 補足 |
 | --- | --- | --- |
 | HFB 平衡自己無撞着解 | `backend/app/solvers/nambu.py` | `solve_hfb_equilibrium`, `HFBEquilibriumState` |
+| `k_space` native HFB 平衡（条件付き） | `backend/app/solvers/nambu.py` | `_solve_hfb_equilibrium_kspace`, `_kspace_native_equilibrium_supported`, `solver_mode=hfb_kspace_native` |
 | 化学ポテンシャル調整 | `backend/app/solvers/nambu.py` | `_solve_thermal_state_for_particle_target`, `_thermal_state_for_shift` |
 | TDHFB 時間発展 | `backend/app/solvers/tdhfb.py` | `simulate_hfb_dynamics` |
 | adaptive TDHFB time step | `backend/app/solvers/tdhfb.py` | `_adaptive_step_factor`, step-doubling |
+| `k_space` block 伝播 path | `backend/app/solvers/tdhfb.py` | `_advance_generalized_density_step_kspace_blocks`, diagnostics `k_space_path_mode` |
 | TDHFB observables | `backend/app/solvers/tdhfb.py` | `_build_observables`, `_complex_observable` |
 | HFB self-energy の明示表現 | `backend/app/solvers/self_energy_hfb.py` | `build_hfb_self_energy`, `HFBSelfEnergy` |
+| `second_born_reference` equilibrium seed | `backend/app/solvers/equilibrium_solvers.py` | `solve_second_born_reference_equilibrium`, `_reference_equilibrium_dt` |
 
 ---
 
@@ -81,6 +98,7 @@
 | KBE observables / diagnostics 再計算 | `backend/app/solvers/kbe_hfb.py` | `_analyze_trajectory` |
 | 保存則 diagnostics | `backend/app/solvers/kbe_hfb.py` | `_conservation_diagnostics` |
 | external work 積分 | `backend/app/solvers/kbe_hfb.py` | `cumulative_trapezoid` を使用 |
+| second Born 無効時の診断キー固定 | `backend/app/solvers/kbe_hfb.py` | `_disabled_second_born_diagnostics`（`second_born_convergence_criterion` など） |
 
 ---
 
@@ -111,6 +129,7 @@
 | reference Matsubara branch | `backend/app/solvers/self_energy_second_born.py` | `build_matsubara_branch_reference` |
 | reference mixed branch | `backend/app/solvers/self_energy_second_born.py` | `build_mixed_branch_reference` |
 | reference diagnostics seed | `backend/app/solvers/self_energy_second_born.py` | `_base_second_born_diagnostics` |
+| strict / relaxed 収束判定 | `backend/app/solvers/self_energy_second_born.py` | `second_born_convergence_criterion`, `second_born_equation_residual_history`, `max_second_born_equation_residual` |
 
 重要:
 - この path は `second_born_reference` mode に対応する。
@@ -122,7 +141,7 @@
 
 | 理論量 / 役割 | 主なコード | 補足 |
 | --- | --- | --- |
-| 履歴積分重み | `backend/app/solvers/contour.py` | `quadrature_weights`, `composite_simpson_weights` |
+| 履歴積分重み | `backend/app/solvers/contour.py` | `quadrature_weights`, `composite_simpson_weights`（2点ケースは台形則 `dt/2,dt/2`） |
 | causal history rule | `backend/app/solvers/contour.py` | `causal_history_rule`, `CausalHistoryIntegrationRule` |
 | 履歴平均 | `backend/app/solvers/contour.py` | `history_average_matrix`, `history_average_rank3`, `tau_average_matrix` |
 | quasi-uniform 判定 | `backend/app/solvers/contour.py` | `is_quasi_uniform` |
@@ -149,11 +168,14 @@
 | 理論量 / 役割 | 主なコード | 補足 |
 | --- | --- | --- |
 | solver mode enum | `backend/app/schemas/simulation.py` | `SolverKind`, `KBESelfEnergyMode` |
+| basis mode enum | `backend/app/schemas/simulation.py` | `SolverRepresentation`（`real_space` / `k_space`） |
 | KBE parameters | `backend/app/schemas/simulation.py` | `KBEConfig` |
+| equilibrium parameters | `backend/app/schemas/simulation.py` | `EquilibriumConfig`（`method`, `tolerance`, `mixing`） |
 | adaptive parameters | `backend/app/schemas/simulation.py` | `AdaptiveConfig` |
 | thermal branch parameters | `backend/app/schemas/simulation.py` | `ThermalBranchConfig` |
 | observable schema | `backend/app/schemas/observables.py` | frontend との I/O に使う |
 | run summary / diagnostics schema | `backend/app/schemas/runs.py` | API surface |
+| run state 昇格（warning 含む） | `backend/app/jobs/worker.py` | `second_born_convergence_criterion` + thermal/mixed branch 収束を合成判定 |
 
 ---
 
@@ -178,6 +200,13 @@
 1. `backend/app/solvers/green_functions.py`
 2. `backend/app/solvers/base.py`
 3. `backend/app/schemas/green_functions.py`
+
+### `k` 空間版の式を見て実装を探すとき
+
+1. [theory.md](./theory.md) の `7.3.1` と `8.2.1` を読む
+2. `backend/app/solvers/representation.py` で基底変換と block 変換を確認する
+3. `backend/app/solvers/nambu.py` の `build_kspace_bdg_blocks` / `propagate_kspace_density_blocks` を確認する
+4. `backend/app/solvers/tdhfb.py` の `_propagate_generalized_densities_kspace` と `_resolve_kspace_path_mode` を確認する
 
 ---
 

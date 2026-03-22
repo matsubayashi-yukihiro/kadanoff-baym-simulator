@@ -237,19 +237,14 @@ not yet validated:
 - source-free stationary claim を validation に含めるのは、
   `equilibrium.method=second_born_reference` の回帰と benchmark row が十分に拡張された後とする。
 - 収束判定には2種類が存在する:
-  - `strict`: `last_residual <= tolerance`（公称 tolerance 以内）
-  - `relaxed_5x`: `last_residual <= 5.0 * tolerance`（数値的安定化のための救済判定）
-  - 現行実装（`self_energy_second_born.py`, `self_energy_second_born_prototype.py`）は
-    `relaxed_5x` を用いており、diagnostics の `second_born_converged=True` は
-    必ずしも strict 収束を意味しない。
-  - この緩和基準を明示的に開示するため、diagnostics に `convergence_criterion` フィールド
-    （`"relaxed_5x"` 等）を追加することが次の作業として残る。
-- `second_born_converged=False` の run は現行 worker 実装では `RunState.SUCCEEDED` となる。
-  これは研究ワークフローで非収束 run を「成功」と誤認するリスクを持つ。
-  以下のポリシーは現時点で未定義であり、次の優先作業として明示的に設計する:
-  - `second_born_converged=False` を `RunState.FAILED` に昇格する運用ルール、または
-  - `RunState.SUCCEEDED_WITH_WARNINGS` 相当の状態を追加して API / UI で明示する設計。
-  - 参照: `docs/backend-code-review-2026-03-21.md` §2 High, `docs/backend-code-review-2026-03-21-claude.md` §2 High
+  - `strict`: `last_residual <= tolerance` かつ `last_equation_residual <= tolerance / dt`
+  - `relaxed_5x`: 上記 strict 判定を満たさないが、`5x` 緩和基準（residual/equation residual）で収束
+  - diagnostics には `second_born_convergence_criterion`（`"strict"` / `"relaxed_5x"`）を保存する。
+- run state 昇格は `second_born_converged` のみではなく、以下を合成して判定する:
+  - `second_born_convergence_criterion=="strict"`
+  - `thermal_branch_enabled=True` のとき `thermal_branch_converged=True`
+  - `mixed_components_included=True` のとき `mixed_branch_converged=True`
+  - いずれか未達なら `succeeded_with_warnings` に昇格する。
 
 ---
 
@@ -291,6 +286,8 @@ correlated native extension の初期公開として扱う。
 | HFB two-time path は basis mode を変えても Green-function contract を保つ | equal-time parity, `max_lesser_hermiticity_error`, `max_retarded_equal_time_error` | `abs <= 1e-8` | `kbe_hfb(self_energy=hfb)`, periodic paired 4x4 scope, short and moderate longer windows | `backend/tests/test_kbe_hfb_solver.py` |
 | paired 4x4 longer window でも basis parity を保つ | `density/energy/pairing/pairing_s/pairing_d` parity | `abs <= 1e-8` | `tdhfb`, `kbe_hfb(self_energy=hfb)`, periodic paired 4x4, driven, `t_final=0.4` | `backend/tests/test_tdhfb_solver.py::test_tdhfb_k_space_representation_matches_real_space_on_longer_window`, `backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_k_space_representation_matches_real_space_on_longer_window` |
 | paired interacting larger-lattice row でも basis parity を保つ | `density/energy/pairing/pairing_s/pairing_d` parity | `abs <= 1e-8` | `tdhfb`, periodic paired 6x6, driven, `t_final=0.3`; `kbe_hfb(self_energy=hfb)`, periodic paired 5x5, driven, `t_final=0.3` | `backend/tests/test_tdhfb_solver.py::test_tdhfb_k_space_representation_matches_real_space_on_larger_lattice`, `backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_k_space_representation_matches_real_space_on_larger_lattice` |
+| native k-space block path は supported scope で real-space parity を保ち、条件外は full-matrix fallback できる | `k_space_path_mode`, parity (`density/energy/current_x/current_y`) | mode=`block_diagonal`, parity `abs<=1e-8` | `tdhfb`, periodic, finite temperature, `pairing_channel=none`, `nearest_neighbor_v=0` | `backend/tests/test_kspace_native_path.py::test_tdhfb_kspace_native_block_path_matches_real_space_for_supported_scope` |
+| k-space block path の propagation kernel は forced full-matrix baseline より高速である | median wall-time ratio (`full/block`) | `>=2.0` | `tdhfb 6x6`、`kbe_hfb(self_energy=second_born_reference) 6x6` | `backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_twice_as_fast_as_forced_full_matrix_path`, `backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_twice_as_fast_for_second_born_reference_propagation_kernel` |
 | `second_born_reference` は `U=0` で `k_space` basis でも HFB limit に戻る | observable parity, `max_second_born_memory_norm`, implementation flag | observable mismatch `<1e-12`, memory norm `==0.0`, implementation `True` | `kbe_hfb(self_energy=second_born_reference)`, periodic 2x2, driven, `U=0` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_reduces_to_hfb_when_onsite_u_zero` |
 | `second_born_reference` full-contour path は basis mode を変えても observables parity と Green-function contract を保つ | `density/energy/pairing/pairing_s/pairing_d` parity, `max_lesser_hermiticity_error`, `max_retarded_equal_time_error` | parity `abs <= 1e-8`, diagnostics `<1e-8` | `kbe_hfb(self_energy=second_born_reference)`, periodic paired 4x4, driven, finite temperature, `t_final=0.2` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_matches_real_space` |
 | `second_born_reference` larger-system / longer-window row でも basis parity と Green-function contract を保つ | `density/energy/pairing/pairing_s/pairing_d` parity, `max_lesser_hermiticity_error`, `max_retarded_equal_time_error` | parity `abs <= 1e-8`, diagnostics `<1e-8` | `kbe_hfb(self_energy=second_born_reference)`, periodic paired 3x3, driven, finite temperature, `t_final=0.3` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_matches_real_space_on_larger_system_longer_window` |
@@ -416,12 +413,15 @@ run の `state` フィールドは、physics validation label とは独立した
 | RunState | 意味 | 結果アクセス |
 | --- | --- | --- |
 | `succeeded` | 計算が正常完了し、すべての収束診断が基準を満たした | 可 |
-| `succeeded_with_warnings` | 計算は完了し結果は保存済みだが、収束診断が基準未達（`second_born_converged=False`）| 可（要注意） |
+| `succeeded_with_warnings` | 計算は完了し結果は保存済みだが、収束診断が基準未達（`second_born_converged=False` または strict/thermal/mixed 条件未達）| 可（要注意） |
 | `failed` | 例外が発生し計算が中断した | 不可 |
 
 ### 昇格ルール
 
 - `second_born_converged=False` の run は `succeeded_with_warnings` に昇格する。
+- `second_born_convergence_criterion!="strict"` の run は `succeeded_with_warnings` に昇格する。
+- `thermal_branch_enabled=True` かつ `thermal_branch_converged=False` の run は `succeeded_with_warnings` に昇格する。
+- `mixed_components_included=True` かつ `mixed_branch_converged=False` の run は `succeeded_with_warnings` に昇格する。
 - `second_born_converged` フィールドが存在しない solver（noninteracting, tdhfb 等）は `True` と扱い、`succeeded` になる。
 - `succeeded_with_warnings` は研究上の参照は可能だが、validated claim の根拠には使わない。
 - `job group` / `sweep` の parent artifact lifecycle 集約では、child run の `succeeded_with_warnings` は `succeeded` と同等に扱う（workflow state 互換のため）。
@@ -430,8 +430,8 @@ run の `state` フィールドは、physics validation label とは独立した
 
 diagnostics の `second_born_convergence_criterion` フィールドが収束判定の種別を示す。
 
-- `"strict"`: `last_residual <= tolerance` で収束
-- `"relaxed_5x"`: `last_residual <= 5 * tolerance` の緩和基準で収束（少なくとも 1 timestep で適用）
+- `"strict"`: `last_residual <= tolerance` かつ `last_equation_residual <= tolerance/dt` で収束
+- `"relaxed_5x"`: 上記 strict 判定を満たさず、`5x` 緩和基準で収束（少なくとも 1 timestep で適用）
 
 `second_born_converged=True` でも `convergence_criterion="relaxed_5x"` なら、tolerance 超過の step が存在することに注意する。
 

@@ -8,13 +8,15 @@ from numpy.typing import NDArray
 from backend.app.schemas import PairingChannel, SimulationConfig, SolverRepresentation
 from backend.app.solvers.equilibrium import occupation_numbers
 from backend.app.solvers.fixed_point import AndersonMixer
-from backend.app.solvers.hamiltonian import build_one_body_hamiltonian
+from backend.app.solvers.hamiltonian import build_one_body_hamiltonian, build_one_body_momentum_diagonal
 from backend.app.solvers.lattice import Bond, SquareLattice
 from backend.app.solvers.numerics import solve_bracketed_root
 from backend.app.solvers.representation import (
     MomentumSpaceContext,
     build_momentum_space_context,
     extract_k_blocks_from_generalized_density,
+    extract_k_blocks_from_k_nambu_matrix,
+    nambu_from_k_blocks,
 )
 
 
@@ -52,6 +54,7 @@ class HFBEquilibriumState:
     mismatch_allowed: bool = False
     density_update_residual: float = 0.0
     solver_mode: str = "hfb"
+    convergence_failure_reason: str | None = None
 
 
 def saved_step_indices(config: SimulationConfig) -> NDArray[np.int64]:
@@ -423,29 +426,120 @@ def _bond_average(bonds: tuple[Bond, ...], matrix: ComplexMatrix) -> complex:
 
 
 def _solve_hfb_equilibrium_kspace(config: SimulationConfig, lattice: SquareLattice) -> HFBEquilibriumState:
-    real_space_config = SimulationConfig.model_validate(
-        {
-            **config.model_dump(mode="json"),
-            "representation": SolverRepresentation.REAL_SPACE.value,
-        }
-    )
-    equilibrium = _solve_hfb_equilibrium_real_space(real_space_config, lattice)
     context = build_momentum_space_context(config)
-    density_blocks = extract_k_blocks_from_generalized_density(context, equilibrium.generalized_density)
-    momentum_generalized_density = context.nambu_site_to_momentum @ equilibrium.generalized_density @ context.nambu_momentum_to_site
+    native_supported, fallback_reason = _kspace_native_equilibrium_supported(config, lattice, context)
+    if not native_supported:
+        real_space_config = SimulationConfig.model_validate(
+            {
+                **config.model_dump(mode="json"),
+                "representation": SolverRepresentation.REAL_SPACE.value,
+            }
+        )
+        equilibrium = _solve_hfb_equilibrium_real_space(real_space_config, lattice)
+        density_blocks = extract_k_blocks_from_generalized_density(context, equilibrium.generalized_density)
+        momentum_generalized_density = context.nambu_site_to_momentum @ equilibrium.generalized_density @ context.nambu_momentum_to_site
+        return HFBEquilibriumState(
+            generalized_density=equilibrium.generalized_density,
+            normal_hamiltonian=equilibrium.normal_hamiltonian,
+            pairing_field=equilibrium.pairing_field,
+            hartree_potential=equilibrium.hartree_potential,
+            effective_chemical_potential=equilibrium.effective_chemical_potential,
+            iterations=equilibrium.iterations,
+            converged=equilibrium.converged,
+            self_consistency_error=equilibrium.self_consistency_error,
+            stationarity_residual=equilibrium.stationarity_residual,
+            momentum_density_blocks=density_blocks,
+            momentum_context=context,
+            momentum_generalized_density=momentum_generalized_density,
+            solver_mode=f"hfb_kspace_fallback_{fallback_reason}",
+        )
+
+    particle_target = config.initial_state.filling * context.site_count
+    initial_normal_density = _initial_normal_density(config, lattice)
+    initial_pairing = build_seed_pairing_tensor(config, lattice)
+    initial_density = _assemble_generalized_density(initial_normal_density, initial_pairing)
+    density_blocks = extract_k_blocks_from_generalized_density(context, initial_density)
+    density_blocks = enforce_kspace_density_block_constraints(density_blocks)
+
+    density_mixer = AndersonMixer(mixing=config.equilibrium.mixing, max_history=4)
+    converged = False
+    self_consistency_error = float("inf")
+    effective_chemical_potential = 0.0
+    iteration = 0
+    for iteration in range(1, config.equilibrium.max_iterations + 1):
+        effective_chemical_potential, next_blocks = _solve_kspace_thermal_state_for_particle_target(
+            config=config,
+            context=context,
+            density_blocks=density_blocks,
+            particle_target=particle_target,
+        )
+        self_consistency_error = float(np.max(np.abs(next_blocks - density_blocks)))
+        mixed_blocks = density_mixer.update(density_blocks, next_blocks)
+        density_blocks = enforce_kspace_density_block_constraints(np.asarray(mixed_blocks, dtype=np.complex128))
+        if self_consistency_error < config.equilibrium.tolerance:
+            converged = True
+            break
+
+    effective_chemical_potential, density_blocks = _solve_kspace_thermal_state_for_particle_target(
+        config=config,
+        context=context,
+        density_blocks=density_blocks,
+        particle_target=particle_target,
+    )
+    density_blocks = enforce_kspace_density_block_constraints(density_blocks)
+    momentum_generalized_density = nambu_from_k_blocks(context, density_blocks)
+    generalized_density = context.nambu_momentum_to_site @ momentum_generalized_density @ context.nambu_site_to_momentum
+    generalized_density = 0.5 * (generalized_density + generalized_density.conjugate().T)
+    if not np.all(np.isfinite(generalized_density)):
+        real_space_config = SimulationConfig.model_validate(
+            {
+                **config.model_dump(mode="json"),
+                "representation": SolverRepresentation.REAL_SPACE.value,
+            }
+        )
+        equilibrium = _solve_hfb_equilibrium_real_space(real_space_config, lattice)
+        density_blocks = extract_k_blocks_from_generalized_density(context, equilibrium.generalized_density)
+        momentum_generalized_density = context.nambu_site_to_momentum @ equilibrium.generalized_density @ context.nambu_momentum_to_site
+        return HFBEquilibriumState(
+            generalized_density=equilibrium.generalized_density,
+            normal_hamiltonian=equilibrium.normal_hamiltonian,
+            pairing_field=equilibrium.pairing_field,
+            hartree_potential=equilibrium.hartree_potential,
+            effective_chemical_potential=equilibrium.effective_chemical_potential,
+            iterations=equilibrium.iterations,
+            converged=equilibrium.converged,
+            self_consistency_error=equilibrium.self_consistency_error,
+            stationarity_residual=equilibrium.stationarity_residual,
+            momentum_density_blocks=density_blocks,
+            momentum_context=context,
+            momentum_generalized_density=momentum_generalized_density,
+            solver_mode="hfb_kspace_fallback_non_finite_density",
+        )
+
+    normal_hamiltonian, pairing_field, hartree_potential, bdg_hamiltonian = build_bdg_hamiltonian(
+        config,
+        lattice,
+        time=0.0,
+        generalized_density=generalized_density,
+        effective_chemical_potential=effective_chemical_potential,
+    )
+    stationarity_residual = float(
+        np.max(np.abs(bdg_hamiltonian @ generalized_density - generalized_density @ bdg_hamiltonian))
+    )
     return HFBEquilibriumState(
-        generalized_density=equilibrium.generalized_density,
-        normal_hamiltonian=equilibrium.normal_hamiltonian,
-        pairing_field=equilibrium.pairing_field,
-        hartree_potential=equilibrium.hartree_potential,
-        effective_chemical_potential=equilibrium.effective_chemical_potential,
-        iterations=equilibrium.iterations,
-        converged=equilibrium.converged,
-        self_consistency_error=equilibrium.self_consistency_error,
-        stationarity_residual=equilibrium.stationarity_residual,
+        generalized_density=generalized_density,
+        normal_hamiltonian=normal_hamiltonian,
+        pairing_field=pairing_field,
+        hartree_potential=hartree_potential,
+        effective_chemical_potential=effective_chemical_potential,
+        iterations=iteration,
+        converged=converged,
+        self_consistency_error=self_consistency_error,
+        stationarity_residual=stationarity_residual,
         momentum_density_blocks=density_blocks,
         momentum_context=context,
         momentum_generalized_density=momentum_generalized_density,
+        solver_mode="hfb_kspace_native",
     )
 
 
@@ -518,7 +612,7 @@ def _kspace_thermal_state_for_shift(
     density_blocks: NDArray[np.complex128],
     effective_chemical_potential: float,
 ) -> tuple[float, float, NDArray[np.complex128]]:
-    _, _, _, bdg_blocks = _build_kspace_bdg_blocks(
+    _, _, _, bdg_blocks = build_kspace_bdg_blocks(
         config=config,
         context=context,
         density_blocks=density_blocks,
@@ -531,10 +625,10 @@ def _kspace_thermal_state_for_shift(
     )
     candidate_density_blocks = extract_k_blocks_from_k_nambu_matrix(candidate_density)
     particle_number = float(np.real(np.sum(candidate_density_blocks[:, 0, 0])))
-    return effective_chemical_potential, particle_number, candidate_density_blocks
+    return effective_chemical_potential, particle_number, enforce_kspace_density_block_constraints(candidate_density_blocks)
 
 
-def _build_kspace_bdg_blocks(
+def build_kspace_bdg_blocks(
     *,
     config: SimulationConfig,
     context: MomentumSpaceContext,
@@ -577,3 +671,53 @@ def _build_kspace_bdg_blocks(
     bdg_blocks[:, 1, 0] = pairing_diagonal.conjugate()
     bdg_blocks[:, 1, 1] = -normal_diagonal.astype(np.complex128)
     return normal_diagonal, pairing_diagonal, hartree_scalar, bdg_blocks
+
+
+def propagate_kspace_density_blocks(
+    density_blocks: NDArray[np.complex128],
+    bdg_blocks: NDArray[np.complex128],
+    dt: float,
+) -> tuple[NDArray[np.complex128], NDArray[np.complex128]]:
+    eigenvalues, eigenvectors = np.linalg.eigh(bdg_blocks)
+    phase = np.exp(-1j * eigenvalues * dt)
+    weighted_eigenvectors = eigenvectors * phase[:, np.newaxis, :]
+    propagator_blocks = np.einsum("kac,kbc->kab", weighted_eigenvectors, eigenvectors.conjugate())
+    propagated = propagator_blocks @ density_blocks @ np.swapaxes(propagator_blocks.conjugate(), 1, 2)
+    propagated_blocks = 0.5 * (propagated + np.swapaxes(propagated.conjugate(), 1, 2))
+    return propagated_blocks, propagator_blocks
+
+
+def enforce_kspace_density_block_constraints(
+    density_blocks: NDArray[np.complex128],
+) -> NDArray[np.complex128]:
+    constrained = np.zeros_like(density_blocks)
+    occupation = np.clip(np.real(density_blocks[:, 0, 0]), 0.0, 1.0)
+    pairing = 0.5 * (density_blocks[:, 0, 1] + density_blocks[:, 1, 0].conjugate())
+    constrained[:, 0, 0] = occupation.astype(np.complex128)
+    constrained[:, 1, 1] = (1.0 - occupation).astype(np.complex128)
+    constrained[:, 0, 1] = pairing
+    constrained[:, 1, 0] = pairing.conjugate()
+    return constrained
+
+
+def _kspace_native_equilibrium_supported(
+    config: SimulationConfig,
+    lattice: SquareLattice,
+    context: MomentumSpaceContext,
+) -> tuple[bool, str | None]:
+    if pairing_channel(config) != PairingChannel.NONE:
+        return False, "pairing_channel_not_supported"
+    if abs(float(config.interaction.nearest_neighbor_v)) > 1e-12:
+        return False, "nearest_neighbor_interaction_not_supported"
+    if float(config.initial_state.temperature) <= 1e-12:
+        return False, "zero_temperature_not_supported"
+    one_body = build_one_body_hamiltonian(config, lattice, time=0.0)
+    one_body_k = context.site_to_momentum @ one_body @ context.momentum_to_site
+    off_diagonal = one_body_k - np.diag(np.diag(one_body_k))
+    off_diagonal_norm = float(np.max(np.abs(off_diagonal))) if off_diagonal.size else 0.0
+    if off_diagonal_norm > 1e-8:
+        return False, "one_body_not_block_diagonal"
+    one_body_diagonal = build_one_body_momentum_diagonal(config, kx=context.kx, ky=context.ky, time=0.0)
+    if not np.all(np.isfinite(one_body_diagonal)):
+        return False, "non_finite_momentum_diagonal"
+    return True, None

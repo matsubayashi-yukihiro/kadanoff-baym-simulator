@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from backend.app.solvers.equilibrium import occupation_numbers
+from backend.app.solvers.contour import causal_history_rule, quadrature_weights
 from backend.app.solvers.fixed_point import AndersonMixer, evaluate_fixed_point_solver
 from backend.app.solvers.numerics import cumulative_trapezoid, solve_bracketed_root
 
@@ -15,6 +16,43 @@ def test_cumulative_trapezoid_matches_linear_antiderivative_on_nonuniform_grid()
     integrated = cumulative_trapezoid(values, times)
 
     assert integrated.tolist() == pytest.approx((times**2 + times).tolist(), abs=1e-12)
+
+
+def test_quadrature_weights_two_point_case_matches_trapezoid_rule():
+    times = np.asarray([0.0, 0.2], dtype=np.float64)
+
+    weights = quadrature_weights(times)
+
+    assert weights.tolist() == pytest.approx([0.1, 0.1], abs=1e-12)
+    assert float(np.sum(weights)) == pytest.approx(0.2, abs=1e-12)
+
+
+def test_quadrature_weights_three_point_uniform_case():
+    times = np.asarray([0.0, 0.2, 0.4], dtype=np.float64)
+
+    weights = quadrature_weights(times)
+
+    assert weights.tolist() == pytest.approx([0.1, 0.2, 0.1], abs=1e-12)
+    assert float(np.sum(weights)) == pytest.approx(0.4, abs=1e-12)
+
+
+def test_quadrature_weights_three_point_nonuniform_case():
+    times = np.asarray([0.0, 0.1, 0.4], dtype=np.float64)
+
+    weights = quadrature_weights(times)
+
+    assert weights.tolist() == pytest.approx([0.05, 0.2, 0.15], abs=1e-12)
+    assert float(np.sum(weights)) == pytest.approx(0.4, abs=1e-12)
+
+
+def test_causal_history_rule_two_point_weights_are_trapezoid_consistent():
+    times = np.asarray([0.0, 0.2], dtype=np.float64)
+
+    rule = causal_history_rule(times, history_start=0, stop_index=1)
+
+    assert rule.order == 1
+    assert rule.past_weights.tolist() == pytest.approx([0.1], abs=1e-12)
+    assert rule.current_weight == pytest.approx(0.1, abs=1e-12)
 
 
 def test_solve_bracketed_root_uses_scipy_brentq_backend():

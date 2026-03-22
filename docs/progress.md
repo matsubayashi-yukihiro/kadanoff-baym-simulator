@@ -282,6 +282,18 @@
   - 2 件すべて成功
 - live probe（docker backend）:
   - `POST /api/v1/derived-analyses/launch` with `study_id="__none__"` + succeeded `k_space` run で `201/succeeded` を確認
+- backend remediation follow-up（numerical logic / k-space block path）:
+  - `backend/app/solvers/contour.py` の 2点重みを台形則整合（`[dt/2, dt/2]`）へ修正し、`backend/tests/test_numerics.py` に 2点/3点/非等間隔回帰を追加した
+  - `backend/app/solvers/nambu.py` の latent `k_space` helper 参照（`build_one_body_momentum_diagonal`, `nambu_from_k_blocks`, `extract_k_blocks_from_k_nambu_matrix`）を修復し、`backend/tests/test_kspace_native_path.py::test_kspace_native_hfb_equilibrium_path_is_reachable` を追加した
+  - `self_energy_second_born` / `self_energy_second_born_prototype` の fixed-point 収束判定を「更新差分 + 方程式残差（`tolerance/dt` 基準）」へ統一し、`second_born_convergence_criterion` / `second_born_equation_residual_history` / `max_second_born_equation_residual` を base diagnostics に固定した
+  - `backend/app/jobs/worker.py` の最終状態判定を `second_born_converged` のみから、`second_born_convergence_criterion` + `thermal_branch_converged` + `mixed_branch_converged` を含む合成判定へ更新した（未達は `succeeded_with_warnings`）
+  - `tdhfb` `representation=k_space` には native block-diagonal propagation kernel を導入し、条件外は full-matrix に自動フォールバックする `k_space_path_mode` diagnostics を追加した
+  - `backend/tests/test_kspace_native_path.py` に parity row と性能 row を追加し、`full/block` median 比 `>=2.0`（`tdhfb 6x6`、`kbe_hfb(second_born_reference) 6x6` propagation kernel）を benchmark で固定した
+  - `solve_second_born_reference_equilibrium` は runtime `time.dt` 依存を外し、equilibrium 専用 `dt` / `equilibrium.tolerance` / `equilibrium.mixing` で収束を判定するよう再設計した。失敗理由は `equilibrium_convergence_failure_reason` に固定キーで保存する
+- 実行ログ:
+  - `uv run python -m pytest backend/tests/test_tdhfb_solver.py -k 'k_space_representation_matches_real_space'`（4 passed）
+  - `uv run python -m pytest backend/tests/test_kbe_hfb_solver.py -k 'k_space_representation_matches_real_space or second_born_reports_memory_diagnostics_under_drive or second_born_reference_supports_adaptive_history_against_fixed_reference'`（8 passed）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py backend/tests/test_worker.py backend/tests/test_numerics.py backend/tests/test_self_energy_second_born.py`（28 passed）
 
 ---
 

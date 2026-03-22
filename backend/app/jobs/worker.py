@@ -63,7 +63,14 @@ def execute_run(run_id: str, config_data: dict, data_dir: str, registry_db_path:
             thermal_branch_green_functions=artifacts.thermal_branch_green_functions,
             mixed_green_functions=artifacts.mixed_green_functions,
         )
-        converged = artifacts.diagnostics.get("second_born_converged", True)
+        second_born_converged = bool(artifacts.diagnostics.get("second_born_converged", True))
+        convergence_criterion = str(artifacts.diagnostics.get("second_born_convergence_criterion", "strict"))
+        second_born_strict = convergence_criterion == "strict"
+        thermal_enabled = bool(artifacts.diagnostics.get("thermal_branch_enabled", False))
+        thermal_converged = bool(artifacts.diagnostics.get("thermal_branch_converged", not thermal_enabled))
+        mixed_enabled = bool(artifacts.diagnostics.get("mixed_components_included", False))
+        mixed_converged = bool(artifacts.diagnostics.get("mixed_branch_converged", not mixed_enabled))
+        converged = second_born_converged and second_born_strict and thermal_converged and mixed_converged
         final_state = RunState.SUCCEEDED if converged else RunState.SUCCEEDED_WITH_WARNINGS
         repository.update_status(
             run_id,

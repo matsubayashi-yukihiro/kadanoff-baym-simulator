@@ -1,0 +1,155 @@
+from __future__ import annotations
+
+from time import perf_counter
+
+import numpy as np
+import pytest
+
+from backend.app.schemas import SimulationConfig
+from backend.app.solvers.equilibrium_solvers import solve_equilibrium
+from backend.app.solvers.lattice import build_square_lattice
+from backend.app.solvers.nambu import solve_hfb_equilibrium
+from backend.app.solvers.tdhfb import _propagate_generalized_densities_kspace, solve as solve_tdhfb
+
+
+def _native_kspace_config() -> SimulationConfig:
+    return SimulationConfig.model_validate(
+        {
+            "solver": "tdhfb",
+            "representation": "k_space",
+            "lattice": {
+                "nx": 4,
+                "ny": 4,
+                "boundary": "periodic",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": 0.3, "dt": 0.1},
+            "drive": {
+                "amplitude_x": 0.05,
+                "amplitude_y": 0.01,
+                "frequency": 1.2,
+                "phase": 0.1,
+                "center": 0.12,
+                "width": 0.12,
+            },
+            "interaction": {
+                "onsite_u": -1.0,
+                "nearest_neighbor_v": 0.0,
+                "pairing_channel": "none",
+            },
+            "initial_state": {
+                "filling": 0.5,
+                "temperature": 0.2,
+                "seed_pairing": 0.0,
+            },
+            "adaptive": {"enabled": False},
+            "observables": ["density", "energy", "current_x", "current_y"],
+        }
+    )
+
+
+@pytest.mark.physics_unit
+def test_kspace_native_hfb_equilibrium_path_is_reachable():
+    config = _native_kspace_config()
+    lattice = build_square_lattice(config.lattice)
+
+    equilibrium = solve_hfb_equilibrium(config, lattice)
+
+    assert equilibrium.solver_mode == "hfb_kspace_native"
+    assert equilibrium.momentum_density_blocks is not None
+    assert equilibrium.momentum_generalized_density is not None
+    assert np.all(np.isfinite(equilibrium.momentum_density_blocks))
+
+
+@pytest.mark.physics_invariant
+def test_tdhfb_kspace_native_block_path_matches_real_space_for_supported_scope():
+    config_k = _native_kspace_config()
+    config_real = SimulationConfig.model_validate({**config_k.model_dump(mode="json"), "representation": "real_space"})
+
+    real_space = solve_tdhfb(config_real)
+    k_space = solve_tdhfb(config_k)
+
+    assert k_space.diagnostics["k_space_path_mode"] == "block_diagonal"
+    assert k_space.diagnostics["equilibrium_solver_mode"] == "hfb_kspace_native"
+    for observable_name in ("density", "energy", "current_x", "current_y"):
+        for real_series, k_series in zip(
+            real_space.observables[observable_name].series,
+            k_space.observables[observable_name].series,
+            strict=True,
+        ):
+            assert real_series.values.tolist() == pytest.approx(k_series.values.tolist(), abs=1e-8)
+
+
+@pytest.mark.physics_benchmark
+def test_kspace_block_path_is_at_least_twice_as_fast_as_forced_full_matrix_path():
+    config = SimulationConfig.model_validate(
+        {
+            **_native_kspace_config().model_dump(mode="json"),
+            "lattice": {"nx": 6, "ny": 6, "boundary": "periodic", "hopping": 1.0, "chemical_potential": 0.0},
+            "time": {"t_final": 0.3, "dt": 0.05},
+        }
+    )
+    lattice = build_square_lattice(config.lattice)
+    equilibrium = solve_equilibrium(config, lattice)
+    assert equilibrium.solver_mode == "hfb_kspace_native"
+
+    _propagate_generalized_densities_kspace(config, equilibrium)
+    equilibrium.solver_mode = "hfb_kspace_fallback_forced"
+    _propagate_generalized_densities_kspace(config, equilibrium)
+
+    block_times: list[float] = []
+    full_times: list[float] = []
+    for _ in range(4):
+        equilibrium.solver_mode = "hfb_kspace_native"
+        start = perf_counter()
+        _propagate_generalized_densities_kspace(config, equilibrium)
+        block_times.append(perf_counter() - start)
+
+        equilibrium.solver_mode = "hfb_kspace_fallback_forced"
+        start = perf_counter()
+        _propagate_generalized_densities_kspace(config, equilibrium)
+        full_times.append(perf_counter() - start)
+
+    block_median = float(np.median(np.asarray(block_times[1:], dtype=np.float64)))
+    full_median = float(np.median(np.asarray(full_times[1:], dtype=np.float64)))
+    assert full_median / block_median >= 2.0
+
+
+@pytest.mark.physics_benchmark
+def test_kspace_block_path_is_at_least_twice_as_fast_for_second_born_reference_propagation_kernel():
+    config = SimulationConfig.model_validate(
+        {
+            **_native_kspace_config().model_dump(mode="json"),
+            "solver": "kbe_hfb",
+            "lattice": {"nx": 6, "ny": 6, "boundary": "periodic", "hopping": 1.0, "chemical_potential": 0.0},
+            "time": {"t_final": 0.3, "dt": 0.05},
+            "equilibrium": {"method": "second_born_reference"},
+            "kbe": {"self_energy": "second_born_reference", "max_fixed_point_iterations": 8, "tolerance": 1e-5, "mixing": 0.5},
+            "thermal_branch": {"enabled": True, "n_tau": 8, "max_iterations": 10, "mixing": 0.4},
+        }
+    )
+    lattice = build_square_lattice(config.lattice)
+    equilibrium = solve_equilibrium(config, lattice)
+
+    equilibrium.solver_mode = "hfb_kspace_native"
+    _propagate_generalized_densities_kspace(config, equilibrium)
+    equilibrium.solver_mode = "hfb_kspace_fallback_forced"
+    _propagate_generalized_densities_kspace(config, equilibrium)
+
+    block_times: list[float] = []
+    full_times: list[float] = []
+    for _ in range(4):
+        equilibrium.solver_mode = "hfb_kspace_native"
+        start = perf_counter()
+        _propagate_generalized_densities_kspace(config, equilibrium)
+        block_times.append(perf_counter() - start)
+
+        equilibrium.solver_mode = "hfb_kspace_fallback_forced"
+        start = perf_counter()
+        _propagate_generalized_densities_kspace(config, equilibrium)
+        full_times.append(perf_counter() - start)
+
+    block_median = float(np.median(np.asarray(block_times[1:], dtype=np.float64)))
+    full_median = float(np.median(np.asarray(full_times[1:], dtype=np.float64)))
+    assert full_median / block_median >= 2.0

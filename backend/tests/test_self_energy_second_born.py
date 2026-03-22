@@ -167,6 +167,45 @@ def test_second_born_convergence_criterion_key_in_diagnostics():
     assert artifacts.diagnostics["second_born_convergence_criterion"] in ("strict", "relaxed_5x")
 
 
+def _convergence_probe_config(*, tolerance: float) -> SimulationConfig:
+    return SimulationConfig.model_validate(
+        {
+            "solver": "kbe_hfb",
+            "lattice": {
+                "nx": 2,
+                "ny": 2,
+                "boundary": "periodic",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": 0.3, "dt": 0.1},
+            "drive": {"amplitude_x": 0.0, "amplitude_y": 0.0, "frequency": 0.0, "center": 0.0, "width": 1.0},
+            "interaction": {"onsite_u": -1.2, "nearest_neighbor_v": 0.0, "pairing_channel": "none"},
+            "initial_state": {"filling": 0.5, "temperature": 0.2, "seed_pairing": 0.0},
+            "kbe": {"self_energy": "second_born_reference", "max_fixed_point_iterations": 4, "tolerance": tolerance, "mixing": 0.3},
+            "thermal_branch": {"enabled": True, "n_tau": 8, "max_iterations": 8, "mixing": 0.3},
+            "adaptive": {"enabled": False},
+            "observables": ["density"],
+        }
+    )
+
+
+@pytest.mark.physics_invariant
+def test_second_born_convergence_reports_strict_when_within_both_residual_criteria():
+    artifacts = solve_kbe_hfb(_convergence_probe_config(tolerance=2e-3))
+
+    assert artifacts.diagnostics["second_born_converged"] is True
+    assert artifacts.diagnostics["second_born_convergence_criterion"] == "strict"
+
+
+@pytest.mark.physics_invariant
+def test_second_born_convergence_reports_relaxed_when_strict_is_not_satisfied():
+    artifacts = solve_kbe_hfb(_convergence_probe_config(tolerance=1e-3))
+
+    assert artifacts.diagnostics["second_born_converged"] is True
+    assert artifacts.diagnostics["second_born_convergence_criterion"] == "relaxed_5x"
+
+
 def _fallback_probe_config(*, mode: str) -> SimulationConfig:
     return SimulationConfig.model_validate(
         {

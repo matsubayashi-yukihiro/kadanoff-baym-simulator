@@ -18,7 +18,7 @@ def quadrature_weights(times: NDArray[np.float64]) -> NDArray[np.float64]:
         return np.zeros(len(times), dtype=np.float64)
     if len(times) == 2:
         dt = float(times[1] - times[0])
-        return np.asarray([dt, dt], dtype=np.float64)
+        return np.asarray([0.5 * dt, 0.5 * dt], dtype=np.float64)
     weights = np.zeros(len(times), dtype=np.float64)
     weights[0] = 0.5 * float(times[1] - times[0])
     weights[-1] = 0.5 * float(times[-1] - times[-2])

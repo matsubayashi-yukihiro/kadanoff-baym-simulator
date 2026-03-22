@@ -225,6 +225,14 @@ reduced-Nambu equal-time GKBA contour-dressed scope に限った
 既存 run artifact contract を保ったまま `real_space` / `k_space` を切り替えられるようにし、
 `second_born` heuristic prototype は未対応のまま残す。
 
+理論的には、`k` 空間でのブロック対角化は
+「周期境界かつ並進対称が保持される」限り自然に成立する。
+一方で並進対称が破れる（不均一ポテンシャル、境界、有限波数秩序、`k` 混合自己エネルギーなど）場合には
+`k` ごとの独立方程式にはならないため、
+この場合は full-matrix（real-space あるいは `k,k'` 行列表現）へ戻すことを理論要件とする。
+したがって、`k_space` native path の有効化条件は性能上の都合ではなく、
+物理的 closure 条件そのものとして扱う。
+
 ### 2.4 k 空間 / tr-ARPES derived analysis
 
 `k` 空間表現は、solver core の新しい実空間置換ではなく、
@@ -876,6 +884,89 @@ $$
 したがって共通基盤では、
 pairing channel を on-site にも bond にも固定しない。
 
+### 7.3.1 `k` 空間表示: フーリエ変換規約とブロック対角化条件
+
+周期境界 $N=L_xL_y$ の離散格子では、フーリエ変換を
+$$
+c_{i\sigma}(t)=\frac{1}{\sqrt N}\sum_k e^{i k\cdot r_i}c_{k\sigma}(t),
+\qquad
+c_{k\sigma}(t)=\frac{1}{\sqrt N}\sum_i e^{-i k\cdot r_i}c_{i\sigma}(t)
+$$
+で定義する。離散波数は
+$$
+k_x=\frac{2\pi n_x}{L_x},\qquad
+k_y=\frac{2\pi n_y}{L_y}
+\quad
+(n_x=0,\dots,L_x-1,\ n_y=0,\dots,L_y-1)
+$$
+とする。
+
+一体ハミルトニアンの実空間行列 $h_{ij}(t)$ に対し
+$$
+h_{kk'}(t)=\frac{1}{N}\sum_{ij}e^{-ik\cdot r_i}\,h_{ij}(t)\,e^{ik'\cdot r_j}
+$$
+を定義する。並進対称 $h_{ij}(t)=h(r_i-r_j,t)$ が成り立つとき
+$$
+h_{kk'}(t)=\delta_{kk'}\,\xi_k(t)
+$$
+となる。空間一様ベクトルポテンシャルを Peierls 置換で入れた最近接模型では（単位系を明示しない記法で）
+$$
+\xi_k(t)=
+-2t_x\cos\!\bigl(k_x-\tfrac{e}{\hbar}A_x(t)\bigr)
+-2t_y\cos\!\bigl(k_y-\tfrac{e}{\hbar}A_y(t)\bigr)
+-\mu
+$$
+の形になる。
+
+`k` 空間 Nambu スピノルを
+$$
+\Psi_k=
+\begin{pmatrix}
+c_{k\uparrow}\\
+c^\dagger_{-k\downarrow}
+\end{pmatrix}
+$$
+とすると、並進対称が保たれる closure では BdG ハミルトニアンは `k` ごとの $2\times2$ ブロック
+$$
+\mathbf H_{\rm BdG}(k,t)=
+\begin{pmatrix}
+\xi_k(t)+\Sigma^{\rm H}(t) & \Delta_k(t)\\
+\Delta_k^*(t) & -\xi_{-k}(t)-\Sigma^{\rm H}(t)
+\end{pmatrix}
+$$
+で書ける。反転対称な格子では $\xi_{-k}=\xi_k$ である。
+最近接 pair field を $\Delta_x,\Delta_y$ で表すと
+$$
+\Delta_k(t)=2\Delta_x(t)\cos k_x+2\Delta_y(t)\cos k_y
+$$
+となり、$s/d$ 成分は
+$$
+\Delta_s=\tfrac12(\Delta_x+\Delta_y),\qquad
+\Delta_d=\tfrac12(\Delta_x-\Delta_y)
+$$
+で定義できる。
+
+非平衡 Green 関数の `k` 空間成分は
+$$
+G_{\sigma\sigma'}(k,k';z,z')
+=-i\langle T_{\mathcal C}c_{k\sigma}(z)c^\dagger_{k'\sigma'}(z')\rangle
+$$
+で与える。並進対称が保たれると
+$$
+G_{\sigma\sigma'}(k,k';z,z')=\delta_{kk'}G_{\sigma\sigma'}(k;z,z')
+$$
+となり、Nambu 表現でも同様に `k` ごとに分離する。
+
+この `k` ブロック分離が成立する必要条件は、少なくとも次である。
+
+- 周期境界
+- 一体項の並進対称
+- 自己エネルギーが `k` 混合（$k\leftrightarrow k+q$）を起こさないこと
+
+これが破れる場合（open 境界、空間不均一、有限波数秩序、`k` 混合 kernel など）は
+`k` ごとの独立方程式は成立しないため、
+full-matrix で解く。
+
 ---
 
 ## 7.4 将来のボース Green 関数
@@ -996,6 +1087,39 @@ $$
 
 ここで $I^{\rceil},I^{\lceil}$ は虚時間枝に由来する初期相関項であり、
 factorized 初期状態や平均場初期化では消える。
+
+### 8.2.1 `k` 空間版の Dyson/KBE
+
+`7.3.1` の条件が満たされる場合、Dyson 方程式は `k` ごとに
+$$
+\left(i\partial_z\tau_0-\mathbf H_{\rm BdG}(k,z)\right)\mathbf G_k(z,z')
+=
+\delta_{\mathcal C}(z,z')\tau_0
++
+\int_{\mathcal C} d\bar z\;
+\mathbf\Sigma_k(z,\bar z)\mathbf G_k(\bar z,z')
+$$
+に分離する。実時間 lesser 成分は
+$$
+\begin{aligned}
+\left(i\partial_t\tau_0-\mathbf H_{\rm BdG}(k,t)\right)\mathbf G_k^<(t,t')
+=&\int_{t_0}^{t}d\bar t\;\mathbf\Sigma_k^R(t,\bar t)\mathbf G_k^<(\bar t,t')\\
+&+\int_{t_0}^{t'}d\bar t\;\mathbf\Sigma_k^<(t,\bar t)\mathbf G_k^A(\bar t,t')
++\mathbf I_k^{\rceil}(t,t')
+\end{aligned}
+$$
+で与えられる（右作用方程式も同様）。
+
+等時極限では
+$$
+\boldsymbol\rho_k(t)\equiv -i\mathbf G_k^<(t,t)
+$$
+を一般化密度行列とし、全密度は
+$$
+n(t)=\frac{1}{N}\sum_k \left[\boldsymbol\rho_k(t)\right]_{11}
+$$
+で得る。したがって、並進対称が成立する限り
+real-space full matrix と `k` ブロック計算は理論的に同値である。
 
 ---
 
@@ -1980,6 +2104,28 @@ KBE では
 $n\ge m$ の三角領域だけを格納し、
 Hermiticity と advanced / retarded 関係で残りを再構成する。
 これにより保存則チェックとメモリー削減を同時に行える。
+
+### 14.3.1 `k_space` native path のデータ形
+
+`7.3.1` の条件が成立するスコープでは、電子 Nambu 行列を
+`k` ごとの小ブロック
+$$
+\mathbf G_k^{R/<}(t_n,t_m),\quad
+\mathbf H_{\rm BdG}(k,t_n),\quad
+\boldsymbol\rho_k(t_n)
+$$
+として保持できる。このとき保存は
+`(N_k,2,2)`（等時）または `(N_t,N_t,N_k,2,2)`（二時刻）
+を基本形とする。
+
+一方、並進対称が破れるかどうかを実装で安全に判定できない場合には、
+`k` ブロック分離を強制せず full-matrix path に戻す。
+理論上もこれは正しい挙動であり、
+「高速化より closure の正しさを優先する」ための要件である。
+
+現行 backend ではこの方針に合わせ、`k_space` native equilibrium は
+保存的なガード条件（normal-state / 並進対称保持を確実に判定できる設定）でのみ有効化し、
+条件外は full-matrix へフォールバックする。
 
 ---
 
