@@ -21,7 +21,7 @@ describe("workbench config sanitization", () => {
         interaction: { onsite_u: 0, nearest_neighbor_v: 0, pairing_channel: "bond_d" },
         initial_state: { filling: 0.5, temperature: 0, seed_pairing: 0.2 },
         kbe: { self_energy: "hfb", max_fixed_point_iterations: 6, tolerance: 1e-7, mixing: 0.35, memory_window: null },
-        adaptive: { enabled: false, atol: 1e-7, rtol: 1e-5, min_dt: null, max_dt: null, max_growth: 2, min_shrink: 0.25 },
+        adaptive: { enabled: true, atol: 1e-7, rtol: 1e-5, min_dt: null, max_dt: null, max_growth: 2, min_shrink: 0.25 },
         thermal_branch: { enabled: false, n_tau: 16, max_iterations: 8, mixing: 0.3 },
         observables: ["pairing_d"],
       },

@@ -598,7 +598,7 @@ export interface components {
         AdaptiveConfig: {
             /**
              * Enabled
-             * @default false
+             * @default true
              */
             enabled: boolean;
             /**
@@ -617,11 +617,13 @@ export interface components {
             max_dt?: number | null;
             /**
              * Max Growth
+             * @description Adaptive-step growth limiter. Recommended range: 1.2 to 4.0.
              * @default 2
              */
             max_growth: number;
             /**
              * Min Shrink
+             * @description Adaptive-step shrink limiter. Recommended range: 0.1 to 0.8.
              * @default 0.25
              */
             min_shrink: number;
@@ -853,6 +855,23 @@ export interface components {
              * @default false
              */
             allow_approximation_mismatch: boolean;
+            /**
+             * Max Iterations
+             * @description Maximum HFB equilibrium fixed-point iterations. Recommended range: 32 to 512.
+             * @default 192
+             */
+            max_iterations: number;
+            /**
+             * Tolerance
+             * @default 1e-8
+             */
+            tolerance: number;
+            /**
+             * Mixing
+             * @description Linear/Anderson mixing weight for HFB equilibrium. Recommended range: 0.05 to 0.5.
+             * @default 0.22
+             */
+            mixing: number;
         };
         /**
          * EquilibriumMethod
@@ -1016,6 +1035,7 @@ export interface components {
         InitialStateConfig: {
             /**
              * Filling
+             * @description Initial filling. Recommended range: 0.0 to 1.0.
              * @default 0.5
              */
             filling: number;
@@ -1129,6 +1149,7 @@ export interface components {
             self_energy: components["schemas"]["KBESelfEnergyMode"];
             /**
              * Max Fixed Point Iterations
+             * @description Maximum fixed-point iterations per real-time step. Recommended range: 4 to 64.
              * @default 6
              */
             max_fixed_point_iterations: number;
@@ -1139,6 +1160,7 @@ export interface components {
             tolerance: number;
             /**
              * Mixing
+             * @description Fixed-point linear mixing weight for KBE contour updates. Recommended range: 0.1 to 0.6.
              * @default 0.35
              */
             mixing: number;
@@ -1530,7 +1552,10 @@ export interface components {
         };
         /** SimulationConfig */
         "SimulationConfig-Input": {
-            /** Name */
+            /**
+             * Name
+             * @description Run name. Recommended length: up to 120 characters.
+             */
             name?: string | null;
             /** @default noninteracting */
             solver: components["schemas"]["SolverKind"];
@@ -1550,7 +1575,10 @@ export interface components {
         };
         /** SimulationConfig */
         "SimulationConfig-Output": {
-            /** Name */
+            /**
+             * Name
+             * @description Run name. Recommended length: up to 120 characters.
+             */
             name?: string | null;
             /** @default noninteracting */
             solver: components["schemas"]["SolverKind"];
@@ -1741,11 +1769,13 @@ export interface components {
             n_tau: number;
             /**
              * Max Iterations
+             * @description Maximum Matsubara-branch self-consistency iterations. Recommended range: 4 to 64.
              * @default 8
              */
             max_iterations: number;
             /**
              * Mixing
+             * @description Matsubara-branch mixing weight. Recommended range: 0.1 to 0.6.
              * @default 0.3
              */
             mixing: number;

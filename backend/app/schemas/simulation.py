@@ -51,8 +51,8 @@ class LatticeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     kind: str = "square"
-    nx: int = Field(ge=2)
-    ny: int = Field(ge=2)
+    nx: int = Field(ge=1)
+    ny: int = Field(ge=1)
     boundary: BoundaryCondition = BoundaryCondition.PERIODIC
     hopping: float = Field(default=1.0, gt=0.0)
     chemical_potential: float = 0.0
@@ -103,7 +103,11 @@ class InteractionConfig(BaseModel):
 class InitialStateConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    filling: float = Field(default=0.5, ge=0.0, le=1.0)
+    filling: float = Field(
+        default=0.5,
+        ge=0.0,
+        description="Initial filling. Recommended range: 0.0 to 1.0.",
+    )
     temperature: float = Field(default=0.0, ge=0.0)
     seed_pairing: float = 0.0
 
@@ -113,28 +117,55 @@ class EquilibriumConfig(BaseModel):
 
     method: EquilibriumMethod = EquilibriumMethod.AUTO
     allow_approximation_mismatch: bool = False
+    max_iterations: int = Field(
+        default=192,
+        ge=1,
+        description="Maximum HFB equilibrium fixed-point iterations. Recommended range: 32 to 512.",
+    )
+    tolerance: float = Field(default=1e-8, gt=0.0)
+    mixing: float = Field(
+        default=0.22,
+        gt=0.0,
+        description="Linear/Anderson mixing weight for HFB equilibrium. Recommended range: 0.05 to 0.5.",
+    )
 
 
 class KBEConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     self_energy: KBESelfEnergyMode = KBESelfEnergyMode.HFB
-    max_fixed_point_iterations: int = Field(default=6, ge=1, le=64)
+    max_fixed_point_iterations: int = Field(
+        default=6,
+        ge=1,
+        description="Maximum fixed-point iterations per real-time step. Recommended range: 4 to 64.",
+    )
     tolerance: float = Field(default=1e-7, gt=0.0)
-    mixing: float = Field(default=0.35, gt=0.0, le=1.0)
+    mixing: float = Field(
+        default=0.35,
+        gt=0.0,
+        description="Fixed-point linear mixing weight for KBE contour updates. Recommended range: 0.1 to 0.6.",
+    )
     memory_window: int | None = Field(default=None, ge=1)
 
 
 class AdaptiveConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
+    enabled: bool = True
     atol: float = Field(default=1e-7, gt=0.0)
     rtol: float = Field(default=1e-5, gt=0.0)
     min_dt: float | None = Field(default=None, gt=0.0)
     max_dt: float | None = Field(default=None, gt=0.0)
-    max_growth: float = Field(default=2.0, gt=1.0, le=8.0)
-    min_shrink: float = Field(default=0.25, gt=0.0, lt=1.0)
+    max_growth: float = Field(
+        default=2.0,
+        gt=0.0,
+        description="Adaptive-step growth limiter. Recommended range: 1.2 to 4.0.",
+    )
+    min_shrink: float = Field(
+        default=0.25,
+        gt=0.0,
+        description="Adaptive-step shrink limiter. Recommended range: 0.1 to 0.8.",
+    )
 
     @model_validator(mode="after")
     def validate_step_bounds(self) -> "AdaptiveConfig":
@@ -147,15 +178,23 @@ class ThermalBranchConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = False
-    n_tau: int = Field(default=16, ge=4)
-    max_iterations: int = Field(default=8, ge=1, le=64)
-    mixing: float = Field(default=0.3, gt=0.0, le=1.0)
+    n_tau: int = Field(default=16, ge=1)
+    max_iterations: int = Field(
+        default=8,
+        ge=1,
+        description="Maximum Matsubara-branch self-consistency iterations. Recommended range: 4 to 64.",
+    )
+    mixing: float = Field(
+        default=0.3,
+        gt=0.0,
+        description="Matsubara-branch mixing weight. Recommended range: 0.1 to 0.6.",
+    )
 
 
 class SimulationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(default=None, max_length=120)
+    name: str | None = Field(default=None, description="Run name. Recommended length: up to 120 characters.")
     solver: SolverKind = SolverKind.NONINTERACTING
     representation: SolverRepresentation = SolverRepresentation.REAL_SPACE
     lattice: LatticeConfig
@@ -174,6 +213,9 @@ class SimulationConfig(BaseModel):
             "current_y",
             "energy",
             "vector_potential",
+            "pairing",
+            "pairing_s",
+            "pairing_d",
         ]
     )
 

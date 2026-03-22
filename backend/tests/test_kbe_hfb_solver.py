@@ -68,6 +68,7 @@ def test_kbe_hfb_matches_exact_noninteracting_limit_under_drive():
             "pairing_s",
             "pairing_d",
         ],
+        "adaptive": {"enabled": False},
     }
 
     exact = solve_noninteracting(SimulationConfig.model_validate({**base_config, "solver": "noninteracting"}))
@@ -127,6 +128,7 @@ def test_kbe_second_born_reduces_to_hfb_when_onsite_u_zero():
             "seed_pairing": 0.0,
         },
         "observables": ["density", "current_x", "current_y", "energy"],
+        "adaptive": {"enabled": False},
     }
 
     hfb = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
@@ -192,6 +194,7 @@ def test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero():
             "seed_pairing": 0.0,
         },
         "observables": ["density", "current_x", "current_y", "energy"],
+        "adaptive": {"enabled": False},
     }
 
     hfb = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
@@ -254,6 +257,7 @@ def test_kbe_second_born_reference_k_space_representation_reduces_to_hfb_when_on
             "seed_pairing": 0.0,
         },
         "observables": ["density", "current_x", "current_y", "energy"],
+        "adaptive": {"enabled": False},
     }
 
     hfb = solve_kbe_hfb(SimulationConfig.model_validate({**base_config, "kbe": {"self_energy": "hfb"}}))
@@ -317,6 +321,7 @@ def test_kbe_hfb_k_space_representation_matches_real_space_in_hfb_mode():
         },
         "kbe": {"self_energy": "hfb"},
         "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "adaptive": {"enabled": False},
     }
 
     real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
@@ -381,6 +386,7 @@ def test_kbe_second_born_reference_k_space_representation_matches_real_space():
             "mixing": 0.4,
         },
         "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "adaptive": {"enabled": False},
     }
 
     real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
@@ -431,6 +437,7 @@ def test_kbe_hfb_k_space_representation_matches_real_space_on_moderate_longer_wi
         },
         "kbe": {"self_energy": "hfb"},
         "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "adaptive": {"enabled": False},
     }
 
     real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))
@@ -480,6 +487,7 @@ def test_kbe_hfb_k_space_representation_matches_real_space_on_longer_window():
         },
         "kbe": {"self_energy": "hfb"},
         "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "adaptive": {"enabled": False},
     }
 
     real_space = solve_kbe_hfb(SimulationConfig.model_validate(base_config))

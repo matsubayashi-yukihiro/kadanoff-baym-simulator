@@ -5,6 +5,7 @@ import {
   createDecisionNote,
   createRun,
   createStudy,
+  getBackendCapabilities,
   getGreenFunctionSlice,
   getObservable,
   listDecisionNotes,
@@ -186,12 +187,17 @@ describe("api client", () => {
       const url = String(input);
       if (url.endsWith("/api/v1/runs") && init?.method === "POST") {
         const body = JSON.parse(String(init.body));
-        if ("representation" in body || "drive_type" in (body.drive ?? {})) {
+        if ("representation" in body || "drive_type" in (body.drive ?? {}) || "equilibrium" in body) {
           return Promise.resolve(
             jsonResponse(422, {
               detail: [
                 { loc: ["body", "drive", "drive_type"], msg: "Extra inputs are not permitted", input: "gaussian" },
                 { loc: ["body", "representation"], msg: "Extra inputs are not permitted", input: "real_space" },
+                {
+                  loc: ["body", "equilibrium"],
+                  msg: "Extra inputs are not permitted",
+                  input: { method: "auto", allow_approximation_mismatch: false },
+                },
               ],
             }),
           );
@@ -228,6 +234,66 @@ describe("api client", () => {
     const retriedBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(retriedBody.representation).toBeUndefined();
     expect(retriedBody.drive.drive_type).toBeUndefined();
+    expect(retriedBody.equilibrium).toBeUndefined();
+  });
+
+  it("detects backend capabilities from OpenAPI schema", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/openapi.json")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            paths: { "/api/v1/derived-analyses/launch": {} },
+            components: {
+              schemas: {
+                "SimulationConfig-Input": {
+                  properties: {
+                    representation: {},
+                    equilibrium: {},
+                    kbe: {},
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const capabilities = await getBackendCapabilities(true);
+    expect(capabilities.supportsEquilibriumPayload).toBe(true);
+    expect(capabilities.supportsDerivedAnalysisRunKspace).toBe(true);
+  });
+
+  it("detects legacy backend schema and reports reduced capabilities", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/openapi.json")) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            paths: { "/api/v1/derived-analyses/launch": {} },
+            components: {
+              schemas: {
+                "SimulationConfig-Input": {
+                  properties: {
+                    representation: {},
+                    kbe: {},
+                  },
+                },
+              },
+            },
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+
+    const capabilities = await getBackendCapabilities(true);
+    expect(capabilities.supportsEquilibriumPayload).toBe(false);
+    expect(capabilities.supportsDerivedAnalysisRunKspace).toBe(false);
   });
 });
 

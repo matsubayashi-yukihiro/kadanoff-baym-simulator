@@ -3,6 +3,7 @@ import type { SimulationConfigInput } from "../api/types";
 export type DriveConfigInput = NonNullable<SimulationConfigInput["drive"]>;
 export type InteractionConfigInput = NonNullable<SimulationConfigInput["interaction"]>;
 export type InitialStateConfigInput = NonNullable<SimulationConfigInput["initial_state"]>;
+export type EquilibriumConfigInput = NonNullable<SimulationConfigInput["equilibrium"]>;
 export type KbeConfigInput = NonNullable<SimulationConfigInput["kbe"]>;
 export type AdaptiveConfigInput = NonNullable<SimulationConfigInput["adaptive"]>;
 export type ThermalBranchConfigInput = NonNullable<SimulationConfigInput["thermal_branch"]>;
@@ -64,6 +65,13 @@ export function createDefaultConfig(): SimulationConfigInput {
       temperature: 0.0,
       seed_pairing: 0.0,
     },
+    equilibrium: {
+      method: "auto" as const,
+      allow_approximation_mismatch: false,
+      max_iterations: 192,
+      tolerance: 1e-8,
+      mixing: 0.22,
+    },
     kbe: {
       self_energy: "hfb",
       max_fixed_point_iterations: 6,
@@ -72,7 +80,7 @@ export function createDefaultConfig(): SimulationConfigInput {
       memory_window: null,
     },
     adaptive: {
-      enabled: false,
+      enabled: true,
       atol: 1e-7,
       rtol: 1e-5,
       min_dt: null,

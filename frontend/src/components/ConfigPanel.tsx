@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useState, useEffect } from "react";
 
 import type { SimulationConfigInput } from "../api/types";
 import { DriveWaveformChart } from "./DriveWaveformChart";
@@ -15,6 +15,7 @@ import {
 import type {
   AdaptiveConfigInput,
   DriveConfigInput,
+  EquilibriumConfigInput,
   InitialStateConfigInput,
   InteractionConfigInput,
   KbeConfigInput,
@@ -40,17 +41,21 @@ export function ConfigPanel(props: ConfigPanelProps) {
   const driveDefaults = defaults.drive as DriveConfigInput;
   const interactionDefaults = defaults.interaction as InteractionConfigInput;
   const initialStateDefaults = defaults.initial_state as InitialStateConfigInput;
+  const equilibriumDefaults = defaults.equilibrium as EquilibriumConfigInput;
   const kbeDefaults = defaults.kbe as KbeConfigInput;
   const adaptiveDefaults = defaults.adaptive as AdaptiveConfigInput;
   const thermalBranchDefaults = defaults.thermal_branch as ThermalBranchConfigInput;
   const drive: DriveConfigInput = (config.drive ?? driveDefaults) as DriveConfigInput;
   const interaction: InteractionConfigInput = (config.interaction ?? interactionDefaults) as InteractionConfigInput;
   const initialState: InitialStateConfigInput = (config.initial_state ?? initialStateDefaults) as InitialStateConfigInput;
+  const equilibrium: EquilibriumConfigInput = (config.equilibrium ?? equilibriumDefaults) as EquilibriumConfigInput;
   const kbe: KbeConfigInput = (config.kbe ?? kbeDefaults) as KbeConfigInput;
   const adaptive: AdaptiveConfigInput = (config.adaptive ?? adaptiveDefaults) as AdaptiveConfigInput;
   const thermalBranch: ThermalBranchConfigInput = (config.thermal_branch ?? thermalBranchDefaults) as ThermalBranchConfigInput;
   const observables = new Set(config.observables ?? defaults.observables ?? []);
-  const showKbeControls = (config.solver ?? "noninteracting") === "kbe_hfb";
+  const solver = config.solver ?? "noninteracting";
+  const showHfbEquilibriumControls = solver === "tdhfb" || solver === "kbe_hfb";
+  const showKbeControls = solver === "kbe_hfb";
   const representation = config.representation ?? "real_space";
   const kbeSelfEnergy = kbe.self_energy ?? "hfb";
   const kSpaceIncompatible =
@@ -172,6 +177,19 @@ export function ConfigPanel(props: ConfigPanelProps) {
     });
   }
 
+  function updateEquilibrium<K extends keyof NonNullable<SimulationConfigInput["equilibrium"]>>(
+    key: K,
+    value: NonNullable<SimulationConfigInput["equilibrium"]>[K],
+  ) {
+    onConfigChange({
+      ...config,
+      equilibrium: {
+        ...equilibrium,
+        [key]: value,
+      },
+    });
+  }
+
   function updateKbe<K extends keyof NonNullable<SimulationConfigInput["kbe"]>>(
     key: K,
     value: NonNullable<SimulationConfigInput["kbe"]>[K],
@@ -224,7 +242,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
       </div>
 
       <div className="panel-grid">
-        <Field label="Run Name">
+        <Field label="Run Name" hint="推奨: 120文字以内">
           <input
             aria-label="Run Name"
             value={config.name ?? ""}
@@ -280,7 +298,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
           <Field label="Nx">
             <input
               type="number"
-              min={2}
+              min={1}
               step={1}
               value={config.lattice.nx}
               onChange={(event) => updateLattice("nx", parseInteger(event.target.value, config.lattice.nx))}
@@ -290,7 +308,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
           <Field label="Ny">
             <input
               type="number"
-              min={2}
+              min={1}
               step={1}
               value={config.lattice.ny}
               onChange={(event) => updateLattice("ny", parseInteger(event.target.value, config.lattice.ny))}
@@ -432,7 +450,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
           <Field label="Width">
             <input
               type="number"
-              min={0.01}
+              min={0}
               step="0.05"
               value={drive.width ?? 1}
               onChange={(event) => updateDrive("width", parseNumber(event.target.value, drive.width ?? 1))}
@@ -486,11 +504,9 @@ export function ConfigPanel(props: ConfigPanelProps) {
               ))}
             </select>
           </Field>
-          <Field label="Filling">
+          <Field label="Filling" hint="推奨レンジ: 0.0〜1.0">
             <input
               type="number"
-              min={0}
-              max={1}
               step="0.05"
               value={initialState.filling ?? 0.5}
               onChange={(event) =>
@@ -545,10 +561,50 @@ export function ConfigPanel(props: ConfigPanelProps) {
         </div>
       </CollapsibleSection>
 
+      {showHfbEquilibriumControls ? (
+        <CollapsibleSection title="HFB Equilibrium" defaultOpen={false}>
+          <div className="panel-grid panel-grid-3">
+            <Field label="Max Iterations" hint="自己無撞着ループの反復上限。推奨レンジ: 32〜512">
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={equilibrium.max_iterations ?? 192}
+                onChange={(event) =>
+                  updateEquilibrium(
+                    "max_iterations",
+                    parseInteger(event.target.value, equilibrium.max_iterations ?? 192),
+                  )
+                }
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Mixing" hint="Anderson ミキシング係数。推奨レンジ: 0.05〜0.5">
+              <input
+                type="number"
+                step="0.05"
+                value={equilibrium.mixing ?? 0.22}
+                onChange={(event) =>
+                  updateEquilibrium("mixing", parseNumber(event.target.value, equilibrium.mixing ?? 0.22))
+                }
+                disabled={disabled}
+              />
+            </Field>
+            <Field label="Tolerance" hint="自己無撞着誤差の収束閾値。推奨レンジ: 1e-10〜1e-6">
+              <ScientificInput
+                value={equilibrium.tolerance ?? 1e-8}
+                onChange={(v) => updateEquilibrium("tolerance", v)}
+                disabled={disabled}
+              />
+            </Field>
+          </div>
+        </CollapsibleSection>
+      ) : null}
+
       {showKbeControls ? (
         <CollapsibleSection title="KBE Extensions" defaultOpen={true}>
           <div className="panel-grid panel-grid-3">
-            <Field label="KBE Self-Energy" hint="Phase E1 closure">
+            <Field label="KBE Self-Energy" hint="時間発展の自己エネルギー近似。hfb=HFB のみ、second_born=2次 Born（heuristic）、second_born_reference=等時 GKBA contour-dressed（validated）">
               <select
                 aria-label="KBE Self-Energy"
                 value={kbe.self_energy ?? "hfb"}
@@ -567,7 +623,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
                 ))}
               </select>
             </Field>
-            <Field label="Fixed-Point Iterations">
+            <Field label="Fixed-Point Iterations" hint="各時間ステップで自己エネルギーを自己無撞着に閉じるための反復上限。推奨レンジ: 4〜64">
               <input
                 type="number"
                 min={1}
@@ -582,30 +638,23 @@ export function ConfigPanel(props: ConfigPanelProps) {
                 disabled={disabled}
               />
             </Field>
-            <Field label="Fixed-Point Mixing">
+            <Field label="Fixed-Point Mixing" hint="固定点反復のミキシング係数。推奨レンジ: 0.1〜0.6">
               <input
                 type="number"
-                min={0.01}
-                max={1}
                 step="0.05"
                 value={kbe.mixing ?? 0.35}
                 onChange={(event) => updateKbe("mixing", parseNumber(event.target.value, kbe.mixing ?? 0.35))}
                 disabled={disabled}
               />
             </Field>
-            <Field label="Tolerance">
-              <input
-                type="number"
-                min={0}
-                step="0.0000001"
+            <Field label="Tolerance" hint="固定点反復の収束判定閾値。推奨レンジ: 1e-9〜1e-5">
+              <ScientificInput
                 value={kbe.tolerance ?? 1e-7}
-                onChange={(event) =>
-                  updateKbe("tolerance", parseNumber(event.target.value, kbe.tolerance ?? 1e-7))
-                }
+                onChange={(v) => updateKbe("tolerance", v)}
                 disabled={disabled}
               />
             </Field>
-            <Field label="Adaptive Step" hint="Phase E2 grid control">
+            <Field label="Adaptive Step" hint="時間ステップを誤差制御で自動調整する（atol/rtol で精度を指定）">
               <input
                 aria-label="Adaptive Step"
                 type="checkbox"
@@ -614,16 +663,23 @@ export function ConfigPanel(props: ConfigPanelProps) {
                 disabled={disabled}
               />
             </Field>
-            <Field label="Thermal Branch" hint="Phase E3 Matsubara seed">
+            <Field
+              label="Thermal Branch"
+              hint={
+                kbeSelfEnergy === "second_born_reference"
+                  ? "Matsubara 虚時間枝を平衡状態の seed として使う（有限温度時に有効）"
+                  : "second_born_reference のみ有効"
+              }
+            >
               <input
                 aria-label="Thermal Branch"
                 type="checkbox"
                 checked={thermalBranch.enabled ?? false}
                 onChange={(event) => updateThermalBranch("enabled", event.target.checked)}
-                disabled={disabled}
+                disabled={disabled || kbeSelfEnergy !== "second_born_reference"}
               />
             </Field>
-            <Field label="Adaptive Min dt">
+            <Field label="Adaptive Min dt" hint="推奨: 0.25*dt 〜 dt">
               <input
                 type="number"
                 min={0}
@@ -635,7 +691,7 @@ export function ConfigPanel(props: ConfigPanelProps) {
                 disabled={disabled}
               />
             </Field>
-            <Field label="Adaptive Max dt">
+            <Field label="Adaptive Max dt" hint="推奨: dt 〜 4*dt">
               <input
                 type="number"
                 min={0}
@@ -647,18 +703,35 @@ export function ConfigPanel(props: ConfigPanelProps) {
                 disabled={disabled}
               />
             </Field>
-            <Field label="Matsubara Points">
+            <Field
+              label="Matsubara Points"
+              hint={kbeSelfEnergy !== "second_born_reference" ? "second_born_reference のみ有効" : undefined}
+            >
               <input
                 type="number"
-                min={4}
+                min={1}
                 step={1}
                 value={thermalBranch.n_tau ?? 16}
                 onChange={(event) =>
                   updateThermalBranch("n_tau", parseInteger(event.target.value, thermalBranch.n_tau ?? 16))
                 }
-                disabled={disabled}
+                disabled={disabled || kbeSelfEnergy !== "second_born_reference"}
               />
             </Field>
+            {(kbeSelfEnergy === "second_born" || kbeSelfEnergy === "second_born_reference") ? (
+              <Field label="Memory Window" hint="自己エネルギー積分の履歴ウィンドウ幅。null で全履歴を使用">
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={kbe.memory_window ?? ""}
+                  onChange={(event) =>
+                    updateKbe("memory_window", parseNullableInteger(event.target.value, kbe.memory_window ?? null))
+                  }
+                  disabled={disabled}
+                />
+              </Field>
+            ) : null}
           </div>
         </CollapsibleSection>
       ) : null}
@@ -693,4 +766,56 @@ function parseNullableNumber(value: string, fallback: number | null): number | n
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseNullableInteger(value: string, fallback: number | null): number | null {
+  if (value.trim() === "") {
+    return null;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function formatScientific(value: number): string {
+  if (value === 0) return "0";
+  return value.toExponential();
+}
+
+function ScientificInput(props: { value: number; onChange: (v: number) => void; disabled?: boolean }) {
+  const { value, onChange, disabled } = props;
+  const [text, setText] = useState(() => formatScientific(value));
+  const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (!focused) {
+      setText(formatScientific(value));
+    }
+  }, [value, focused]);
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        const parsed = Number(e.target.value);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          onChange(parsed);
+        }
+      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => {
+        setFocused(false);
+        const parsed = Number(text);
+        if (Number.isFinite(parsed) && parsed > 0) {
+          onChange(parsed);
+          setText(formatScientific(parsed));
+        } else {
+          setText(formatScientific(value));
+        }
+      }}
+      disabled={disabled}
+    />
+  );
 }

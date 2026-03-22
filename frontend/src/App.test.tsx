@@ -72,7 +72,7 @@ describe("App", () => {
       expect(screen.getAllByText("square-4x4-higgs-demo-kbe-hfb").length).toBeGreaterThan(0);
     });
     await waitFor(() => {
-      expect(screen.getAllByText(/Pairing D/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Δ_d/).length).toBeGreaterThan(0);
     });
   });
 

@@ -268,8 +268,8 @@ def _solve_hfb_equilibrium_real_space(config: SimulationConfig, lattice: SquareL
     normal_hamiltonian = np.zeros((site_count, site_count), dtype=np.complex128)
     pairing_field = np.zeros((site_count, site_count), dtype=np.complex128)
     hartree_potential = np.zeros(site_count, dtype=np.float64)
-    max_iterations = 192
-    mixing = 0.22
+    max_iterations = config.equilibrium.max_iterations
+    mixing = config.equilibrium.mixing
     density_mixer = AndersonMixer(mixing=mixing, max_history=4)
 
     for iteration in range(1, max_iterations + 1):
@@ -284,7 +284,7 @@ def _solve_hfb_equilibrium_real_space(config: SimulationConfig, lattice: SquareL
         mixed_density = density_mixer.update(generalized_density, next_density)
         mixed_density = 0.5 * (mixed_density + mixed_density.conjugate().T)
         generalized_density = mixed_density
-        if self_consistency_error < 1e-8:
+        if self_consistency_error < config.equilibrium.tolerance:
             converged = True
             break
 

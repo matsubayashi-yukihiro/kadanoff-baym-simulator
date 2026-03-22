@@ -21,6 +21,7 @@ from backend.app.schemas import (
     JobGroupRecord,
     JobGroupVariant,
     RunResearchMetadata,
+    RunState,
     RunSummary,
     StudyCreate,
     StudyRecord,
@@ -972,7 +973,7 @@ class ExperimentRegistry:
             """,
             run_ids,
         ).fetchall()
-        return [ArtifactLifecycleState(row["state"]) for row in rows]
+        return [_normalize_artifact_state_from_run_state(row["state"]) for row in rows]
 
     def _ensure_analysis_source_exists(
         self,
@@ -1134,6 +1135,13 @@ def _aggregate_artifact_state(states: list[ArtifactLifecycleState]) -> ArtifactL
     if state_set == {ArtifactLifecycleState.SUCCEEDED}:
         return ArtifactLifecycleState.SUCCEEDED
     return ArtifactLifecycleState.CANCELLED
+
+
+def _normalize_artifact_state_from_run_state(run_state_raw: str) -> ArtifactLifecycleState:
+    run_state = RunState(run_state_raw)
+    if run_state == RunState.SUCCEEDED_WITH_WARNINGS:
+        return ArtifactLifecycleState.SUCCEEDED
+    return ArtifactLifecycleState(run_state.value)
 
 
 def _utcnow() -> datetime:

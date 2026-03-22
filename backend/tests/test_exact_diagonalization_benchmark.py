@@ -90,6 +90,7 @@ def _weak_interaction_benchmark_config(
                 "seed_pairing": 0.0,
             },
             "observables": ["density", "current_x", "current_y", "energy"],
+            "adaptive": {"enabled": False},
         }
     )
 
@@ -138,8 +139,7 @@ def _second_born_short_window_config(
     }
     if memory_window is not None:
         payload["kbe"] = {**payload["kbe"], "memory_window": memory_window}
-    if adaptive is not None:
-        payload["adaptive"] = adaptive
+    payload["adaptive"] = adaptive if adaptive is not None else {"enabled": False}
     return SimulationConfig.model_validate(payload)
 
 
@@ -194,8 +194,7 @@ def _second_born_reference_short_window_config(
         },
         "observables": ["density", "current_x", "current_y"],
     }
-    if adaptive is not None:
-        payload["adaptive"] = adaptive
+    payload["adaptive"] = adaptive if adaptive is not None else {"enabled": False}
     return SimulationConfig.model_validate(payload)
 
 
@@ -241,6 +240,7 @@ def _second_born_thermal_branch_config() -> SimulationConfig:
                 "mixing": 0.4,
             },
             "observables": ["density", "current_x", "current_y"],
+            "adaptive": {"enabled": False},
         }
     )
 
@@ -291,6 +291,7 @@ def _second_born_reference_thermal_branch_config() -> SimulationConfig:
                 "mixing": 0.4,
             },
             "observables": ["density", "current_x", "current_y"],
+            "adaptive": {"enabled": False},
         }
     )
 
@@ -370,6 +371,7 @@ def test_tdhfb_and_kbe_hfb_track_exact_diagonalization_for_short_time_weak_inter
                 "seed_pairing": 0.0,
             },
             "observables": ["density", "current_x", "current_y", "energy"],
+            "adaptive": {"enabled": False},
         }
     )
     kbe_config = SimulationConfig.model_validate({**tdhfb_config.model_dump(mode="json"), "solver": "kbe_hfb"})
@@ -577,6 +579,7 @@ def test_second_born_prototype_remains_comparable_to_exact_benchmark_on_short_wi
                 "mixing": 0.5,
             },
             "observables": ["density", "current_x", "current_y", "energy"],
+            "adaptive": {"enabled": False},
         }
     )
 
@@ -631,6 +634,7 @@ def test_second_born_reference_remains_comparable_to_exact_benchmark_on_short_wi
                 "mixing": 0.5,
             },
             "observables": ["density", "current_x", "current_y", "energy"],
+            "adaptive": {"enabled": False},
         }
     )
 

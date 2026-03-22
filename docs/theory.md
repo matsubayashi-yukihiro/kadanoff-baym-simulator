@@ -78,6 +78,7 @@ measurement-like intensity を導く bridge として定義する。
 - 非平衡秩序パラメータの振動（Higgs mode）
 - 光照射後の緩和・熱化
 - 高次高調波発生
+- ポンプ・プローブ `tr-ARPES` で観測される運動量分解スペクトルの時間変調
 
 などが挙げられる。
 
@@ -239,6 +240,21 @@ reduced-Nambu equal-time GKBA contour-dressed scope に限った
 solver core の primary observable そのものではない。
 v1 では matrix element を持たない最小測定モデルとし、
 probe envelope, probe delay, broadening を使って intensity を定義する。
+
+このとき、物理的背景としては次を明示する。
+
+- `tr-ARPES` は本来、occupied な一粒子励起の運動量分解情報を
+  ポンプ後遅延時刻ごとに読む測定である
+- 有限 probe 幅により、遅延時間分解能とエネルギー分解能には
+  不可避なトレードオフがある
+- matrix element や final-state 効果を厳密に入れない限り、
+  絶対強度の物質定量比較は目的外である
+
+したがって本プロジェクトの `tr-ARPES` は、
+第一に「run artifact から再現可能な比較可能量」を作ることを目的にし、
+第二に Higgs 振動やスペクトル重み移動のような
+相対的トレンドを検査する測定近似として扱う。
+詳細な式は `11.4` 節で固定する。
 
 source は既存の real-space run artifact と Green 関数である。
 したがって、まずは run から再計算可能な analysis として
@@ -1443,6 +1459,109 @@ electron-phonon サブプロジェクトでは、
 「ペア相関の増大」や
 「既存秩序の増幅」
 を主要な指標にするのが現実的である。
+
+---
+
+## 11.4 k 空間 occupied spectrum と tr-ARPES
+
+`tr-ARPES` は、two-time lesser Green 関数から構成する
+measurement-like derived observable として定義する。
+まず電子ブロックの lesser 成分を運動量空間へ写像して
+
+$$
+G^<_k(t,t')
+=
+\sum_{ij}
+\phi_i^*(k)\,
+G^<_{ij,{\rm el}}(t,t')\,
+\phi_j(k)
+$$
+
+を作る。ここで $\phi_i(k)$ は離散格子の規格化平面波基底である。
+
+probe 遅延を $t_{\rm p}$、probe 幅を $\sigma_{\rm p}$ として
+ガウス窓
+
+$$
+s_{t_{\rm p}}(t)=
+\exp\!\left[
+-\frac{(t-t_{\rm p})^2}{2\sigma_{\rm p}^2}
+\right]
+$$
+
+を導入すると、matrix-element-free 最小モデルの生強度を
+
+$$
+I_0(k,\omega;t_{\rm p})
+=
+\int dt\,dt'\;
+s_{t_{\rm p}}(t)s_{t_{\rm p}}(t')\,
+e^{i\omega(t-t')}\,
+\bigl[-iG^<_k(t,t')\bigr]
+$$
+
+で定義する。実装では離散時間和で評価し、実数部を intensity として保持する。
+
+さらに、実験分解能と数値安定化の双方を表す最小 broadening として
+幅 $\eta$ の正規化ガウス核
+
+$$
+K_\eta(\omega-\omega')
+\propto
+\exp\!\left[
+-\frac{(\omega-\omega')^2}{2\eta^2}
+\right]
+$$
+
+を用い、
+
+$$
+I(k,\omega;t_{\rm p})
+=
+\int d\omega'\;
+K_\eta(\omega-\omega')\,
+I_0(k,\omega';t_{\rm p})
+$$
+
+を保存する。
+
+`k_spectral_preview` / `tr_arpes_preview` では
+この同一 intensity を共有し、違いは primary な解釈軸に置く。
+
+- `occupied_spectrum`: `k` 依存の occupied 側スペクトル形状の比較を主目的にする
+- `tr_arpes_intensity`: probe delay 依存の測定強度比較を主目的にする
+
+加えて payload には
+
+$$
+W(k)=\int_{\omega_{\min}}^{\omega_{\max}} I(k,\omega;t_{\rm p})\,d\omega
+$$
+
+を `occupied_weight` として保存する。
+この量は user が指定した energy grid 上の積分値であり、
+occupied 側（例えば $\omega\le 0$ を主に含む窓）を使うと
+occupied weight 指標として解釈できる。
+
+平衡または準定常に近い極限では、上式は概念的に
+
+$$
+I(k,\omega;t_{\rm p})
+\sim
+|M_k|^2 f(\omega,t_{\rm p})A(k,\omega,t_{\rm p})
+$$
+
+に接続する。ここで v1 は $|M_k|^2=1$ を仮定し、
+matrix element・偏光依存・final-state 効果を切り落とした
+最小比較モデルとして扱う。
+
+`k_path` surface では occupied 側ピーク位置の指標として
+`gap_indicator` を保存する。これは量子化された経路上での
+最小ギャップ候補を quick-look するための proxy であり、
+ギャップ抽出の最終判定そのものではない。
+
+参考:
+- [literature-index.md](./literature-index.md)
+- [1412.2762_higgs-pump-probe-kemper.pdf](../pdfs/negf_kbe/1412.2762_higgs-pump-probe-kemper.pdf)
 
 ---
 

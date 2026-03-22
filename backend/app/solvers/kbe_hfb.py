@@ -55,6 +55,7 @@ from backend.app.jobs.progress import SolverProgressUpdate
 
 
 def solve(config: SimulationConfig, progress_callback: ProgressCallback | None = None) -> SimulationArtifacts:
+    """Run the KBE/HFB solver and assemble observables, diagnostics, and Green-function artifacts."""
     dynamics = simulate_hfb_dynamics(config, progress_callback=progress_callback)
     diagnostics = dict(dynamics.diagnostics)
     observables = dynamics.observables
@@ -88,7 +89,11 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
     if second_born_summary_excerpt is not None:
         summary_excerpt = second_born_summary_excerpt
 
-    assert green_function_reference is not None
+    if green_function_reference is None:
+        raise RuntimeError(
+            "green_function_reference is None after KBE solve path "
+            f"(self_energy={config.kbe.self_energy.value}); expected two-time Green-function data."
+        )
     diagnostics.update(
         green_function_diagnostics(
             dynamics=dynamics,
@@ -163,7 +168,10 @@ def _solve_second_born_path(
     TwoTimeGreenFunctionContainer | None,
 ]:
     if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN:
-        assert hfb_green_functions is not None
+        if hfb_green_functions is None:
+            raise RuntimeError(
+                "hfb_green_functions is None for self_energy=second_born; expected precomputed HFB two-time data."
+            )
         second_born_result = apply_second_born_corrections(
             config=config,
             dynamics=dynamics,
@@ -223,6 +231,9 @@ def _disabled_second_born_diagnostics() -> dict[str, Any]:
     return {
         "second_born_enabled": False,
         "second_born_converged": True,
+        "second_born_applied_fallback": "second_born_mode_not_selected",
+        "thermal_branch_applied_fallback": None,
+        "mixed_branch_applied_fallback": None,
         "second_born_iteration_history": [],
         "second_born_residual_history": [],
         "second_born_memory_norm_history": [],
@@ -501,6 +512,11 @@ def _analyze_trajectory(
         "max_pairing_s_magnitude": float(np.max(np.abs(pairing_s_array))),
         "max_pairing_d_magnitude": float(np.max(np.abs(pairing_d_array))),
         "final_pairing_magnitude": float(np.abs(pairing_primary_array[-1])),
+        "equilibrium_pairing": float(np.abs(pairing_primary_array[0])),
+        "equilibrium_pairing_s": float(np.abs(pairing_s_array[0])),
+        "equilibrium_pairing_d": float(np.abs(pairing_d_array[0])),
+        "equilibrium_density": float(density_mean_array[0]),
+        "equilibrium_energy": float(energy_array[0]),
         "continuity_residual_supported": continuity_residual_supported,
         "continuity_residual_history": continuity_residual_norm_array.tolist(),
         "max_continuity_residual": (
@@ -526,6 +542,11 @@ def _analyze_trajectory(
         "final_pairing_magnitude": diagnostics["final_pairing_magnitude"],
         "pairing_s_final": float(np.abs(pairing_s_array[-1])),
         "pairing_d_final": float(np.abs(pairing_d_array[-1])),
+        "equilibrium_pairing": diagnostics["equilibrium_pairing"],
+        "equilibrium_pairing_s": diagnostics["equilibrium_pairing_s"],
+        "equilibrium_pairing_d": diagnostics["equilibrium_pairing_d"],
+        "equilibrium_density": diagnostics["equilibrium_density"],
+        "equilibrium_energy": diagnostics["equilibrium_energy"],
         "particle_number_drift": diagnostics["particle_number_drift"],
         "max_stationarity_residual": diagnostics["max_stationarity_residual"],
         "max_particle_conservation_residual": diagnostics["max_particle_conservation_residual"],

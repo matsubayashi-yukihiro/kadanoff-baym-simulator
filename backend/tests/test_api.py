@@ -585,6 +585,65 @@ def test_api_launches_k_space_preview_from_second_born_reference_source(client):
     assert min(min(row) for row in payload["intensity"]) >= 0.0
 
 
+def test_api_launches_run_derived_analysis_with_placeholder_study_id(client):
+    config = {
+        "name": "k-space-placeholder-study-run",
+        "solver": "kbe_hfb",
+        "representation": "k_space",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.2, "dt": 0.1},
+        "drive": {
+            "amplitude_x": 0.0,
+            "amplitude_y": 0.0,
+            "frequency": 0.0,
+            "center": 0.0,
+            "width": 1.0,
+        },
+        "interaction": {
+            "onsite_u": -1.0,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {
+            "filling": 0.5,
+            "temperature": 0.0,
+            "seed_pairing": 0.0,
+        },
+        "kbe": {"self_energy": "hfb"},
+        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+    }
+    run_id = client.post("/api/v1/runs", json=config).json()["run_id"]
+
+    launch = client.post(
+        "/api/v1/derived-analyses/launch",
+        json={
+            "study_id": "__none__",
+            "source_kind": "run",
+            "source_id": run_id,
+            "analysis_type": "tr_arpes_preview",
+            "parameters": {},
+            "input_surface_ids": [run_id],
+        },
+    )
+    assert launch.status_code == 201
+    launch_payload = launch.json()
+    assert launch_payload["study_id"] != "__none__"
+
+    studies = client.get("/api/v1/studies")
+    assert studies.status_code == 200
+    assert any(study["study_id"] == launch_payload["study_id"] for study in studies.json())
+
+    result = client.get(f"/api/v1/derived-analyses/{launch_payload['analysis_id']}/result")
+    assert result.status_code == 200
+    assert result.json()["payload"]["analysis_type"] == "tr_arpes_preview"
+
+
 def test_api_launches_k_space_compare_and_trarpes_heatmap_artifacts(client):
     config = {
         "name": "k-space-compare-run",
@@ -1263,7 +1322,7 @@ def test_higgs_demo_preset_uses_long_window_gaussian_pulse():
 
     assert preset.config.time.t_final == 20.0
     assert preset.config.time.dt == 0.05
-    assert preset.config.time.save_every == 1
+    assert preset.config.time.save_every == 2
     assert preset.config.drive.amplitude_x == 0.25
     assert preset.config.drive.amplitude_y == 0.125
     assert preset.config.drive.frequency == 2.0

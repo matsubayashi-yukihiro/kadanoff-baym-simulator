@@ -67,6 +67,7 @@ def test_tdhfb_matches_exact_noninteracting_limit_under_drive():
             "pairing_s",
             "pairing_d",
         ],
+        "adaptive": {"enabled": False},
     }
 
     exact = solve_noninteracting(SimulationConfig.model_validate({**base_config, "solver": "noninteracting"}))
@@ -151,6 +152,7 @@ def test_tdhfb_tracks_local_continuity_equation_in_source_free_normal_state():
                 "seed_pairing": 0.0,
             },
             "observables": ["density", "current_x", "current_y", "energy"],
+            "adaptive": {"enabled": False},
         }
     )
 
@@ -195,6 +197,7 @@ def test_tdhfb_k_space_representation_matches_real_space_for_periodic_drive():
             "seed_pairing": 0.2,
         },
         "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "adaptive": {"enabled": False},
     }
 
     real_space = solve(SimulationConfig.model_validate(base_config))
@@ -240,6 +243,7 @@ def test_tdhfb_k_space_representation_matches_real_space_on_moderate_longer_wind
             "seed_pairing": 0.15,
         },
         "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "adaptive": {"enabled": False},
     }
 
     real_space = solve(SimulationConfig.model_validate(base_config))
@@ -291,6 +295,7 @@ def test_tdhfb_k_space_representation_matches_real_space_on_longer_window():
             "pairing_s",
             "pairing_d",
         ],
+        "adaptive": {"enabled": False},
     }
 
     real_space = solve(SimulationConfig.model_validate(base_config))
@@ -342,6 +347,7 @@ def test_tdhfb_k_space_representation_matches_real_space_on_larger_lattice():
             "seed_pairing": 0.12,
         },
         "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "adaptive": {"enabled": False},
     }
 
     real_space = solve(SimulationConfig.model_validate(base_config))
@@ -388,6 +394,7 @@ def test_tdhfb_writes_two_time_green_functions_for_derived_analysis_source():
                 "seed_pairing": 0.0,
             },
             "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+            "adaptive": {"enabled": False},
         }
     )
 

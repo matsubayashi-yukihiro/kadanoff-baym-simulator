@@ -252,6 +252,11 @@ def simulate_hfb_dynamics(
         "max_pairing_s_magnitude": float(np.max(np.abs(pairing_s_array))),
         "max_pairing_d_magnitude": float(np.max(np.abs(pairing_d_array))),
         "final_pairing_magnitude": float(np.abs(pairing_primary_array[-1])),
+        "equilibrium_pairing": float(np.abs(pairing_primary_array[0])),
+        "equilibrium_pairing_s": float(np.abs(pairing_s_array[0])),
+        "equilibrium_pairing_d": float(np.abs(pairing_d_array[0])),
+        "equilibrium_density": float(density_mean_array[0]),
+        "equilibrium_energy": float(energy_array[0]),
         "continuity_residual_supported": continuity_residual_supported,
         "continuity_residual_history": continuity_residual_norm_array.tolist(),
         "max_continuity_residual": (
@@ -279,6 +284,11 @@ def simulate_hfb_dynamics(
         "final_pairing_magnitude": diagnostics["final_pairing_magnitude"],
         "pairing_s_final": float(np.abs(pairing_s_array[-1])),
         "pairing_d_final": float(np.abs(pairing_d_array[-1])),
+        "equilibrium_pairing": diagnostics["equilibrium_pairing"],
+        "equilibrium_pairing_s": diagnostics["equilibrium_pairing_s"],
+        "equilibrium_pairing_d": diagnostics["equilibrium_pairing_d"],
+        "equilibrium_density": diagnostics["equilibrium_density"],
+        "equilibrium_energy": diagnostics["equilibrium_energy"],
         "particle_number_drift": diagnostics["particle_number_drift"],
         "max_stationarity_residual": diagnostics["max_stationarity_residual"],
         "time_grid_mode": diagnostics["time_grid_mode"],
@@ -299,6 +309,7 @@ def simulate_hfb_dynamics(
 
 
 def solve(config: SimulationConfig, progress_callback: ProgressCallback | None = None) -> SimulationArtifacts:
+    """Run TDHFB propagation and return observables, diagnostics, and equal-time two-time artifacts."""
     dynamics = simulate_hfb_dynamics(config, progress_callback=progress_callback)
     two_time = build_two_time_green_functions(dynamics)
     return SimulationArtifacts(

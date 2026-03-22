@@ -71,6 +71,7 @@ def _expectation_value(
 
 
 def solve(config: SimulationConfig, progress_callback: ProgressCallback | None = None) -> SimulationArtifacts:
+    """Propagate the noninteracting one-body density matrix and collect observables/diagnostics."""
     if config.representation.value == "k_space":
         return _solve_in_momentum_space(config, progress_callback=progress_callback)
 

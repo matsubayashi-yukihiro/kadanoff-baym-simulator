@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ApiError,
   getDerivedAnalysis,
   getDerivedAnalysisResult,
   launchDerivedAnalysis,
@@ -20,6 +21,22 @@ type DerivedAnalysisState = {
 
 const POLL_INTERVAL_MS = 2000;
 const TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled"]);
+
+function normalizeAnalysisType(sourceKind: DerivedAnalysisSourceKind, analysisType: string): string {
+  const prefix = `${sourceKind}/`;
+  return analysisType.startsWith(prefix) ? analysisType.slice(prefix.length) : analysisType;
+}
+
+function toDerivedAnalysisErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 404 && error.message.includes("derived analysis source not found")) {
+    return "Derived analysis source not found. The selected run may be missing from backend registry, or frontend/backend versions are mismatched. Restart/rebuild backend and retry.";
+  }
+  if (error instanceof ApiError && error.status === 422 && error.message.includes("study_id not found")) {
+    return "Derived analysis launch failed because the backend rejected study_id. This usually indicates frontend/backend version mismatch. Restart/rebuild backend and retry.";
+  }
+  if (error instanceof Error) return error.message;
+  return "launch failed";
+}
 
 export function useDerivedAnalysis(
   sourceKind: DerivedAnalysisSourceKind | null,
@@ -80,6 +97,7 @@ export function useDerivedAnalysis(
 
   const launch = useCallback(async () => {
     if (!sourceKind || !sourceId || !analysisType) return;
+    const normalizedAnalysisType = normalizeAnalysisType(sourceKind, analysisType);
 
     abortedRef.current = false;
     clearPoll();
@@ -97,7 +115,7 @@ export function useDerivedAnalysis(
 
       const cached = existing.find(
         (a) =>
-          a.analysis_type === analysisType &&
+          normalizeAnalysisType(sourceKind, a.analysis_type) === normalizedAnalysisType &&
           a.source_kind === sourceKind &&
           a.source_id === sourceId,
       );
@@ -107,10 +125,17 @@ export function useDerivedAnalysis(
           if (cached.status === "succeeded") {
             const resultRecord = await getDerivedAnalysisResult(cached.analysis_id);
             setState({ analysis: cached, result: resultRecord, status: "succeeded", error: null });
-          } else {
-            // Stale failed/cancelled — re-launch
+            return;
           }
-          if (cached.status === "succeeded") return;
+          if (state.status !== "failed") {
+            setState({
+              analysis: cached,
+              result: null,
+              status: "failed",
+              error: `Analysis ${cached.status}`,
+            });
+            return;
+          }
         } else {
           // In-progress — poll from existing
           setState((prev) => ({ ...prev, analysis: cached, status: "polling" }));
@@ -124,7 +149,7 @@ export function useDerivedAnalysis(
         study_id: studyId,
         source_kind: sourceKind,
         source_id: sourceId,
-        analysis_type: analysisType,
+        analysis_type: normalizedAnalysisType,
         analysis_version: "v1",
         parameters: params.parameters ?? {},
       });
@@ -149,11 +174,11 @@ export function useDerivedAnalysis(
           analysis: null,
           result: null,
           status: "failed",
-          error: err instanceof Error ? err.message : "launch failed",
+          error: toDerivedAnalysisErrorMessage(err),
         });
       }
     }
-  }, [sourceKind, sourceId, analysisType, params.study_id, params.parameters, pollUntilDone]);
+  }, [sourceKind, sourceId, analysisType, params.study_id, params.parameters, pollUntilDone, state.status]);
 
   // Cleanup on unmount
   useEffect(() => {

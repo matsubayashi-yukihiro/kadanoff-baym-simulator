@@ -15,7 +15,7 @@ def test_noninteracting_solver_conserves_particle_number_without_drive():
 
     artifacts = solve(config)
 
-    assert set(artifacts.observables) == {"density", "current_x", "current_y", "energy", "vector_potential"}
+    assert set(artifacts.observables) == {"density", "current_x", "current_y", "energy", "vector_potential", "pairing", "pairing_s", "pairing_d"}
     assert artifacts.diagnostics["particle_number_drift"] < 1e-10
     assert artifacts.diagnostics["energy_drift"] < 1e-10
     assert artifacts.diagnostics["max_hermiticity_error"] < 1e-12

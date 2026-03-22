@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 import { StatusPill } from "../components/ui/StatusPill";
 import { ConfigPanel } from "../components/ConfigPanel";
 import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
+import { EquilibriumStatePanel } from "../components/EquilibriumStatePanel";
 import { GreenFunctionPanel } from "../components/GreenFunctionPanel";
 import { KSpectralPanel } from "../components/KSpectralPanel";
 import { MixedGreenFunctionPanel } from "../components/MixedGreenFunctionPanel";
@@ -13,7 +14,6 @@ import { ResearchArtifactsPanel } from "../components/ResearchArtifactsPanel";
 import { RunControlPanel } from "../components/RunControlPanel";
 import { RunLogPanel } from "../components/RunLogPanel";
 import { RunProgressPanel } from "../components/RunProgressPanel";
-import { SpectrumPanel } from "../components/SpectrumPanel";
 import { ThermalBranchPanel } from "../components/ThermalBranchPanel";
 import { TrArpesPanel } from "../components/TrArpesPanel";
 import { useConfigStore } from "../stores/useConfigStore";
@@ -220,6 +220,16 @@ export function SingleJobPage() {
     await runStore.createRun(cloneConfig(config));
   }
 
+  async function launchEquilibriumOnly() {
+    const eq = cloneConfig(draftConfig);
+    const dt = (eq.time as NonNullable<typeof eq.time>)?.dt ?? 0.1;
+    eq.time = { ...(eq.time as NonNullable<typeof eq.time>), t_final: dt };
+    await runStore.createRun(eq);
+  }
+
+  const showEquilibriumOnly =
+    draftConfig.solver === "tdhfb" || draftConfig.solver === "kbe_hfb";
+
   return (
     <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
 
@@ -238,6 +248,17 @@ export function SingleJobPage() {
             >
               {isSubmitting ? "Submitting…" : "Launch Run"}
             </button>
+            {showEquilibriumOnly && (
+              <button
+                type="button"
+                className="ghost-button"
+                disabled={isSubmitting || isCancelling}
+                onClick={launchEquilibriumOnly}
+                title="Run equilibrium solve only — skips time evolution"
+              >
+                Equilibrium Only
+              </button>
+            )}
             {selectedRun && (selectedRun.state === "queued" || selectedRun.state === "running") ? (
               <button
                 type="button"
@@ -340,12 +361,6 @@ export function SingleJobPage() {
               onToggleOverlay={obsStore.toggleOverlay}
               overlayData={obsStore.overlayData}
             />
-            <SpectrumPanel
-              data={obsStore.data}
-              dataLoading={obsStore.dataLoading}
-              dataError={obsStore.dataError}
-              run={selectedRun}
-            />
           </div>
           <div className="sjp-support-rail">
             <RunProgressPanel
@@ -355,6 +370,7 @@ export function SingleJobPage() {
               error={progress.error}
               isStale={progress.isStale}
             />
+            <EquilibriumStatePanel run={selectedRun} />
             <DiagnosticsPanel run={selectedRun} />
             <RunLogPanel run={selectedRun} />
             <ResearchArtifactsPanel

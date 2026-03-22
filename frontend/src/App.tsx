@@ -196,8 +196,6 @@ export default function App() {
               />
 
               <RunControlPanel
-                isSubmitting={runState.isSubmitting}
-                isCancelling={runState.isCancelling}
                 runs={runState.runs}
                 runsLoading={runState.runsLoading}
                 runsError={runState.runsError}
@@ -207,8 +205,6 @@ export default function App() {
                 cancelError={runState.cancelError}
                 selectedRun={runState.selectedRun}
                 selectedRunId={runState.selectedRunId}
-                onCreateRun={() => runState.createRun(draftConfig)}
-                onCancelRun={runState.cancelRun}
                 onRefresh={runState.refresh}
                 onSelectRun={runState.setSelectedRunId}
               />

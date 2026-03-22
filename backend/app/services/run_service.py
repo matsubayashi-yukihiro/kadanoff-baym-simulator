@@ -140,7 +140,7 @@ def build_swave_apr_tsuji_aoki_preset() -> PresetEntry:
             name="square-4x4-swave-apr-tsuji-aoki",
             solver="tdhfb",
             lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
-            time={"t_final": 50.0, "dt": 0.05, "save_every": 1},
+            time={"t_final": 50.0, "dt": 0.05, "save_every": 2},
             drive={
                 "drive_type": "sine",
                 "amplitude_x": 0.15,
@@ -152,6 +152,7 @@ def build_swave_apr_tsuji_aoki_preset() -> PresetEntry:
             },
             interaction={"onsite_u": -3.5, "nearest_neighbor_v": 0.0, "pairing_channel": "onsite"},
             initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.15},
+            adaptive={"enabled": True},
             observables=["density", "energy", "vector_potential", "pairing", "pairing_s"],
         ),
     )
@@ -175,7 +176,7 @@ def build_swave_pump_probe_kemper_preset() -> PresetEntry:
             name="square-4x4-swave-pump-probe-kemper",
             solver="tdhfb",
             lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
-            time={"t_final": 20.0, "dt": 0.05, "save_every": 1},
+            time={"t_final": 20.0, "dt": 0.05, "save_every": 2},
             drive={
                 "drive_type": "gaussian",
                 "amplitude_x": 0.3,
@@ -187,6 +188,7 @@ def build_swave_pump_probe_kemper_preset() -> PresetEntry:
             },
             interaction={"onsite_u": -2.0, "nearest_neighbor_v": 0.0, "pairing_channel": "onsite"},
             initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.1},
+            adaptive={"enabled": True},
             observables=["density", "energy", "vector_potential", "pairing", "pairing_s"],
         ),
     )
@@ -210,7 +212,7 @@ def build_dwave_higgs_thz_shimano_tsuji_preset() -> PresetEntry:
             name="square-4x4-dwave-higgs-thz-shimano-tsuji",
             solver="tdhfb",
             lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
-            time={"t_final": 30.0, "dt": 0.05, "save_every": 1},
+            time={"t_final": 30.0, "dt": 0.05, "save_every": 2},
             drive={
                 "drive_type": "gaussian",
                 "amplitude_x": 0.1,
@@ -222,6 +224,7 @@ def build_dwave_higgs_thz_shimano_tsuji_preset() -> PresetEntry:
             },
             interaction={"onsite_u": -2.0, "nearest_neighbor_v": -1.5, "pairing_channel": "bond_d"},
             initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.1},
+            adaptive={"enabled": True},
             observables=["density", "energy", "vector_potential", "pairing", "pairing_d"],
         ),
     )
@@ -239,7 +242,7 @@ def build_higgs_demo_preset() -> PresetEntry:
             name="square-4x4-higgs-demo-kbe-hfb",
             solver="kbe_hfb",
             lattice={"nx": 4, "ny": 4, "hopping": 1.0, "chemical_potential": 0.0},
-            time={"t_final": 20.0, "dt": 0.05, "save_every": 1},
+            time={"t_final": 20.0, "dt": 0.05, "save_every": 2},
             drive={
                 "amplitude_x": 0.25,
                 "amplitude_y": 0.125,
@@ -255,6 +258,7 @@ def build_higgs_demo_preset() -> PresetEntry:
             },
             initial_state={"filling": 0.5, "temperature": 0.0, "seed_pairing": 0.2},
             kbe={"self_energy": "hfb"},
+            adaptive={"enabled": True},
             observables=["density", "energy", "vector_potential", "pairing", "pairing_s", "pairing_d"],
         ),
     )

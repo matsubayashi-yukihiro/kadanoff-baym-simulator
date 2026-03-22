@@ -1,6 +1,7 @@
 import type { PresetConfig, PresetEntry, SimulationConfigInput } from "../api/types";
 import { createDefaultConfig } from "./defaultConfig";
 import type {
+  AdaptiveConfigInput,
   DriveConfigInput,
   InitialStateConfigInput,
   InteractionConfigInput,
@@ -197,7 +198,7 @@ export function createHiggsDemoPreset(): SimulationConfigInput {
     ...demo.time,
     t_final: 20.0,
     dt: 0.05,
-    save_every: 1,
+    save_every: 2,
   };
   demo.drive = {
     ...((demo.drive ?? driveDefaults) as DriveConfigInput),
@@ -223,6 +224,10 @@ export function createHiggsDemoPreset(): SimulationConfigInput {
   demo.kbe = {
     ...((demo.kbe ?? kbeDefaults) as KbeConfigInput),
     self_energy: "hfb",
+  };
+  demo.adaptive = {
+    ...(demo.adaptive as AdaptiveConfigInput),
+    enabled: true,
   };
   demo.observables = ["density", "energy", "vector_potential", "pairing", "pairing_s", "pairing_d"];
   return demo;
@@ -268,7 +273,7 @@ function createSwaveAprTsujiAokiConfig(): SimulationConfigInput {
   const initialStateDefaults = createDefaultConfig().initial_state as InitialStateConfigInput;
   cfg.name = "square-4x4-swave-apr-tsuji-aoki";
   cfg.solver = "tdhfb";
-  cfg.time = { ...cfg.time, t_final: 50.0, dt: 0.05, save_every: 1 };
+  cfg.time = { ...cfg.time, t_final: 50.0, dt: 0.05, save_every: 2 };
   cfg.drive = {
     ...((cfg.drive ?? driveDefaults) as DriveConfigInput),
     drive_type: "sine",
@@ -291,6 +296,10 @@ function createSwaveAprTsujiAokiConfig(): SimulationConfigInput {
     temperature: 0.0,
     seed_pairing: 0.15,
   };
+  cfg.adaptive = {
+    ...(cfg.adaptive as AdaptiveConfigInput),
+    enabled: true,
+  };
   cfg.observables = ["density", "energy", "vector_potential", "pairing", "pairing_s"];
   return cfg;
 }
@@ -302,7 +311,7 @@ function createSwavePumpProbeKemperConfig(): SimulationConfigInput {
   const initialStateDefaults = createDefaultConfig().initial_state as InitialStateConfigInput;
   cfg.name = "square-4x4-swave-pump-probe-kemper";
   cfg.solver = "tdhfb";
-  cfg.time = { ...cfg.time, t_final: 20.0, dt: 0.05, save_every: 1 };
+  cfg.time = { ...cfg.time, t_final: 20.0, dt: 0.05, save_every: 2 };
   cfg.drive = {
     ...((cfg.drive ?? driveDefaults) as DriveConfigInput),
     drive_type: "gaussian",
@@ -325,6 +334,10 @@ function createSwavePumpProbeKemperConfig(): SimulationConfigInput {
     temperature: 0.0,
     seed_pairing: 0.1,
   };
+  cfg.adaptive = {
+    ...(cfg.adaptive as AdaptiveConfigInput),
+    enabled: true,
+  };
   cfg.observables = ["density", "energy", "vector_potential", "pairing", "pairing_s"];
   return cfg;
 }
@@ -336,7 +349,7 @@ function createDwaveHiggsTHzShimanoTsujiConfig(): SimulationConfigInput {
   const initialStateDefaults = createDefaultConfig().initial_state as InitialStateConfigInput;
   cfg.name = "square-4x4-dwave-higgs-thz-shimano-tsuji";
   cfg.solver = "tdhfb";
-  cfg.time = { ...cfg.time, t_final: 30.0, dt: 0.05, save_every: 1 };
+  cfg.time = { ...cfg.time, t_final: 30.0, dt: 0.05, save_every: 2 };
   cfg.drive = {
     ...((cfg.drive ?? driveDefaults) as DriveConfigInput),
     drive_type: "gaussian",
@@ -358,6 +371,10 @@ function createDwaveHiggsTHzShimanoTsujiConfig(): SimulationConfigInput {
     filling: 0.5,
     temperature: 0.0,
     seed_pairing: 0.1,
+  };
+  cfg.adaptive = {
+    ...(cfg.adaptive as AdaptiveConfigInput),
+    enabled: true,
   };
   cfg.observables = ["density", "energy", "vector_potential", "pairing", "pairing_d"];
   return cfg;
@@ -452,6 +469,7 @@ const SIMULATION_CONFIG_KEYS = new Set([
   "drive",
   "interaction",
   "initial_state",
+  "equilibrium",
   "kbe",
   "adaptive",
   "thermal_branch",

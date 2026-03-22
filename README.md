@@ -28,6 +28,7 @@ Available endpoints after startup:
 
 The default `frontend` service now runs the Vite dev server with HMR inside Docker.
 Changes under `frontend/src` are reflected immediately at `http://localhost:3000` without rebuilding the container.
+The `backend` service is also mounted from the local workspace with `TDKB_RELOAD=true`, so backend code and schema updates are reflected without rebuilding.
 
 Stop the services:
 
@@ -37,6 +38,31 @@ docker compose down
 
 Run data is stored in the Docker volume `tdkb_backend_runs`.
 Frontend dependencies are cached in the Docker volume `tdkb_frontend_node_modules`, so `docker compose restart frontend` reuses `node_modules` until `frontend/package-lock.json` changes.
+
+### Backend/Frontend Schema Sync Check
+
+If frontend errors mention `Extra inputs are not permitted` (for example `equilibrium`) or derived analysis reports `source not found`, confirm both services are on compatible API schema:
+
+```bash
+curl -s http://localhost:8000/openapi.json | jq '.components.schemas["SimulationConfig-Input"].properties | keys'
+```
+
+Expected keys include at least:
+- `representation`
+- `equilibrium`
+- `kbe`
+
+If `equilibrium` is missing, restart backend with latest code:
+
+```bash
+docker compose restart backend
+```
+
+If you changed Dockerfile dependencies or build context, rebuild:
+
+```bash
+docker compose up --build backend
+```
 
 ## Local Development
 

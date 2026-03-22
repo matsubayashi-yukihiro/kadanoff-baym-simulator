@@ -34,6 +34,19 @@ import type {
 const API_ROOT = `${
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "http://localhost:8000"
 }/api/v1`;
+const OPENAPI_URL = `${API_ROOT.replace(/\/api\/v1$/, "")}/openapi.json`;
+
+export type BackendCapabilities = {
+  supportsEquilibriumPayload: boolean;
+  supportsDerivedAnalysisRunKspace: boolean;
+};
+
+const DEFAULT_BACKEND_CAPABILITIES: BackendCapabilities = {
+  supportsEquilibriumPayload: true,
+  supportsDerivedAnalysisRunKspace: true,
+};
+
+let backendCapabilitiesPromise: Promise<BackendCapabilities> | null = null;
 
 export class ApiError extends Error {
   status: number;
@@ -45,6 +58,51 @@ export class ApiError extends Error {
     this.status = status;
     this.payload = payload;
   }
+}
+
+export function getDefaultBackendCapabilities(): BackendCapabilities {
+  return { ...DEFAULT_BACKEND_CAPABILITIES };
+}
+
+export async function getBackendCapabilities(forceRefresh = false): Promise<BackendCapabilities> {
+  if (forceRefresh || backendCapabilitiesPromise === null) {
+    backendCapabilitiesPromise = fetchBackendCapabilities();
+  }
+  return backendCapabilitiesPromise;
+}
+
+async function fetchBackendCapabilities(): Promise<BackendCapabilities> {
+  try {
+    const response = await fetch(OPENAPI_URL);
+    if (!response.ok) return getDefaultBackendCapabilities();
+    const spec = await response.json();
+    return parseBackendCapabilities(spec);
+  } catch {
+    return getDefaultBackendCapabilities();
+  }
+}
+
+function parseBackendCapabilities(spec: unknown): BackendCapabilities {
+  if (!spec || typeof spec !== "object") {
+    return getDefaultBackendCapabilities();
+  }
+  const root = spec as {
+    paths?: Record<string, unknown>;
+    components?: {
+      schemas?: Record<string, { properties?: Record<string, unknown> }>;
+    };
+  };
+  const schemas = root.components?.schemas ?? {};
+  const simulationInput =
+    schemas["SimulationConfig-Input"] ??
+    schemas.SimulationConfig;
+  const simulationProperties = simulationInput?.properties ?? {};
+  const supportsEquilibriumPayload = "equilibrium" in simulationProperties;
+  const supportsDerivedLaunchEndpoint = "/api/v1/derived-analyses/launch" in (root.paths ?? {});
+  return {
+    supportsEquilibriumPayload,
+    supportsDerivedAnalysisRunKspace: supportsDerivedLaunchEndpoint && supportsEquilibriumPayload,
+  };
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -152,7 +210,7 @@ function toLegacyCompatibleConfig(
   payload: unknown,
 ): SimulationConfigInput | null {
   const extraLocations = getExtraInputLocations(payload);
-  const supportedCompatibilityLocations = new Set(["representation", "drive.drive_type"]);
+  const supportedCompatibilityLocations = new Set(["representation", "drive.drive_type", "equilibrium"]);
 
   if (extraLocations.length === 0) {
     return null;
@@ -169,6 +227,7 @@ function toLegacyCompatibleConfig(
 
   const cloned = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
   delete cloned.representation;
+  delete cloned.equilibrium;
 
   const drive = cloned.drive;
   if (typeof drive === "object" && drive !== null) {

@@ -225,10 +225,63 @@
   - `backend/tests/test_kspace_spectral_analysis.py` と `backend/tests/test_tr_arpes_analysis.py` に `tdhfb` direct source の `real_space` / `k_space` parity cross-check を追加した
   - `backend/tests/test_api.py` に `tdhfb` source の `run/k_spectral_preview` / `run/tr_arpes_preview`、`job_group/k_spectral_compare` / `sweep/tr_arpes_heatmap` workflow regression を追加した
   - `docs/theory.md` / `docs/validation-spec.md` / `docs/progress.md` を更新し、`tdhfb` direct source を現行 backend scope に反映した
+- frontend follow-up fix（derived analysis launch key normalization）:
+  - `frontend/src/components/KSpectralPanel.tsx` / `TrArpesPanel.tsx` / `JobGroupResultPanel.tsx` / `SweepResultPanel.tsx` で `analysis_type` を canonical key（`k_spectral_preview` など）に統一した
+  - `frontend/src/hooks/useDerivedAnalysis.ts` で prefix あり/なし（`run/k_spectral_preview` と `k_spectral_preview`）を吸収する normalize を追加し、cache lookup と launch payload の互換性を補強した
+- frontend/backend version mismatch hardening:
+  - `docker-compose.yml` の backend を source bind mount + `TDKB_RELOAD=true` に変更し、frontend HMR と同様に backend schema 更新を再ビルドなしで反映できるようにした
+  - `README.md` に schema mismatch 判定手順（`/openapi.json` の `SimulationConfig-Input` key 確認）と backend restart/rebuild 手順を追記した
+  - `frontend/src/api/client.ts` に OpenAPI capability 判定（`supportsEquilibriumPayload` / `supportsDerivedAnalysisRunKspace`）を追加し、legacy fallback に `equilibrium` key の除外を統合した
+  - `frontend/src/hooks/useBackendCapabilities.ts` を追加し、k-space derived analysis panel で capability 非対応時は auto-launch を止めて理由表示するようにした
+  - `frontend/src/hooks/useDerivedAnalysis.ts` で `404 derived analysis source not found` を専用メッセージへ変換し、polling 継続を止めて `failed` に遷移するようにした
+  - `frontend/src/components/DerivedAnalysisPanel.tsx` を更新し、`failed` 時の `Retry` 表示と `unavailableReason` banner 表示を追加した
 - `uv run python -m pytest backend/tests/test_tdhfb_solver.py backend/tests/test_kspace_spectral_analysis.py backend/tests/test_tr_arpes_analysis.py backend/tests/test_api.py -k 'tdhfb_writes_two_time_green_functions_for_derived_analysis_source or tdhfb_sources or from_tdhfb_sources'`
   - 5 件成功、39 件 deselected（10.21 秒）
 - `uv run python -m pytest backend/tests/test_noninteracting_solver.py backend/tests/test_tdhfb_solver.py backend/tests/test_kbe_hfb_solver.py backend/tests/test_kspace_spectral_analysis.py backend/tests/test_tr_arpes_analysis.py backend/tests/test_exact_diagonalization_benchmark.py backend/tests/test_api.py -k 'k_space or kspace or trarpes or tr_arpes or k_spectral'`
   - 31 件成功、54 件 deselected（53.82 秒）
+- `cd frontend && npx tsc --noEmit -p tsconfig.json && npx tsc --noEmit -p tsconfig.node.json`
+  - 2 件とも成功
+- `cd frontend && npm test -- --run src/api/client.test.ts src/hooks/useDerivedAnalysis.test.ts src/components/DerivedAnalysisPanel.test.tsx`
+  - 15 件すべて成功
+
+### 2026-03-22
+
+- root-cause fix（Derived Analysis launch 422）:
+  - 現象: `k_space` run で `POST /api/v1/derived-analyses/launch` が `422 {"detail":"study_id not found"}` になる row があり、`tr-ARPES`/`k-spectral` panel が retry で止まる
+  - 原因: frontend が unlinked run に対して `study_id="__none__"` を送る一方、backend registry は `derived_analyses.study_id` を `studies.study_id` FK で検証するため、`__none__` が実在しない環境で launch が必ず失敗する
+  - 対応: `backend/app/storage/experiment_repository.py` で `study_id="__none__"` を auto workspace study（`notes_on_scope=auto-generated workspace for unlinked artifact launches`）へ正規化してから `create_derived_analysis` / `launch_derived_analysis` を実行するようにした
+  - 追加回帰: `backend/tests/test_api.py` に `test_api_launches_run_derived_analysis_with_placeholder_study_id` を追加し、`study_id="__none__"` でも launch/result fetch が成功することを固定した
+- frontend error classification follow-up:
+  - `frontend/src/hooks/useDerivedAnalysis.ts` で `422 study_id not found` を version mismatch ヒント付きの専用メッセージへ変換する分岐を追加した
+  - `frontend/src/hooks/useDerivedAnalysis.test.ts` に 422 メッセージ変換の回帰を追加した
+- コードレビュー対応（2026-03-21資料, 中優先）:
+  - `backend/app/solvers/kbe_hfb.py` の `assert` を実行時 `RuntimeError` へ置換し、`self_energy` mode を含む例外文言へ更新した
+  - `backend/app/solvers/self_energy_second_born.py` / `self_energy_second_born_prototype.py` に fallback 可視化を追加し、`second_born_applied_fallback` / `thermal_branch_applied_fallback` / `mixed_branch_applied_fallback` を diagnostics へ追加した
+  - `second_born` / `second_born_reference` を選択している run で fallback が発生したときに warning log を出すようにした
+  - `backend/app/solvers/noninteracting.py` / `tdhfb.py` / `kbe_hfb.py` / `registry.py`、`backend/app/jobs/worker.py`、second Born 公開関数群に最小 docstring を追加した
+  - 削除状態だった `docs/backend-code-review-2026-03-21.md` を復元した
+- コードレビュー対応の追加回帰:
+  - `backend/tests/test_self_energy_second_born.py` に fallback reason diagnostics + caplog warning 回帰（reference/prototype）と `kbe_hfb` runtime guard（monkeypatch）回帰を追加した
+- `uv run python -m pytest backend/tests/test_self_energy_second_born.py`
+  - 9 件すべて成功
+- `uv run python -m pytest backend/tests/test_kbe_hfb_solver.py`
+  - 22 件すべて成功
+- `uv run python -m pytest backend/tests/test_api.py -k 'second_born or k_space_second_born_reference'`
+  - 2 件成功、1 件失敗（`test_api_launches_second_born_reference_k_space_compare_and_heatmap_with_analysis_override` で `KeyError: 'group_id'`）
+- follow-up fix（`succeeded_with_warnings` parent aggregation）:
+  - 原因: `ExperimentRegistry._fetch_run_states()` が run state を `ArtifactLifecycleState` に直接変換しており、`succeeded_with_warnings` が `ValueError` になって `job-groups` / `sweeps` 生成が `422` で失敗していた
+  - 対応: `backend/app/storage/experiment_registry.py` に run state 正規化 (`succeeded_with_warnings` → `succeeded`) を追加し、parent artifact state aggregation で warning run を扱えるようにした
+  - 追加回帰: `backend/tests/test_experiment_registry.py` に `test_parent_artifact_state_treats_succeeded_with_warnings_as_succeeded` を追加した
+- `uv run python -m pytest backend/tests/test_api.py -k 'second_born or k_space_second_born_reference'`
+  - 3 件成功、24 件 deselected
+- `uv run python -m pytest backend/tests/test_experiment_registry.py -k 'parent_artifact_state_tracks_child_run_state_updates or parent_artifact_state_treats_succeeded_with_warnings_as_succeeded'`
+  - 2 件成功、12 件 deselected
+- `uv run python -m pytest backend/tests/test_api.py -k 'placeholder_study_id or k_space_and_trarpes_derived_analysis_artifacts'`
+  - 2 件成功、25 件 deselected
+- `cd frontend && npm test -- --run src/hooks/useDerivedAnalysis.test.ts`
+  - 2 件すべて成功
+- live probe（docker backend）:
+  - `POST /api/v1/derived-analyses/launch` with `study_id="__none__"` + succeeded `k_space` run で `201/succeeded` を確認
 
 ---
 

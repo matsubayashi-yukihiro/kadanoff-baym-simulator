@@ -1,3 +1,23 @@
+const OBSERVABLE_LABEL_MAP: Record<string, string> = {
+  // Observable names
+  pairing:          "Δ",
+  pairing_s:        "Δ_s",
+  pairing_d:        "Δ_d",
+  density:          "n",
+  energy:           "E",
+  current_x:        "j_x",
+  current_y:        "j_y",
+  vector_potential: "A",
+  // Series labels
+  pairing_mean:     "Δ (mean)",
+  pairing_s_mean:   "Δ_s (mean)",
+  pairing_d_mean:   "Δ_d (mean)",
+  density_mean:     "n (mean)",
+  energy_mean:      "E (mean)",
+  current_x_mean:   "j_x (mean)",
+  current_y_mean:   "j_y (mean)",
+};
+
 export function formatDateTime(value?: string | null): string {
   if (!value) {
     return "-";
@@ -19,6 +39,9 @@ export function formatNumber(value: unknown, maximumFractionDigits = 4): string 
 }
 
 export function formatLabel(value: string): string {
+  if (Object.prototype.hasOwnProperty.call(OBSERVABLE_LABEL_MAP, value)) {
+    return OBSERVABLE_LABEL_MAP[value];
+  }
   return value
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

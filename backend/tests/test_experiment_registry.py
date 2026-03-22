@@ -821,3 +821,55 @@ def test_parent_artifact_state_tracks_child_run_state_updates(tmp_path, sample_c
     repository.update_status(run_b.run_id, RunState.FAILED, error="benchmark mismatch")
     assert repository.get_job_group(group.group_id).state == ArtifactLifecycleState.FAILED
     assert repository.get_sweep(sweep.sweep_id).state == ArtifactLifecycleState.FAILED
+
+
+def test_parent_artifact_state_treats_succeeded_with_warnings_as_succeeded(tmp_path, sample_config):
+    runs_dir = tmp_path / "runs"
+    storage = FileRunStorage(runs_dir)
+    registry = ExperimentRegistry(tmp_path / "experiment-registry.sqlite")
+    repository = ExperimentRepository(storage=storage, registry=registry)
+
+    study = repository.create_study(
+        StudyCreate(
+            title="Parent state warning aggregation",
+            question="Do parent artifacts remain succeeded when children are succeeded_with_warnings?",
+            baseline_preset_id="square-4x4-baseline",
+            target_observables=["density"],
+            primary_surfaces=["compare-jobs", "parameter-sweep"],
+            acceptance_checks=["succeeded_with_warnings is normalized for parent lifecycle state"],
+            status="planning",
+            notes_on_scope="Workflow-only regression.",
+        )
+    )
+    run_a = repository.create_run(SimulationConfig.model_validate(sample_config))
+    run_b = repository.create_run(SimulationConfig.model_validate({**sample_config, "name": "warning-variant"}))
+
+    group = repository.create_job_group(
+        JobGroupCreate(
+            study_id=study.study_id,
+            name="warning compare",
+            comparison_kind=ComparisonKind.REGRESSION,
+            baseline_run_id=run_a.run_id,
+            base_config=sample_config,
+            child_run_ids=[run_a.run_id, run_b.run_id],
+        )
+    )
+    sweep = repository.create_sweep(
+        SweepCreate(
+            study_id=study.study_id,
+            name="warning dt sweep",
+            parameter_kind="numerical",
+            parameter_path="time.dt",
+            parameter_label="dt",
+            values=[0.1, 0.2],
+            baseline_value=0.1,
+            fixed_axes={"solver": "noninteracting"},
+            child_run_ids=[run_a.run_id, run_b.run_id],
+        )
+    )
+
+    repository.update_status(run_a.run_id, RunState.SUCCEEDED_WITH_WARNINGS, message="run a warning")
+    repository.update_status(run_b.run_id, RunState.SUCCEEDED, message="run b done")
+
+    assert repository.get_job_group(group.group_id).state == ArtifactLifecycleState.SUCCEEDED
+    assert repository.get_sweep(sweep.sweep_id).state == ArtifactLifecycleState.SUCCEEDED

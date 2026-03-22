@@ -8,11 +8,22 @@ type DerivedAnalysisPanelProps = {
   result: DerivedAnalysisResultRecord | null;
   onLaunch: () => void;
   disabled?: boolean;
+  unavailableReason?: string | null;
   children?: (result: DerivedAnalysisResultRecord) => ReactNode;
 };
 
 export function DerivedAnalysisPanel(props: DerivedAnalysisPanelProps) {
-  const { title, status, error, result, onLaunch, disabled, children } = props;
+  const { title, status, error, result, onLaunch, disabled, unavailableReason, children } = props;
+  const launchBlocked = Boolean(unavailableReason);
+  const buttonLabel = launchBlocked
+    ? "Unavailable"
+    : status === "idle"
+      ? "Compute"
+      : status === "succeeded"
+        ? "Recompute"
+        : status === "failed"
+          ? "Retry"
+          : "Computing…";
 
   return (
     <section className="panel">
@@ -25,12 +36,13 @@ export function DerivedAnalysisPanel(props: DerivedAnalysisPanelProps) {
           type="button"
           className="ghost-button"
           onClick={onLaunch}
-          disabled={disabled || status === "launching" || status === "polling"}
+          disabled={disabled || launchBlocked || status === "launching" || status === "polling"}
         >
-          {status === "idle" ? "Compute" : status === "succeeded" ? "Recompute" : "Computing…"}
+          {buttonLabel}
         </button>
       </div>
 
+      {unavailableReason && <p className="state-banner state-warning">{unavailableReason}</p>}
       {error && <p className="state-banner state-error">{error}</p>}
 
       {(status === "launching" || status === "polling") && (

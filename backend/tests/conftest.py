@@ -65,6 +65,7 @@ def paired_config() -> dict:
             "seed_pairing": 0.2,
         },
         "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "adaptive": {"enabled": False},
     }
 
 

@@ -16,6 +16,7 @@ SOLVER_REGISTRY = {
 
 
 def run_simulation(config: SimulationConfig, progress_callback: ProgressCallback | None = None) -> SimulationArtifacts:
+    """Dispatch a simulation config to the solver registry and return solver artifacts."""
     solver = SOLVER_REGISTRY.get(config.solver)
     if solver is None:
         raise NotImplementedError(f"solver '{config.solver}' is not implemented")

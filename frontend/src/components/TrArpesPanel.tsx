@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import type { RunDetail } from "../api/types";
 import { useDerivedAnalysis } from "../hooks/useDerivedAnalysis";
+import { useBackendCapabilities } from "../hooks/useBackendCapabilities";
+import { normalizeTrArpesPreviewPayload } from "../lib/derivedPayload";
 import { DerivedAnalysisPanel } from "./DerivedAnalysisPanel";
 import { PlotlyChart } from "./charts/PlotlyChart";
 
@@ -12,6 +14,10 @@ type TrArpesPanelProps = {
 export function TrArpesPanel({ run, studyId }: TrArpesPanelProps) {
   const isKSpace = run?.config?.representation === "k_space";
   const runId = run?.state === "succeeded" ? (run?.run_id ?? null) : null;
+  const { capabilities } = useBackendCapabilities();
+  const capabilityBlockedReason = capabilities.supportsDerivedAnalysisRunKspace
+    ? null
+    : "Backend does not advertise k-space derived-analysis support in OpenAPI. Rebuild/restart backend to match frontend.";
 
   const [probeCenter, setProbeCenter] = useState<number | null>(null);
 
@@ -20,25 +26,20 @@ export function TrArpesPanel({ run, studyId }: TrArpesPanelProps) {
   const { status, error, result, launch } = useDerivedAnalysis(
     runId ? "run" : null,
     runId,
-    "run/tr_arpes_preview",
+    "tr_arpes_preview",
     { study_id: studyId ?? undefined, parameters: params },
   );
 
   // Auto-launch when run becomes available
   useEffect(() => {
-    if (runId && isKSpace && status === "idle") {
+    if (runId && isKSpace && !capabilityBlockedReason && status === "idle") {
       launch();
     }
-  }, [runId, isKSpace]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [runId, isKSpace, capabilityBlockedReason]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isKSpace) return null;
 
-  const payload = result?.payload as {
-    probe_centers?: number[];
-    omega?: number[];
-    intensity?: number[][];
-    probe_center_used?: number;
-  } | undefined;
+  const payload = result?.payload as { probe_center_used?: number; probe_center?: number } | undefined;
 
   const tFinal = run?.config?.time?.t_final ?? 1;
 
@@ -50,26 +51,13 @@ export function TrArpesPanel({ run, studyId }: TrArpesPanelProps) {
       result={result}
       onLaunch={launch}
       disabled={!runId}
+      unavailableReason={capabilityBlockedReason}
     >
       {(res) => {
-        const p = res.payload as {
-          probe_centers?: number[];
-          omega?: number[];
-          intensity?: number[][];
-          probe_center_used?: number;
-        };
-
-        if (!p.intensity || !p.omega || !p.probe_centers) {
+        const model = normalizeTrArpesPreviewPayload(res.payload);
+        if (!model) {
           return <p className="state-banner state-error">Unexpected payload format.</p>;
         }
-
-        const nDelay = p.probe_centers.length;
-        const nOmega = p.omega.length;
-
-        // intensity shape: [n_delay][n_omega]
-        const z: number[][] = Array.from({ length: nOmega }, (_, wi) =>
-          Array.from({ length: nDelay }, (_, di) => p.intensity![di][wi]),
-        );
 
         return (
           <>
@@ -83,7 +71,7 @@ export function TrArpesPanel({ run, studyId }: TrArpesPanelProps) {
                 step="0.1"
                 min={0}
                 max={tFinal}
-                value={probeCenter ?? p.probe_center_used ?? 0}
+                value={probeCenter ?? payload?.probe_center_used ?? payload?.probe_center ?? 0}
                 onChange={(e) => setProbeCenter(Number(e.target.value))}
                 style={{ width: "7rem" }}
               />
@@ -100,9 +88,9 @@ export function TrArpesPanel({ run, studyId }: TrArpesPanelProps) {
               data={[
                 {
                   type: "heatmap",
-                  z,
-                  x: p.probe_centers,
-                  y: p.omega,
+                  z: model.z,
+                  x: model.x,
+                  y: model.y,
                   colorscale: "Plasma",
                   showscale: true,
                   name: "I(delay, ω)",
@@ -110,8 +98,13 @@ export function TrArpesPanel({ run, studyId }: TrArpesPanelProps) {
               ]}
               layout={{
                 title: { text: "tr-ARPES I(probe delay, ω)" },
-                xaxis: { title: { text: "probe delay" } },
-                yaxis: { title: { text: "ω" } },
+                xaxis: {
+                  title: { text: model.xAxisTitle },
+                  tickmode: model.xTickVals?.length ? "array" : undefined,
+                  tickvals: model.xTickVals,
+                  ticktext: model.xTickText,
+                },
+                yaxis: { title: { text: model.yAxisTitle } },
                 height: 380,
               }}
               style={{ width: "100%" }}
@@ -123,4 +116,3 @@ export function TrArpesPanel({ run, studyId }: TrArpesPanelProps) {
     </DerivedAnalysisPanel>
   );
 }
-

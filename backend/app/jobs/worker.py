@@ -14,6 +14,7 @@ from backend.app.storage.file_storage import FileRunStorage
 
 
 def execute_run(run_id: str, config_data: dict, data_dir: str, registry_db_path: str) -> None:
+    """Execute one run lifecycle in a worker process and persist final artifacts/status."""
     storage = FileRunStorage(data_dir)
     registry = ExperimentRegistry(registry_db_path)
     repository = ExperimentRepository(storage=storage, registry=registry)

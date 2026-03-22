@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import type { RunSummary, SweepRecord } from "../api/types";
 import { useDerivedAnalysis } from "../hooks/useDerivedAnalysis";
+import { useBackendCapabilities } from "../hooks/useBackendCapabilities";
+import { normalizeSweepTrArpesHeatmapPayload } from "../lib/derivedPayload";
 import { DerivedAnalysisPanel } from "./DerivedAnalysisPanel";
 import { PlotlyChart } from "./charts/PlotlyChart";
 
@@ -13,20 +15,24 @@ type SweepResultPanelProps = {
 const TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled"]);
 
 export function SweepResultPanel({ sweep, allRuns, studyId }: SweepResultPanelProps) {
+  const { capabilities } = useBackendCapabilities();
   const sweepSucceeded = sweep?.state === "succeeded";
+  const capabilityBlockedReason = capabilities.supportsDerivedAnalysisRunKspace
+    ? null
+    : "Backend does not advertise k-space derived-analysis support in OpenAPI. Rebuild/restart backend to match frontend.";
 
   const { status, error, result, launch } = useDerivedAnalysis(
     sweep ? "sweep" : null,
     sweep?.sweep_id ?? null,
-    "sweep/tr_arpes_heatmap",
+    "tr_arpes_heatmap",
     { study_id: studyId ?? undefined },
   );
 
   useEffect(() => {
-    if (sweepSucceeded && status === "idle") {
+    if (sweepSucceeded && !capabilityBlockedReason && status === "idle") {
       launch();
     }
-  }, [sweepSucceeded]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sweepSucceeded, capabilityBlockedReason]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!sweep) {
     return (
@@ -91,34 +97,22 @@ export function SweepResultPanel({ sweep, allRuns, studyId }: SweepResultPanelPr
           error={error}
           result={result}
           onLaunch={launch}
+          unavailableReason={capabilityBlockedReason}
         >
           {(res) => {
-            const payload = res.payload as {
-              parameter_values?: (string | number | boolean)[];
-              omega?: number[];
-              heatmap?: number[][];
-            };
-
-            if (!payload.heatmap || !payload.omega || !payload.parameter_values) {
+            const model = normalizeSweepTrArpesHeatmapPayload(res.payload);
+            if (!model) {
               return <p className="state-banner state-error">Unexpected payload format.</p>;
             }
-
-            const nParam = payload.parameter_values.length;
-            const nOmega = payload.omega.length;
-
-            // heatmap[param_idx][omega_idx] → plotly z[omega_idx][param_idx]
-            const z: number[][] = Array.from({ length: nOmega }, (_, wi) =>
-              Array.from({ length: nParam }, (_, pi) => payload.heatmap![pi][wi]),
-            );
 
             return (
               <PlotlyChart
                 data={[
                   {
                     type: "heatmap",
-                    z,
-                    x: payload.parameter_values.map(String),
-                    y: payload.omega,
+                    z: model.z,
+                    x: model.x,
+                    y: model.y,
                     colorscale: "Plasma",
                     showscale: true,
                     name: "tr-ARPES",
@@ -127,7 +121,7 @@ export function SweepResultPanel({ sweep, allRuns, studyId }: SweepResultPanelPr
                 layout={{
                   title: { text: `tr-ARPES vs ${sweep.parameter_label}` },
                   xaxis: { title: { text: sweep.parameter_label } },
-                  yaxis: { title: { text: "ω" } },
+                  yaxis: { title: { text: model.yAxisTitle } },
                   height: 400,
                 }}
                 style={{ width: "100%" }}

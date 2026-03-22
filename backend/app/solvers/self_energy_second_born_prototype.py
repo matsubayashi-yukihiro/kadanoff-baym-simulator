@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,6 +34,7 @@ from backend.app.jobs.progress import SolverProgressUpdate
 
 PROTOTYPE_IMPLEMENTATION_KIND = "heuristic_prototype"
 FACTORIZED_IMPLEMENTATION_KIND = "factorized_hfb"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -51,9 +53,21 @@ def apply_second_born_corrections(
     mixed_branch: MixedBranchContainer | None,
     progress_callback: ProgressCallback | None = None,
 ) -> SecondBornCorrectionResult:
+    """Apply heuristic prototype second-Born corrections on top of HFB two-time data."""
     onsite_strength = abs(config.interaction.onsite_u)
     sample_count = len(dynamics.times)
-    if sample_count <= 1 or onsite_strength <= 1e-12:
+    second_born_fallback_reason = _second_born_hfb_limit_reason(
+        sample_count=sample_count,
+        onsite_strength=onsite_strength,
+    )
+    if second_born_fallback_reason is not None:
+        _log_second_born_fallback(
+            branch="real_time_prototype",
+            reason=second_born_fallback_reason,
+            warn=True,
+            sample_count=sample_count,
+            onsite_strength=onsite_strength,
+        )
         diagnostics = _base_second_born_diagnostics(
             sample_count=sample_count,
             memory_window=config.kbe.memory_window,
@@ -63,6 +77,7 @@ def apply_second_born_corrections(
                 "second_born_contour_terms_included": False,
                 "second_born_contour_mode": "hfb_limit",
                 "second_born_solver_mode": "hfb_limit",
+                "second_born_applied_fallback": second_born_fallback_reason,
             }
         )
         return SecondBornCorrectionResult(
@@ -341,6 +356,7 @@ def build_matsubara_branch(
     dynamics: HFBDynamicsResult,
     progress_callback: ProgressCallback | None = None,
 ) -> MatsubaraBranchBuildResult:
+    """Build prototype Matsubara branch data used by legacy second-Born contour dressing."""
     factorized_branch = _build_factorized_matsubara_branch(config, dynamics)
     if factorized_branch is None:
         return MatsubaraBranchBuildResult(
@@ -353,11 +369,23 @@ def build_matsubara_branch(
                 "thermal_branch_factorized_difference": 0.0,
                 "thermal_branch_reference_implementation": False,
                 "thermal_branch_implementation_kind": "disabled",
+                "thermal_branch_applied_fallback": None,
             },
         )
 
     onsite_strength = abs(config.interaction.onsite_u)
     if config.kbe.self_energy != KBESelfEnergyMode.SECOND_BORN or onsite_strength <= 1e-12:
+        fallback_reason = (
+            "second_born_mode_not_selected"
+            if config.kbe.self_energy != KBESelfEnergyMode.SECOND_BORN
+            else "hfb_limit_onsite_u_zero"
+        )
+        _log_second_born_fallback(
+            branch="matsubara_prototype",
+            reason=fallback_reason,
+            warn=config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN,
+            onsite_strength=onsite_strength,
+        )
         return MatsubaraBranchBuildResult(
             branch=factorized_branch,
             factorized_branch=factorized_branch,
@@ -372,6 +400,7 @@ def build_matsubara_branch(
                 memory_norm_history=[0.0],
                 order_history=[1],
                 implementation_kind=FACTORIZED_IMPLEMENTATION_KIND,
+                fallback_reason=fallback_reason,
             ),
         )
 
@@ -474,6 +503,7 @@ def build_matsubara_branch(
             memory_norm_history=memory_norm_history,
             order_history=order_history,
             implementation_kind=PROTOTYPE_IMPLEMENTATION_KIND,
+            fallback_reason=None,
         ),
     )
 
@@ -494,6 +524,7 @@ def build_mixed_branch(
     factorized_branch: MixedBranchContainer | None,
     progress_callback: ProgressCallback | None = None,
 ) -> MixedBranchBuildResult:
+    """Build prototype mixed-branch Green-function data for legacy second-Born mode."""
     if matsubara_branch is None:
         return MixedBranchBuildResult(
             branch=None,
@@ -503,6 +534,7 @@ def build_mixed_branch(
                 "mixed_branch_factorized_difference": 0.0,
                 "mixed_branch_reference_implementation": False,
                 "mixed_branch_implementation_kind": "disabled",
+                "mixed_branch_applied_fallback": None,
             },
         )
 
@@ -517,11 +549,23 @@ def build_mixed_branch(
                 "mixed_branch_factorized_difference": 0.0,
                 "mixed_branch_reference_implementation": False,
                 "mixed_branch_implementation_kind": "disabled",
+                "mixed_branch_applied_fallback": None,
             },
         )
 
     onsite_strength = abs(config.interaction.onsite_u)
     if config.kbe.self_energy != KBESelfEnergyMode.SECOND_BORN or onsite_strength <= 1e-12:
+        fallback_reason = (
+            "second_born_mode_not_selected"
+            if config.kbe.self_energy != KBESelfEnergyMode.SECOND_BORN
+            else "hfb_limit_onsite_u_zero"
+        )
+        _log_second_born_fallback(
+            branch="mixed_prototype",
+            reason=fallback_reason,
+            warn=config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN,
+            onsite_strength=onsite_strength,
+        )
         return MixedBranchBuildResult(
             branch=factorized_branch,
             factorized_branch=factorized_branch,
@@ -530,6 +574,7 @@ def build_mixed_branch(
                 mixed_branch=factorized_branch,
                 factorized_branch=factorized_branch,
                 implementation_kind=FACTORIZED_IMPLEMENTATION_KIND,
+                fallback_reason=fallback_reason,
             ),
         )
 
@@ -599,6 +644,7 @@ def build_mixed_branch(
         mixed_branch=branch,
         factorized_branch=factorized_branch,
         implementation_kind=PROTOTYPE_IMPLEMENTATION_KIND,
+        fallback_reason=None,
     )
     diagnostics["mixed_branch_memory_norm_history"] = memory_norm_history
     diagnostics["max_mixed_branch_memory_norm"] = float(max(memory_norm_history)) if memory_norm_history else 0.0
@@ -637,6 +683,9 @@ def _base_second_born_diagnostics(*, sample_count: int, memory_window: int | Non
     return {
         "second_born_enabled": True,
         "second_born_converged": True,
+        "second_born_applied_fallback": None,
+        "thermal_branch_applied_fallback": None,
+        "mixed_branch_applied_fallback": None,
         "second_born_iteration_history": [1] * zero_history_length,
         "second_born_residual_history": [0.0] * zero_history_length,
         "second_born_memory_norm_history": [0.0] * zero_history_length,
@@ -688,6 +737,7 @@ def _matsubara_diagnostics(
     memory_norm_history: list[float],
     order_history: list[int],
     implementation_kind: str,
+    fallback_reason: str | None,
 ) -> dict[str, Any]:
     if matsubara_branch is None:
         return {
@@ -697,6 +747,7 @@ def _matsubara_diagnostics(
             "thermal_branch_factorized_difference": 0.0,
             "thermal_branch_reference_implementation": False,
             "thermal_branch_implementation_kind": "disabled",
+            "thermal_branch_applied_fallback": None,
         }
 
     density_reference = thermal_branch_density_reference(matsubara_branch)
@@ -733,6 +784,7 @@ def _matsubara_diagnostics(
         "thermal_branch_density_shift": density_shift,
         "thermal_branch_reference_implementation": False,
         "thermal_branch_implementation_kind": implementation_kind,
+        "thermal_branch_applied_fallback": fallback_reason,
     }
 
 
@@ -742,6 +794,7 @@ def _mixed_branch_diagnostics(
     mixed_branch: MixedBranchContainer | None,
     factorized_branch: MixedBranchContainer | None,
     implementation_kind: str,
+    fallback_reason: str | None,
 ) -> dict[str, Any]:
     if matsubara_branch is None or mixed_branch is None:
         return {
@@ -749,6 +802,7 @@ def _mixed_branch_diagnostics(
             "mixed_branch_factorized_difference": 0.0,
             "mixed_branch_reference_implementation": False,
             "mixed_branch_implementation_kind": "disabled",
+            "mixed_branch_applied_fallback": None,
         }
 
     right_initial_target = -1j * matsubara_branch.green
@@ -779,4 +833,32 @@ def _mixed_branch_diagnostics(
         "mixed_branch_factorized_difference": max(right_factorized_difference, left_factorized_difference),
         "mixed_branch_reference_implementation": False,
         "mixed_branch_implementation_kind": implementation_kind,
+        "mixed_branch_applied_fallback": fallback_reason,
     }
+
+
+def _second_born_hfb_limit_reason(*, sample_count: int, onsite_strength: float) -> str | None:
+    if sample_count <= 1:
+        return "hfb_limit_single_sample"
+    if onsite_strength <= 1e-12:
+        return "hfb_limit_onsite_u_zero"
+    return None
+
+
+def _log_second_born_fallback(
+    *,
+    branch: str,
+    reason: str,
+    warn: bool,
+    sample_count: int | None = None,
+    onsite_strength: float | None = None,
+) -> None:
+    if not warn:
+        return
+    logger.warning(
+        "Applying second-Born fallback in %s: reason=%s, sample_count=%s, onsite_strength=%s",
+        branch,
+        reason,
+        "n/a" if sample_count is None else str(sample_count),
+        "n/a" if onsite_strength is None else f"{onsite_strength:.3e}",
+    )

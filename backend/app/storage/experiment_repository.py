@@ -182,9 +182,15 @@ class ExperimentRepository:
         return self.registry.get_decision_note(note_id)
 
     def create_derived_analysis(self, payload: DerivedAnalysisArtifactCreate) -> DerivedAnalysisArtifactRecord:
-        return self.registry.create_derived_analysis(payload)
+        resolved = payload
+        if payload.study_id == "__none__":
+            resolved = payload.model_copy(update={"study_id": self._resolve_placeholder_study_id()})
+        return self.registry.create_derived_analysis(resolved)
 
     def launch_derived_analysis(self, payload: DerivedAnalysisLaunchRequest) -> DerivedAnalysisArtifactRecord:
+        if payload.study_id == "__none__":
+            payload = payload.model_copy(update={"study_id": self._resolve_placeholder_study_id()})
+
         cached = self._find_cached_derived_analysis(payload)
         if cached is not None and cached.data_refs:
             try:
@@ -223,6 +229,25 @@ class ExperimentRepository:
                 }
             )
         )
+
+    def _resolve_placeholder_study_id(self) -> str:
+        marker = "auto-generated workspace for unlinked artifact launches"
+        for study in self.registry.list_studies():
+            if (study.notes_on_scope or "").strip().lower() == marker:
+                return study.study_id
+        created = self.registry.create_study(
+            StudyCreate(
+                title="Auto Workspace",
+                question="Workspace study for launches that do not bind to an explicit run-linked study.",
+                baseline_preset_id=None,
+                target_observables=[],
+                primary_surfaces=["single-job"],
+                acceptance_checks=[],
+                status="planning",
+                notes_on_scope=marker,
+            )
+        )
+        return created.study_id
 
     def list_derived_analyses(
         self,
@@ -535,7 +560,14 @@ class ExperimentRepository:
         self,
         payload: DerivedAnalysisLaunchRequest,
     ) -> tuple[dict[str, object], str, dict[str, object]]:
-        if payload.source_kind == DerivedAnalysisSourceKind.RUN and payload.analysis_type == "fft_preview":
+        # Normalize compound key format: strip "{source_kind}/" prefix if present.
+        # The frontend sends e.g. "run/k_spectral_preview"; backend checks use "k_spectral_preview".
+        analysis_type = payload.analysis_type
+        _prefix = payload.source_kind.value + "/"
+        if analysis_type.startswith(_prefix):
+            analysis_type = analysis_type[len(_prefix):]
+
+        if payload.source_kind == DerivedAnalysisSourceKind.RUN and analysis_type == "fft_preview":
             observable_name = str(payload.parameters.get("observable") or "")
             if not observable_name:
                 raise ValueError("derived-analysis launch requires parameters.observable")
@@ -554,7 +586,7 @@ class ExperimentRepository:
                 },
             )
 
-        if payload.source_kind == DerivedAnalysisSourceKind.JOB_GROUP and payload.analysis_type == "fft_compare":
+        if payload.source_kind == DerivedAnalysisSourceKind.JOB_GROUP and analysis_type == "fft_compare":
             observable_name = str(payload.parameters.get("observable") or "")
             if not observable_name:
                 raise ValueError("derived-analysis launch requires parameters.observable")
@@ -577,7 +609,7 @@ class ExperimentRepository:
                 },
             )
 
-        if payload.source_kind == DerivedAnalysisSourceKind.SWEEP and payload.analysis_type == "fft_heatmap":
+        if payload.source_kind == DerivedAnalysisSourceKind.SWEEP and analysis_type == "fft_heatmap":
             observable_name = str(payload.parameters.get("observable") or "")
             if not observable_name:
                 raise ValueError("derived-analysis launch requires parameters.observable")
@@ -602,7 +634,7 @@ class ExperimentRepository:
                 },
             )
 
-        if payload.source_kind == DerivedAnalysisSourceKind.RUN and payload.analysis_type in {
+        if payload.source_kind == DerivedAnalysisSourceKind.RUN and analysis_type in {
             "k_spectral_preview",
             "tr_arpes_preview",
         }:
@@ -610,7 +642,7 @@ class ExperimentRepository:
                 self.storage,
                 self.storage.read_config(payload.source_id),
                 payload.source_id,
-                analysis_type=payload.analysis_type,
+                analysis_type=analysis_type,
                 parameters=payload.parameters,
             )
             return (
@@ -628,7 +660,7 @@ class ExperimentRepository:
                 },
             )
 
-        if payload.source_kind == DerivedAnalysisSourceKind.JOB_GROUP and payload.analysis_type == "k_spectral_compare":
+        if payload.source_kind == DerivedAnalysisSourceKind.JOB_GROUP and analysis_type == "k_spectral_compare":
             group = self.get_job_group(payload.source_id)
             compare_payload = _build_job_group_k_spectral_compare_payload(
                 self.storage,
@@ -648,7 +680,7 @@ class ExperimentRepository:
                 },
             )
 
-        if payload.source_kind == DerivedAnalysisSourceKind.SWEEP and payload.analysis_type == "tr_arpes_heatmap":
+        if payload.source_kind == DerivedAnalysisSourceKind.SWEEP and analysis_type == "tr_arpes_heatmap":
             sweep = self.get_sweep(payload.source_id)
             heatmap_payload = _build_sweep_tr_arpes_heatmap_payload(
                 self.storage,

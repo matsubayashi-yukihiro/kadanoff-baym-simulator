@@ -2,6 +2,7 @@ import pytest
 import numpy as np
 
 from backend.app.schemas import SimulationConfig
+from backend.app.solvers import kbe_hfb as kbe_hfb_solver
 from backend.app.solvers.kbe_hfb import solve as solve_kbe_hfb
 from backend.app.solvers.self_energy_second_born import (
     _build_gkba_row_data,
@@ -156,6 +157,7 @@ def test_second_born_convergence_criterion_key_in_diagnostics():
             "interaction": {"onsite_u": -1.0, "nearest_neighbor_v": 0.0, "pairing_channel": "none"},
             "initial_state": {"filling": 0.5, "temperature": 0.1, "seed_pairing": 0.0},
             "kbe": {"self_energy": "second_born_reference", "max_fixed_point_iterations": 5, "tolerance": 1e-6},
+            "adaptive": {"enabled": False},
             "observables": ["density"],
         }
     )
@@ -163,3 +165,99 @@ def test_second_born_convergence_criterion_key_in_diagnostics():
 
     assert "second_born_convergence_criterion" in artifacts.diagnostics
     assert artifacts.diagnostics["second_born_convergence_criterion"] in ("strict", "relaxed_5x")
+
+
+def _fallback_probe_config(*, mode: str) -> SimulationConfig:
+    return SimulationConfig.model_validate(
+        {
+            "solver": "kbe_hfb",
+            "lattice": {
+                "nx": 2,
+                "ny": 2,
+                "boundary": "periodic",
+                "hopping": 1.0,
+                "chemical_potential": 0.0,
+            },
+            "time": {"t_final": 0.1, "dt": 0.1},
+            "drive": {"amplitude_x": 0.0, "amplitude_y": 0.0, "frequency": 0.0, "center": 0.0, "width": 1.0},
+            "interaction": {"onsite_u": 0.0, "nearest_neighbor_v": 0.0, "pairing_channel": "none"},
+            "initial_state": {"filling": 0.5, "temperature": 0.1, "seed_pairing": 0.0},
+            "kbe": {"self_energy": mode, "max_fixed_point_iterations": 4, "tolerance": 1e-7},
+            "thermal_branch": {"enabled": True, "n_tau": 6, "max_iterations": 2, "mixing": 0.3},
+            "adaptive": {"enabled": False},
+            "observables": ["density", "energy"],
+        }
+    )
+
+
+def test_reference_second_born_fallback_diagnostics_and_warning(caplog):
+    config = _fallback_probe_config(mode="second_born_reference")
+    with caplog.at_level("WARNING"):
+        artifacts = solve_kbe_hfb(config)
+
+    diagnostics = artifacts.diagnostics
+    assert diagnostics["second_born_applied_fallback"] == "hfb_limit_onsite_u_zero"
+    assert diagnostics["thermal_branch_applied_fallback"] == "hfb_limit_onsite_u_zero"
+    assert diagnostics["mixed_branch_applied_fallback"] == "hfb_limit_onsite_u_zero"
+    assert any(
+        "real_time_reference" in record.getMessage() and "hfb_limit_onsite_u_zero" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_prototype_second_born_fallback_diagnostics_and_warning(caplog):
+    config = _fallback_probe_config(mode="second_born")
+    with caplog.at_level("WARNING"):
+        artifacts = solve_kbe_hfb(config)
+
+    diagnostics = artifacts.diagnostics
+    assert diagnostics["second_born_applied_fallback"] == "hfb_limit_onsite_u_zero"
+    assert diagnostics["thermal_branch_applied_fallback"] == "hfb_limit_onsite_u_zero"
+    assert diagnostics["mixed_branch_applied_fallback"] == "hfb_limit_onsite_u_zero"
+    assert any(
+        "real_time_prototype" in record.getMessage() and "hfb_limit_onsite_u_zero" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_kbe_solver_raises_runtime_error_when_green_function_reference_missing(monkeypatch):
+    config = SimulationConfig.model_validate(
+        {
+            "solver": "kbe_hfb",
+            "lattice": {"nx": 2, "ny": 2, "boundary": "periodic", "hopping": 1.0, "chemical_potential": 0.0},
+            "time": {"t_final": 0.1, "dt": 0.1},
+            "drive": {"amplitude_x": 0.0, "amplitude_y": 0.0, "frequency": 0.0, "center": 0.0, "width": 1.0},
+            "interaction": {"onsite_u": -1.0, "nearest_neighbor_v": 0.0, "pairing_channel": "none"},
+            "initial_state": {"filling": 0.5, "temperature": 0.1, "seed_pairing": 0.0},
+            "adaptive": {"enabled": False},
+            "observables": ["density"],
+        }
+    )
+
+    def _fake_second_born_path(**kwargs):
+        dynamics = kwargs["dynamics"]
+        return dynamics.generalized_densities, dynamics.observables, {}, None, None
+
+    monkeypatch.setattr(kbe_hfb_solver, "_solve_second_born_path", _fake_second_born_path)
+    with pytest.raises(RuntimeError, match="green_function_reference is None"):
+        kbe_hfb_solver.solve(config)
+
+
+def test_kbe_solver_raises_runtime_error_when_hfb_green_functions_missing(monkeypatch):
+    config = SimulationConfig.model_validate(
+        {
+            "solver": "kbe_hfb",
+            "lattice": {"nx": 2, "ny": 2, "boundary": "periodic", "hopping": 1.0, "chemical_potential": 0.0},
+            "time": {"t_final": 0.1, "dt": 0.1},
+            "drive": {"amplitude_x": 0.0, "amplitude_y": 0.0, "frequency": 0.0, "center": 0.0, "width": 1.0},
+            "interaction": {"onsite_u": -1.0, "nearest_neighbor_v": 0.0, "pairing_channel": "none"},
+            "initial_state": {"filling": 0.5, "temperature": 0.1, "seed_pairing": 0.0},
+            "kbe": {"self_energy": "second_born"},
+            "adaptive": {"enabled": False},
+            "observables": ["density"],
+        }
+    )
+
+    monkeypatch.setattr(kbe_hfb_solver, "_build_hfb_green_functions", lambda *_args, **_kwargs: None)
+    with pytest.raises(RuntimeError, match="self_energy=second_born"):
+        kbe_hfb_solver.solve(config)

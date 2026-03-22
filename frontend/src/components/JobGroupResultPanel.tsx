@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import type { JobGroupRecord, RunSummary } from "../api/types";
 import { useDerivedAnalysis } from "../hooks/useDerivedAnalysis";
+import { useBackendCapabilities } from "../hooks/useBackendCapabilities";
 import { DerivedAnalysisPanel } from "./DerivedAnalysisPanel";
 import { PlotlyChart, SERIES_COLORS } from "./charts/PlotlyChart";
 
@@ -13,6 +14,7 @@ type JobGroupResultPanelProps = {
 const TERMINAL_STATES = new Set(["succeeded", "failed", "cancelled"]);
 
 export function JobGroupResultPanel({ group, allRuns, studyId }: JobGroupResultPanelProps) {
+  const { capabilities } = useBackendCapabilities();
   const groupSucceeded = group?.state === "succeeded";
   const isKSpace = group?.variants?.some((v) => {
     if (!v.run_id) return false;
@@ -23,16 +25,20 @@ export function JobGroupResultPanel({ group, allRuns, studyId }: JobGroupResultP
   const { status, error, result, launch } = useDerivedAnalysis(
     group ? "job_group" : null,
     group?.group_id ?? null,
-    "job_group/k_spectral_compare",
+    "k_spectral_compare",
     { study_id: studyId ?? undefined },
   );
 
   // Auto-launch when group succeeds and k-space applies
+  const capabilityBlockedReason = capabilities.supportsDerivedAnalysisRunKspace
+    ? null
+    : "Backend does not advertise k-space derived-analysis support in OpenAPI. Rebuild/restart backend to match frontend.";
+
   useEffect(() => {
-    if (groupSucceeded && isKSpace && status === "idle") {
+    if (groupSucceeded && isKSpace && !capabilityBlockedReason && status === "idle") {
       launch();
     }
-  }, [groupSucceeded, isKSpace]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [groupSucceeded, isKSpace, capabilityBlockedReason]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!group) {
     return (
@@ -117,6 +123,7 @@ export function JobGroupResultPanel({ group, allRuns, studyId }: JobGroupResultP
           error={error}
           result={result}
           onLaunch={launch}
+          unavailableReason={capabilityBlockedReason}
         >
           {(res) => {
             const payload = res.payload as {
