@@ -4,6 +4,7 @@ import os
 import signal
 import time
 from copy import deepcopy
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import ValidationError
@@ -23,6 +24,8 @@ from backend.app.schemas import (
     EvidenceBundleRecord,
     GreenFunctionCatalogResponse,
     GreenFunctionSliceResponse,
+    KSpaceNativeCatalogResponse,
+    KSpaceNativeLesserSliceResponse,
     JobGroupCreate,
     JobGroupLaunchRequest,
     JobGroupRecord,
@@ -47,6 +50,15 @@ from backend.app.schemas import (
 )
 from backend.app.schemas.simulation import PresetCategory, PresetEntry, PresetValidationStatus
 from backend.app.storage.experiment_repository import ExperimentRepository
+
+
+RUN_LIVENESS_STALE_SECONDS = 15.0
+
+
+class ArtifactContractConflictError(ValueError):
+    def __init__(self, detail: dict[str, Any]) -> None:
+        self.detail = detail
+        super().__init__(str(detail.get("message", "artifact contract conflict")))
 
 
 def build_default_preset() -> PresetEntry:
@@ -277,14 +289,26 @@ class RunService:
         return self.get_run(summary.run_id)
 
     def list_runs(self) -> list[RunSummary]:
-        return self.repository.list_runs()
+        summaries = self.repository.list_runs()
+        reconciled = False
+        for summary in summaries:
+            if summary.state != RunState.RUNNING:
+                continue
+            reconciled = self._reconcile_run_liveness(summary.run_id) or reconciled
+        return self.repository.list_runs() if reconciled else summaries
 
     def get_run(self, run_id: str) -> RunDetail:
+        self._reconcile_run_liveness(run_id)
         return self.repository.read_run_detail(run_id)
 
     def cancel_run(self, run_id: str) -> RunDetail:
         status = self.repository.storage.read_status(run_id)
-        if status.state in {RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED}:
+        if status.state in {
+            RunState.SUCCEEDED,
+            RunState.SUCCEEDED_WITH_WARNINGS,
+            RunState.FAILED,
+            RunState.CANCELLED,
+        }:
             return self.get_run(run_id)
 
         cancelled = self.runner.cancel(run_id)
@@ -295,6 +319,7 @@ class RunService:
         return self.get_run(run_id)
 
     def get_run_progress(self, run_id: str) -> RunProgressRecord:
+        self._reconcile_run_liveness(run_id)
         return self.repository.read_run_progress(run_id)
 
     def read_log(self, run_id: str) -> str:
@@ -311,6 +336,7 @@ class RunService:
         return self.repository.storage.read_observable(run_id, name)
 
     def list_green_functions(self, run_id: str) -> GreenFunctionCatalogResponse:
+        self._assert_full_matrix_artifacts_enabled(run_id)
         return self.repository.storage.read_green_function_catalog(run_id)
 
     def get_green_function_slice(
@@ -325,6 +351,7 @@ class RunService:
         nambu_start: int | None = None,
         nambu_stop: int | None = None,
     ) -> GreenFunctionSliceResponse:
+        self._assert_full_matrix_artifacts_enabled(run_id)
         return self.repository.storage.read_green_function_slice(
             run_id,
             component,
@@ -337,6 +364,7 @@ class RunService:
         )
 
     def list_thermal_branch(self, run_id: str) -> ThermalBranchCatalogResponse:
+        self._assert_full_matrix_artifacts_enabled(run_id)
         return self.repository.storage.read_thermal_branch_catalog(run_id)
 
     def get_thermal_branch_slice(
@@ -349,6 +377,7 @@ class RunService:
         nambu_start: int | None = None,
         nambu_stop: int | None = None,
     ) -> ThermalBranchSliceResponse:
+        self._assert_full_matrix_artifacts_enabled(run_id)
         return self.repository.storage.read_thermal_branch_slice(
             run_id,
             component,
@@ -359,6 +388,7 @@ class RunService:
         )
 
     def list_mixed_green_functions(self, run_id: str) -> MixedGreenFunctionCatalogResponse:
+        self._assert_full_matrix_artifacts_enabled(run_id)
         return self.repository.storage.read_mixed_green_function_catalog(run_id)
 
     def get_mixed_green_function_slice(
@@ -373,6 +403,7 @@ class RunService:
         nambu_start: int | None = None,
         nambu_stop: int | None = None,
     ) -> MixedGreenFunctionSliceResponse:
+        self._assert_full_matrix_artifacts_enabled(run_id)
         return self.repository.storage.read_mixed_green_function_slice(
             run_id,
             component,
@@ -383,6 +414,87 @@ class RunService:
             nambu_start=nambu_start,
             nambu_stop=nambu_stop,
         )
+
+    def get_kspace_native_catalog(self, run_id: str) -> KSpaceNativeCatalogResponse:
+        config = self.repository.storage.read_config(run_id)
+        if config.representation.value != "k_space":
+            raise ValueError("kspace native catalog is only available for representation='k_space'")
+        return self.repository.storage.read_kspace_native_catalog(run_id)
+
+    def get_kspace_native_lesser_slice(
+        self,
+        run_id: str,
+        *,
+        row_start: int | None = None,
+        row_stop: int | None = None,
+        col_start: int | None = None,
+        col_stop: int | None = None,
+        k_start: int | None = None,
+        k_stop: int | None = None,
+        nambu_start: int | None = None,
+        nambu_stop: int | None = None,
+    ) -> KSpaceNativeLesserSliceResponse:
+        config = self.repository.storage.read_config(run_id)
+        if config.representation.value != "k_space":
+            raise ValueError("kspace native lesser slice is only available for representation='k_space'")
+        return self.repository.storage.read_kspace_native_lesser_slice(
+            run_id,
+            row_start=row_start,
+            row_stop=row_stop,
+            col_start=col_start,
+            col_stop=col_stop,
+            k_start=k_start,
+            k_stop=k_stop,
+            nambu_start=nambu_start,
+            nambu_stop=nambu_stop,
+        )
+
+    def _assert_full_matrix_artifacts_enabled(self, run_id: str) -> None:
+        config = self.repository.storage.read_config(run_id)
+        if config.representation.value != "k_space":
+            return
+        raise ArtifactContractConflictError(
+            detail={
+                "code": "k_space_full_matrix_artifact_disabled",
+                "message": "full-matrix contour artifacts are disabled for representation='k_space'",
+                "representation": "k_space",
+                "run_id": run_id,
+                "use_endpoints": [
+                    f"/api/v1/runs/{run_id}/kspace-native/catalog",
+                    f"/api/v1/runs/{run_id}/kspace-native/lesser",
+                ],
+            }
+        )
+
+    def _reconcile_run_liveness(self, run_id: str) -> bool:
+        try:
+            status = self.repository.storage.read_status(run_id)
+        except FileNotFoundError:
+            return False
+        if status.state != RunState.RUNNING or status.pid is None:
+            return False
+        if _process_exists(status.pid):
+            return False
+        try:
+            progress = self.repository.read_run_progress(run_id)
+        except FileNotFoundError:
+            return False
+        age_seconds = (datetime.now(tz=UTC) - progress.updated_at).total_seconds()
+        if age_seconds < RUN_LIVENESS_STALE_SECONDS:
+            return False
+        reason = (
+            f"worker process {status.pid} is no longer alive and "
+            f"progress heartbeat stalled for {age_seconds:.1f}s"
+        )
+        self.repository.append_log(run_id, f"liveness reconcile: {reason}")
+        self.repository.update_status(
+            run_id,
+            RunState.FAILED,
+            message="simulation failed",
+            error=reason,
+            pid=status.pid,
+        )
+        return True
 
     def get_presets(self) -> list[PresetEntry]:
         return [

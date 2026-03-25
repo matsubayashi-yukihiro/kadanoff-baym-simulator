@@ -13,8 +13,12 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+export function isSuccessfulState(state: RunDetail["state"]): boolean {
+  return state === "succeeded" || state === "succeeded_with_warnings";
+}
+
 export function isTerminalState(state: RunDetail["state"]): boolean {
-  return state === "succeeded" || state === "failed" || state === "cancelled";
+  return isSuccessfulState(state) || state === "failed" || state === "cancelled";
 }
 
 export function toErrorMessage(error: unknown): string {

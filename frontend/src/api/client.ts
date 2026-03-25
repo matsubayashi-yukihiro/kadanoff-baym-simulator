@@ -11,6 +11,8 @@ import type {
   EvidenceBundleStatus,
   GreenFunctionCatalogResponse,
   GreenFunctionSliceResponse,
+  KSpaceNativeCatalogResponse,
+  KSpaceNativeLesserSliceResponse,
   JobGroupLaunchRequest,
   JobGroupRecord,
   MixedGreenFunctionCatalogResponse,
@@ -38,11 +40,13 @@ const OPENAPI_URL = `${API_ROOT.replace(/\/api\/v1$/, "")}/openapi.json`;
 
 export type BackendCapabilities = {
   supportsEquilibriumPayload: boolean;
+  supportsDerivedAnalysisLaunch: boolean;
   supportsDerivedAnalysisRunKspace: boolean;
 };
 
 const DEFAULT_BACKEND_CAPABILITIES: BackendCapabilities = {
   supportsEquilibriumPayload: true,
+  supportsDerivedAnalysisLaunch: true,
   supportsDerivedAnalysisRunKspace: true,
 };
 
@@ -101,6 +105,7 @@ function parseBackendCapabilities(spec: unknown): BackendCapabilities {
   const supportsDerivedLaunchEndpoint = "/api/v1/derived-analyses/launch" in (root.paths ?? {});
   return {
     supportsEquilibriumPayload,
+    supportsDerivedAnalysisLaunch: supportsDerivedLaunchEndpoint,
     supportsDerivedAnalysisRunKspace: supportsDerivedLaunchEndpoint && supportsEquilibriumPayload,
   };
 }
@@ -132,6 +137,14 @@ function extractErrorMessage(payload: unknown, fallback: string): string {
     const detail = payload.detail;
     if (typeof detail === "string") {
       return detail;
+    }
+    if (detail && typeof detail === "object") {
+      if ("message" in detail && typeof detail.message === "string") {
+        if ("code" in detail && typeof detail.code === "string") {
+          return `${detail.message} (${detail.code})`;
+        }
+        return detail.message;
+      }
     }
     if (Array.isArray(detail)) {
       return detail
@@ -291,6 +304,29 @@ export function getObservable(runId: string, name: string): Promise<ObservableRe
 
 export function listGreenFunctions(runId: string): Promise<GreenFunctionCatalogResponse> {
   return request<GreenFunctionCatalogResponse>(`/runs/${runId}/green-functions`);
+}
+
+export function getKSpaceNativeCatalog(runId: string): Promise<KSpaceNativeCatalogResponse> {
+  return request<KSpaceNativeCatalogResponse>(`/runs/${runId}/kspace-native/catalog`);
+}
+
+export function getKSpaceNativeLesserSlice(
+  runId: string,
+  params: {
+    row_start: number;
+    row_stop: number;
+    col_start: number;
+    col_stop: number;
+    k_start: number;
+    k_stop: number;
+    nambu_start: number;
+    nambu_stop: number;
+  },
+): Promise<KSpaceNativeLesserSliceResponse> {
+  const searchParams = new URLSearchParams(
+    Object.entries(params).map(([key, value]) => [key, String(value)]),
+  );
+  return request<KSpaceNativeLesserSliceResponse>(`/runs/${runId}/kspace-native/lesser?${searchParams.toString()}`);
 }
 
 export function getGreenFunctionSlice(

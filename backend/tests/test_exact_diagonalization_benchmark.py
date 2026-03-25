@@ -296,6 +296,22 @@ def _second_born_reference_thermal_branch_config() -> SimulationConfig:
     )
 
 
+def _second_born_reference_k_space_thermal_branch_config(
+    *,
+    dt: float = 0.05,
+    t_final: float = 0.3,
+    adaptive: dict[str, float | bool] | None = None,
+) -> SimulationConfig:
+    payload = {
+        **_second_born_reference_thermal_branch_config().model_dump(mode="json"),
+        "representation": "k_space",
+        "time": {"t_final": t_final, "dt": dt},
+    }
+    if adaptive is not None:
+        payload["adaptive"] = adaptive
+    return SimulationConfig.model_validate(payload)
+
+
 def _observable_trajectory(artifacts, observable_name: str, *, label: str, series_index: int = 0):
     observable = artifacts.observables[observable_name]
     return build_benchmark_trajectory(
@@ -708,12 +724,7 @@ def test_second_born_reference_thermal_branch_remains_close_to_exact_density_ben
 
 
 def test_second_born_reference_k_space_thermal_branch_remains_close_to_exact_density_benchmark():
-    config = SimulationConfig.model_validate(
-        {
-            **_second_born_reference_thermal_branch_config().model_dump(mode="json"),
-            "representation": "k_space",
-        }
-    )
+    config = _second_born_reference_k_space_thermal_branch_config()
 
     exact = run_exact_diagonalization_benchmark(config, integration_dt=0.01)
     reference = solve_kbe_hfb(config)
@@ -741,13 +752,7 @@ def test_second_born_reference_k_space_thermal_branch_remains_close_to_exact_den
 
 
 def test_second_born_reference_k_space_thermal_branch_longer_window_remains_close_to_exact_density_benchmark():
-    config = SimulationConfig.model_validate(
-        {
-            **_second_born_reference_thermal_branch_config().model_dump(mode="json"),
-            "representation": "k_space",
-            "time": {"t_final": 0.3, "dt": 0.05},
-        }
-    )
+    config = _second_born_reference_k_space_thermal_branch_config(dt=0.05, t_final=0.3)
 
     exact = run_exact_diagonalization_benchmark(config, integration_dt=0.01)
     reference = solve_kbe_hfb(config)
@@ -859,6 +864,68 @@ def test_second_born_reference_adaptive_tolerance_improves_final_error_against_f
     assert tight.diagnostics["time_grid_mode"] == "adaptive"
     assert tight.diagnostics["accepted_time_steps"] > loose.diagnostics["accepted_time_steps"]
     assert tight_error.final_abs_error < loose_error.final_abs_error
+
+
+def test_second_born_reference_k_space_adaptive_tolerance_does_not_worsen_final_error_against_exact_benchmark():
+    benchmark_config = SimulationConfig.model_validate(
+        {
+            **_second_born_reference_k_space_thermal_branch_config(dt=0.1, t_final=0.3).model_dump(mode="json"),
+            "drive": {
+                "amplitude_x": 0.2,
+                "amplitude_y": 0.0,
+                "frequency": 1.0,
+                "center": 0.2,
+                "width": 0.15,
+            },
+        }
+    )
+    exact = run_exact_diagonalization_benchmark(benchmark_config, integration_dt=0.01)
+
+    loose = solve_kbe_hfb(
+        SimulationConfig.model_validate(
+            {
+                **benchmark_config.model_dump(mode="json"),
+                "adaptive": {
+                    "enabled": True,
+                    "rtol": 1e-2,
+                    "atol": 1e-4,
+                    "min_dt": 0.025,
+                    "max_dt": 0.1,
+                },
+            }
+        )
+    )
+    tight = solve_kbe_hfb(
+        SimulationConfig.model_validate(
+            {
+                **benchmark_config.model_dump(mode="json"),
+                "adaptive": {
+                    "enabled": True,
+                    "rtol": 1e-4,
+                    "atol": 1e-6,
+                    "min_dt": 0.0125,
+                    "max_dt": 0.1,
+                },
+            }
+        )
+    )
+
+    exact_current_x = exact_diagonalization_trajectory(exact, "current_x")
+    loose_error = summarize_trajectory_error(
+        exact_current_x,
+        _observable_trajectory(loose, "current_x", label="second_born_reference_k_space_adaptive_loose"),
+    )
+    tight_error = summarize_trajectory_error(
+        exact_current_x,
+        _observable_trajectory(tight, "current_x", label="second_born_reference_k_space_adaptive_tight"),
+    )
+
+    assert loose.diagnostics["solver_representation"] == "k_space"
+    assert tight.diagnostics["solver_representation"] == "k_space"
+    assert loose.diagnostics["time_grid_mode"] == "adaptive"
+    assert tight.diagnostics["time_grid_mode"] == "adaptive"
+    assert tight_error.max_abs_error <= loose_error.max_abs_error + 1e-12
+    assert tight_error.final_abs_error <= loose_error.final_abs_error + 1e-12
 
 
 def test_second_born_memory_window_rows_converge_to_full_memory_reference():

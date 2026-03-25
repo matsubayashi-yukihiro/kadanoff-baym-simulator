@@ -88,6 +88,32 @@ describe("useRunProgress", () => {
     expect(result.current.isStale).toBe(true);
   });
 
+  it("uses a longer stale threshold while finalizing", async () => {
+    vi.mocked(getRunProgress).mockImplementation(async () => ({
+      ...baseProgress,
+      phase: "finalizing",
+      status_line: "finalizing: writing artifacts",
+    }));
+
+    const { result } = renderHook(() => useRunProgress("run-1", true));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.progress).not.toBeNull();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60000);
+    });
+    expect(result.current.isStale).toBe(false);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(122000);
+    });
+    expect(result.current.isStale).toBe(true);
+    expect(result.current.staleDetails?.phase).toBe("finalizing");
+  });
+
   it("marks stale when polling stops succeeding", async () => {
     vi.mocked(getRunProgress)
       .mockResolvedValueOnce({ ...baseProgress })

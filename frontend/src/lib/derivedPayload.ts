@@ -16,10 +16,28 @@ function isMatrix(value: unknown): value is number[][] {
   return Array.isArray(value) && value.every((row) => isNumberArray(row));
 }
 
+function isObservableSeries(value: unknown): value is { label: string; values: number[] } {
+  if (!value || typeof value !== "object") return false;
+  const raw = value as Record<string, unknown>;
+  return typeof raw.label === "string" && isNumberArray(raw.values);
+}
+
 function transpose(matrix: number[][], rowCount: number, colCount: number): number[][] {
   return Array.from({ length: colCount }, (_, col) =>
     Array.from({ length: rowCount }, (_, row) => matrix[row][col]),
   );
+}
+
+export function normalizeRunFftPreviewPayload(payload: unknown) {
+  if (!payload || typeof payload !== "object") return null;
+  const raw = payload as Record<string, unknown>;
+  if (typeof raw.name !== "string" || !isNumberArray(raw.time) || !Array.isArray(raw.series)) {
+    return null;
+  }
+  if (!raw.series.every((series) => isObservableSeries(series))) {
+    return null;
+  }
+  return raw;
 }
 
 export function normalizeKSpectralPayload(payload: unknown): HeatmapModel | null {

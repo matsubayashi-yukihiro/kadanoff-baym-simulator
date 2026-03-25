@@ -41,6 +41,7 @@ from backend.app.solvers.kspace_analysis import (
     build_gap_indicator,
     build_momentum_selection,
     compute_k_resolved_trarpes,
+    compute_k_resolved_trarpes_from_kspace_native,
     parse_energy_grid,
     serialize_momentum_selection,
 )
@@ -902,31 +903,52 @@ def _build_run_k_space_payload(
     analysis_type: str,
     parameters: dict[str, object],
 ) -> dict[str, object]:
-    times, lesser = storage.read_green_function_component_array(run_id, "lesser")
     momentum_selection = build_momentum_selection(
         config,
         k_path=parameters.get("k_path"),
         k_grid=parameters.get("k_grid"),
     )
     energy_grid = parse_energy_grid(parameters.get("energy_grid"), config=config)
-    probe_center = float(parameters.get("probe_center", float(times[-1])))
+    probe_center = float(parameters.get("probe_center", float(config.time.t_final)))
     probe_width = float(parameters.get("probe_width", max(float(config.time.dt) * 2.0, 0.1)))
     broadening = float(parameters.get("broadening", max(float(config.time.dt), 0.05)))
     default_scope = "occupied_spectrum" if analysis_type == "k_spectral_preview" else "tr_arpes_intensity"
     observable_scope = str(parameters.get("observable_scope", default_scope))
     if observable_scope not in {"occupied_spectrum", "tr_arpes_intensity"}:
         raise ValueError("observable_scope must be 'occupied_spectrum' or 'tr_arpes_intensity'")
-
-    analysis = compute_k_resolved_trarpes(
-        lesser=lesser,
-        times=np.asarray(times, dtype=float),
-        config=config,
-        momentum_selection=momentum_selection,
-        energy_grid=energy_grid,
-        probe_center=probe_center,
-        probe_width=probe_width,
-        broadening=broadening,
-    )
+    if config.representation.value == "k_space":
+        try:
+            times, density_blocks, propagator_blocks, _ = storage.read_kspace_native_trajectory(run_id)
+        except FileNotFoundError as exc:
+            raise ValueError(
+                "k-space native trajectory is unavailable for this run; "
+                "full_matrix_fallback may have disabled native artifact generation"
+            ) from exc
+        analysis = compute_k_resolved_trarpes_from_kspace_native(
+            density_blocks_history=np.asarray(density_blocks, dtype=np.complex128),
+            cumulative_propagator_blocks=np.asarray(propagator_blocks, dtype=np.complex128),
+            times=np.asarray(times, dtype=float),
+            config=config,
+            momentum_selection=momentum_selection,
+            energy_grid=energy_grid,
+            probe_center=probe_center,
+            probe_width=probe_width,
+            broadening=broadening,
+        )
+        source_component = "kspace_native_lesser"
+    else:
+        times, lesser = storage.read_green_function_component_array(run_id, "lesser")
+        analysis = compute_k_resolved_trarpes(
+            lesser=lesser,
+            times=np.asarray(times, dtype=float),
+            config=config,
+            momentum_selection=momentum_selection,
+            energy_grid=energy_grid,
+            probe_center=probe_center,
+            probe_width=probe_width,
+            broadening=broadening,
+        )
+        source_component = "lesser"
     intensity = np.asarray(analysis["intensity"], dtype=float)
     gap_indicator = build_gap_indicator(
         energy_grid=energy_grid,
@@ -941,7 +963,7 @@ def _build_run_k_space_payload(
         "analysis_type": analysis_type,
         "observable_scope": observable_scope,
         "measurement_model": "minimal_matrix_element_free_tr_arpes",
-        "source_component": "lesser",
+        "source_component": source_component,
         "source_run_solver": config.solver.value,
         "source_self_energy": config.kbe.self_energy.value if config.solver.value == "kbe_hfb" else None,
         "k_surface": serialize_momentum_selection(momentum_selection),

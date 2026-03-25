@@ -46,3 +46,31 @@ def test_progress_storage_keeps_only_recent_history_entries(tmp_path):
     assert len(progress.history) == 120
     assert progress.history[0].saved_samples_written == 30
     assert progress.history[-1].saved_samples_written == 149
+
+
+def test_warning_state_is_terminal_and_updates_finished_timestamp(tmp_path):
+    storage = FileRunStorage(tmp_path / "runs")
+    summary = storage.create_run(
+        SimulationConfig.model_validate(
+            {
+                "name": "warning-terminal",
+                "solver": "noninteracting",
+                "lattice": {"nx": 2, "ny": 2, "boundary": "periodic", "hopping": 1.0, "chemical_potential": 0.0},
+                "time": {"t_final": 0.2, "dt": 0.1},
+                "drive": {"amplitude_x": 0.0, "amplitude_y": 0.0, "frequency": 0.0, "center": 0.0, "width": 1.0},
+                "interaction": {"onsite_u": 0.0, "nearest_neighbor_v": 0.0},
+                "initial_state": {"filling": 0.5, "temperature": 0.0},
+                "observables": ["density"],
+            }
+        )
+    )
+
+    storage.update_status(summary.run_id, RunState.RUNNING, message="running")
+    status = storage.update_status(summary.run_id, RunState.SUCCEEDED_WITH_WARNINGS, message="done with warnings")
+    progress = storage.read_progress(summary.run_id)
+    summary_after = storage.read_summary(summary.run_id)
+
+    assert status.finished_at is not None
+    assert summary_after.finished_at is not None
+    assert progress.state == RunState.SUCCEEDED_WITH_WARNINGS
+    assert progress.phase == RunProgressPhase.SUCCEEDED

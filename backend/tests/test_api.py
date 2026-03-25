@@ -1,4 +1,5 @@
 from copy import deepcopy
+import json
 import subprocess
 import sys
 import time
@@ -84,10 +85,10 @@ def test_api_exposes_run_progress_record(client, sample_config):
     assert progress["status_line"] == "simulation completed"
 
 
-def test_api_accepts_k_space_runs_and_keeps_existing_artifact_contracts(client):
+def test_api_accepts_k_space_runs_and_exposes_native_artifact_contract(client):
     config = {
         "name": "k-space-native-run",
-        "solver": "kbe_hfb",
+        "solver": "tdhfb",
         "representation": "k_space",
         "lattice": {
             "nx": 4,
@@ -99,39 +100,47 @@ def test_api_accepts_k_space_runs_and_keeps_existing_artifact_contracts(client):
         "time": {"t_final": 0.2, "dt": 0.1},
         "drive": {
             "amplitude_x": 0.05,
-            "amplitude_y": 0.02,
-            "frequency": 1.5,
-            "center": 0.1,
+            "amplitude_y": 0.01,
+            "frequency": 1.2,
+            "phase": 0.1,
+            "center": 0.12,
             "width": 0.12,
         },
         "interaction": {
-            "onsite_u": -4.0,
-            "nearest_neighbor_v": -2.5,
-            "pairing_channel": "bond_d",
+            "onsite_u": -1.0,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
         },
         "initial_state": {
             "filling": 0.5,
-            "temperature": 0.0,
-            "seed_pairing": 0.2,
+            "temperature": 0.2,
+            "seed_pairing": 0.0,
         },
-        "kbe": {"self_energy": "hfb"},
-        "observables": ["density", "energy", "pairing", "pairing_s", "pairing_d"],
+        "observables": ["density", "energy", "current_x", "current_y"],
     }
 
     create_response = client.post("/api/v1/runs", json=config)
     assert create_response.status_code == 202
     run_id = create_response.json()["run_id"]
+    run_dir = client.app.state.run_service.repository.storage.run_dir(run_id)
 
     detail = client.get(f"/api/v1/runs/{run_id}")
     assert detail.status_code == 200
     assert detail.json()["diagnostics"]["solver_representation"] == "k_space"
+    assert not (run_dir / "green_functions.json").exists()
+    assert (run_dir / "kspace_native.json").exists()
 
     green_catalog = client.get(f"/api/v1/runs/{run_id}/green-functions")
-    assert green_catalog.status_code == 200
-    assert set(green_catalog.json()["components"]) == {"retarded", "lesser"}
+    assert green_catalog.status_code == 409
+    assert green_catalog.json()["detail"]["code"] == "k_space_full_matrix_artifact_disabled"
+
+    native_catalog = client.get(f"/api/v1/runs/{run_id}/kspace-native/catalog")
+    assert native_catalog.status_code == 200
+    assert native_catalog.json()["components"] == ["lesser"]
+    assert native_catalog.json()["nambu_dimension"] == 2
 
 
-def test_api_accepts_k_space_second_born_reference_runs_and_keeps_existing_artifact_contracts(client):
+def test_api_accepts_k_space_second_born_reference_runs_and_exposes_native_artifact_contract(client):
     config = {
         "name": "k-space-reference-run",
         "solver": "kbe_hfb",
@@ -183,16 +192,37 @@ def test_api_accepts_k_space_second_born_reference_runs_and_keeps_existing_artif
     create_response = client.post("/api/v1/runs", json=config)
     assert create_response.status_code == 202
     run_id = create_response.json()["run_id"]
+    run_dir = client.app.state.run_service.repository.storage.run_dir(run_id)
 
     detail = client.get(f"/api/v1/runs/{run_id}")
     assert detail.status_code == 200
     diagnostics = detail.json()["diagnostics"]
     assert diagnostics["solver_representation"] == "k_space"
     assert diagnostics["second_born_reference_implementation"] is True
+    assert not (run_dir / "green_functions.json").exists()
+    assert (run_dir / "kspace_native.json").exists()
 
     green_catalog = client.get(f"/api/v1/runs/{run_id}/green-functions")
-    assert green_catalog.status_code == 200
-    assert set(green_catalog.json()["components"]) == {"retarded", "lesser"}
+    assert green_catalog.status_code == 409
+    assert green_catalog.json()["detail"]["code"] == "k_space_full_matrix_artifact_disabled"
+
+    native_catalog = client.get(f"/api/v1/runs/{run_id}/kspace-native/catalog")
+    assert native_catalog.status_code == 200
+    native_slice = client.get(
+        f"/api/v1/runs/{run_id}/kspace-native/lesser",
+        params={
+            "row_start": 0,
+            "row_stop": 1,
+            "col_start": 0,
+            "col_stop": 1,
+            "k_start": 0,
+            "k_stop": 1,
+            "nambu_start": 0,
+            "nambu_stop": 2,
+        },
+    )
+    assert native_slice.status_code == 200
+    assert native_slice.json()["shape"] == [1, 1, 1, 2, 2]
 
 
 def test_api_launches_and_reuses_fft_derived_analysis_artifacts(client, sample_config):
@@ -1242,6 +1272,43 @@ def test_api_cancel_falls_back_to_pid_when_runner_state_is_gone(tmp_path, sample
         if sleeper.poll() is None:
             sleeper.kill()
             sleeper.wait(timeout=5.0)
+
+
+def test_api_reconciles_running_state_when_worker_pid_is_dead_and_progress_is_stale(client, sample_config):
+    repository = client.app.state.run_service.repository
+    summary = repository.create_run(SimulationConfig.model_validate(sample_config))
+    repository.update_status(summary.run_id, RunState.RUNNING, message="simulation running", pid=999999)
+    progress_path = repository.storage.run_dir(summary.run_id) / "progress.json"
+    progress_payload = json.loads(progress_path.read_text(encoding="utf-8"))
+    progress_payload["updated_at"] = "2000-01-01T00:00:00Z"
+    progress_payload["state"] = "running"
+    progress_payload["phase"] = "finalizing"
+    progress_payload["status_line"] = "finalizing: writing artifacts"
+    progress_path.write_text(json.dumps(progress_payload, indent=2), encoding="utf-8")
+
+    progress_response = client.get(f"/api/v1/runs/{summary.run_id}/progress")
+    detail_response = client.get(f"/api/v1/runs/{summary.run_id}")
+
+    assert progress_response.status_code == 200
+    assert progress_response.json()["state"] == "failed"
+    assert progress_response.json()["phase"] == "failed"
+    assert "worker process" in (progress_response.json()["status_line"] or "")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["state"] == "failed"
+
+
+def test_api_cancel_is_noop_for_succeeded_with_warnings_state(client, sample_config):
+    repository = client.app.state.run_service.repository
+    summary = repository.create_run(SimulationConfig.model_validate(sample_config))
+    repository.update_status(summary.run_id, RunState.RUNNING, message="simulation running")
+    repository.update_status(summary.run_id, RunState.SUCCEEDED_WITH_WARNINGS, message="simulation completed with warnings")
+
+    cancel_response = client.post(f"/api/v1/runs/{summary.run_id}/cancel")
+    assert cancel_response.status_code == 200
+    payload = cancel_response.json()
+    assert payload["state"] == "succeeded_with_warnings"
+    assert payload["finished_at"] is not None
+    assert payload["status_message"] == "simulation completed with warnings"
 
 
 def test_api_process_mode_submit_and_cancel_workflow(tmp_path, sample_config, monkeypatch):

@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 
-import type { ObservableResponse, RunDetail } from "../api/types";
+import type { DerivedAnalysisResultRecord, ObservableResponse, RunDetail } from "../api/types";
+import { useBackendCapabilities } from "../hooks/useBackendCapabilities";
+import { useDerivedAnalysis } from "../hooks/useDerivedAnalysis";
+import { normalizeRunFftPreviewPayload } from "../lib/derivedPayload";
 import { formatLabel, formatNumber } from "../lib/format";
-import { buildSpectrumPreview, getDefaultSpectrumSeriesLabel } from "../lib/spectrum";
+import { isSuccessfulState } from "../lib/helpers";
+import { getDefaultSpectrumSeriesLabel } from "../lib/spectrum";
 import { ObservablePlot } from "./charts/ObservablePlot";
 
 type SpectrumPanelProps = {
@@ -12,15 +16,73 @@ type SpectrumPanelProps = {
   run: RunDetail | null;
 };
 
+function readNumericMetadata(metadata: Record<string, unknown>, key: string): number | null {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function buildFftPreviewSummary(
+  result: DerivedAnalysisResultRecord | null,
+  fallbackObservable: string | null,
+) {
+  if (!result) return null;
+  const metadata = (result.analysis.result_metadata ?? {}) as Record<string, unknown>;
+  const sampleCount = readNumericMetadata(metadata, "sample_count");
+  const frequencyResolution = readNumericMetadata(metadata, "frequency_resolution");
+  return {
+    observable: typeof metadata.observable === "string" ? metadata.observable : fallbackObservable,
+    sourceSeriesLabel: typeof metadata.series_label === "string" ? metadata.series_label : null,
+    sampleCount,
+    frequencyResolution,
+    dt:
+      sampleCount !== null && frequencyResolution !== null && sampleCount > 0 && frequencyResolution > 0
+        ? 1 / (sampleCount * frequencyResolution)
+        : null,
+    dominantFrequency: readNumericMetadata(metadata, "dominant_frequency"),
+    meanSubtracted: metadata.mean_subtracted === true,
+  };
+}
+
 export function SpectrumPanel(props: SpectrumPanelProps) {
   const { data, dataLoading, dataError, run } = props;
   const [selectedSeriesLabel, setSelectedSeriesLabel] = useState<string | null>(null);
+  const { capabilities } = useBackendCapabilities();
 
   useEffect(() => {
     setSelectedSeriesLabel(getDefaultSpectrumSeriesLabel(data));
   }, [data]);
 
-  const preview = data ? buildSpectrumPreview(data, selectedSeriesLabel) : null;
+  const runCompleted = run ? isSuccessfulState(run.state) : false;
+  const runId = runCompleted ? (run?.run_id ?? null) : null;
+  const resolvedSelectedSeriesLabel = selectedSeriesLabel ?? getDefaultSpectrumSeriesLabel(data);
+  const capabilityBlockedReason = capabilities.supportsDerivedAnalysisLaunch
+    ? null
+    : "Backend does not advertise derived-analysis launch support in OpenAPI. Rebuild/restart backend to match frontend.";
+  const { status, error, result, launch } = useDerivedAnalysis(
+    runId && data ? "run" : null,
+    runId,
+    "fft_preview",
+    {
+      study_id: run?.research_metadata?.study_id ?? undefined,
+      parameters: data
+        ? {
+          observable: data.name,
+          ...(resolvedSelectedSeriesLabel ? { series_label: resolvedSelectedSeriesLabel } : {}),
+        }
+        : undefined,
+    },
+  );
+
+  useEffect(() => {
+    if (runId && data && !capabilityBlockedReason && status === "idle") {
+      void launch();
+    }
+  }, [capabilityBlockedReason, data, launch, runId, status]);
+
+  const preview = result
+    ? (normalizeRunFftPreviewPayload(result.payload) as ObservableResponse | null)
+    : null;
+  const previewSummary = buildFftPreviewSummary(result, data?.name ?? null);
 
   return (
     <section className="panel">
@@ -39,8 +101,10 @@ export function SpectrumPanel(props: SpectrumPanelProps) {
         </div>
       ) : null}
 
-      {run && run.state !== "succeeded" ? (
-        <p className="state-banner">Spectrum preview unlocks after the run reaches `succeeded`.</p>
+      {run && !runCompleted ? (
+        <p className="state-banner">
+          Spectrum preview unlocks after the run completes (`succeeded` or `succeeded_with_warnings`).
+        </p>
       ) : null}
       {dataLoading ? <p className="state-banner">Building spectrum preview...</p> : null}
       {dataError ? <p className="state-banner state-error">{dataError}</p> : null}
@@ -59,51 +123,54 @@ export function SpectrumPanel(props: SpectrumPanelProps) {
           ))}
         </div>
       ) : null}
+      {capabilityBlockedReason ? <p className="state-banner state-warning">{capabilityBlockedReason}</p> : null}
+      {(status === "launching" || status === "polling") ? (
+        <p className="state-banner">Loading backend FFT preview...</p>
+      ) : null}
+      {error ? <p className="state-banner state-error">{error}</p> : null}
 
-      {preview ? (
+      {preview && previewSummary ? (
         <div className="observable-body">
-          <p className="state-banner">
-            Client-side FFT preview (mean-subtracted). Backend-cached FFT artifacts are available via{" "}
-            <code>run/fft_preview</code> derived analysis — replacement pending payload format alignment.
-          </p>
           <div className="observable-meta">
             <div>
               <span className="focus-key">Observable</span>
-              <span>{formatLabel(data?.name ?? "-")}</span>
+              <span>{formatLabel(previewSummary.observable ?? data?.name ?? "-")}</span>
             </div>
             <div>
               <span className="focus-key">Series</span>
-              <span>{formatLabel(preview.sourceSeriesLabel)}</span>
+              <span>{formatLabel(previewSummary.sourceSeriesLabel ?? resolvedSelectedSeriesLabel ?? "-")}</span>
             </div>
             <div>
               <span className="focus-key">Samples</span>
-              <span>{preview.sampleCount}</span>
+              <span>{previewSummary.sampleCount ?? "-"}</span>
             </div>
             <div>
               <span className="focus-key">Frequency Resolution</span>
-              <span>{formatNumber(preview.frequencyResolution, 4)}</span>
+              <span>{previewSummary.frequencyResolution !== null ? formatNumber(previewSummary.frequencyResolution, 4) : "-"}</span>
             </div>
             <div>
               <span className="focus-key">dt</span>
-              <span>{formatNumber(preview.dt, 4)}</span>
+              <span>{previewSummary.dt !== null ? formatNumber(previewSummary.dt, 4) : "-"}</span>
             </div>
             <div>
               <span className="focus-key">Dominant Nonzero Frequency</span>
-              <span>{formatNumber(preview.dominantFrequency, 4)}</span>
+              <span>{previewSummary.dominantFrequency !== null ? formatNumber(previewSummary.dominantFrequency, 4) : "-"}</span>
             </div>
             <div>
               <span className="focus-key">Preprocess</span>
-              <span>{preview.meanSubtracted ? "mean-subtracted" : "none"}</span>
+              <span>{previewSummary.meanSubtracted ? "mean-subtracted" : "none"}</span>
             </div>
           </div>
-          <ObservablePlot data={preview.data} variant="compact" />
+          <ObservablePlot data={preview} variant="compact" />
         </div>
+      ) : status === "succeeded" ? (
+        <p className="state-banner state-error">Unexpected FFT payload format.</p>
       ) : null}
 
-      {run && run.state === "succeeded" && data && !preview ? (
+      {run && runCompleted && data && !preview && status === "idle" ? (
         <div className="empty-card">
-          <p>No FFT preview available.</p>
-          <p>The current observable requires at least two uniformly spaced samples.</p>
+          <p>Backend FFT preview will appear here.</p>
+          <p>Select a completed run and a saved observable to materialize <code>run/fft_preview</code>.</p>
         </div>
       ) : null}
     </section>

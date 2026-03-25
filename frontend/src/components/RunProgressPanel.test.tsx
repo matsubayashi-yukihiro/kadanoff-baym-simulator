@@ -124,6 +124,7 @@ describe("RunProgressPanel", () => {
         loading={false}
         error="run not found"
         isStale={false}
+        staleDetails={null}
       />,
     );
 
@@ -139,6 +140,7 @@ describe("RunProgressPanel", () => {
         loading={false}
         error={null}
         isStale={false}
+        staleDetails={null}
       />,
     );
 
@@ -153,6 +155,7 @@ describe("RunProgressPanel", () => {
         loading={false}
         error={null}
         isStale={false}
+        staleDetails={null}
       />,
     );
 

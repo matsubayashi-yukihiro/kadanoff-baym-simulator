@@ -7,6 +7,7 @@ import { DiagnosticsPanel } from "../components/DiagnosticsPanel";
 import { EquilibriumStatePanel } from "../components/EquilibriumStatePanel";
 import { GreenFunctionPanel } from "../components/GreenFunctionPanel";
 import { KSpectralPanel } from "../components/KSpectralPanel";
+import { KSpaceNativePanel } from "../components/KSpaceNativePanel";
 import { MixedGreenFunctionPanel } from "../components/MixedGreenFunctionPanel";
 import { ObservablePanel } from "../components/ObservablePanel";
 import { PresetLibraryPanel } from "../components/PresetLibraryPanel";
@@ -28,6 +29,7 @@ import {
   selectWorkingBaselinePreset,
   HIGGS_DEMO_PRIMARY_OBSERVABLE,
 } from "../lib/workbench";
+import { isSuccessfulState } from "../lib/helpers";
 import { formatDateTime } from "../lib/format";
 import type { PresetEntry, SimulationConfigInput } from "../api/types";
 
@@ -141,7 +143,7 @@ export function SingleJobPage() {
 
   // Fetch observables when run succeeds
   useEffect(() => {
-    if (selectedRunId && selectedRun?.state === "succeeded") {
+    if (selectedRunId && selectedRun && isSuccessfulState(selectedRun.state)) {
       obsStore.fetchCatalog(selectedRunId);
     } else {
       obsStore.resetForRun();
@@ -150,14 +152,14 @@ export function SingleJobPage() {
 
   // Fetch observable data
   useEffect(() => {
-    if (selectedRunId && obsStore.selectedObservable && selectedRun?.state === "succeeded") {
+    if (selectedRunId && obsStore.selectedObservable && selectedRun && isSuccessfulState(selectedRun.state)) {
       obsStore.fetchData(selectedRunId, obsStore.selectedObservable);
     }
   }, [selectedRunId, obsStore.selectedObservable, selectedRun?.state]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch overlay data
   useEffect(() => {
-    if (selectedRunId && selectedRun?.state === "succeeded") {
+    if (selectedRunId && selectedRun && isSuccessfulState(selectedRun.state)) {
       for (const name of obsStore.overlayNames) {
         if (name !== obsStore.selectedObservable && !obsStore.overlayData.has(name)) {
           obsStore.fetchOverlay(selectedRunId, name);
@@ -170,8 +172,10 @@ export function SingleJobPage() {
   useEffect(() => {
     if (
       selectedRunId &&
-      selectedRun?.state === "succeeded" &&
-      selectedRun?.solver === "kbe_hfb"
+      selectedRun &&
+      isSuccessfulState(selectedRun.state) &&
+      selectedRun?.solver === "kbe_hfb" &&
+      selectedRun?.config?.representation !== "k_space"
     ) {
       gfStore.fetchCatalog(selectedRunId);
       if (selectedRun?.config?.thermal_branch?.enabled) {
@@ -369,6 +373,7 @@ export function SingleJobPage() {
               loading={progress.loading}
               error={progress.error}
               isStale={progress.isStale}
+              staleDetails={progress.staleDetails}
             />
             <EquilibriumStatePanel run={selectedRun} />
             <DiagnosticsPanel run={selectedRun} />
@@ -398,27 +403,32 @@ export function SingleJobPage() {
 
         {/* Advanced Evidence — Contour Surfaces */}
         <section>
-          <div className="sjp-contour-tabbar" role="tablist" aria-label="Contour surface">
-            {CONTOUR_SURFACES.map((surface) => (
-              <button
-                key={surface.key}
-                role="tab"
-                aria-selected={activeContourSurface === surface.key}
-                className={`sjp-contour-tab${activeContourSurface === surface.key ? " active" : ""}`}
-                onClick={() => setActiveContourSurface(surface.key)}
-              >
-                <span className="sjp-tab-label">{surface.label}</span>
-                <span className="sjp-tab-copy">{surface.copy}</span>
-              </button>
-            ))}
-            {selectedRun && (
-              <div className="sjp-contour-tabbar-trailing">
-                <StatusPill state={selectedRun.state} />
-              </div>
-            )}
-          </div>
+          {selectedRun?.config?.representation !== "k_space" ? (
+            <div className="sjp-contour-tabbar" role="tablist" aria-label="Contour surface">
+              {CONTOUR_SURFACES.map((surface) => (
+                <button
+                  key={surface.key}
+                  role="tab"
+                  aria-selected={activeContourSurface === surface.key}
+                  className={`sjp-contour-tab${activeContourSurface === surface.key ? " active" : ""}`}
+                  onClick={() => setActiveContourSurface(surface.key)}
+                >
+                  <span className="sjp-tab-label">{surface.label}</span>
+                  <span className="sjp-tab-copy">{surface.copy}</span>
+                </button>
+              ))}
+              {selectedRun && (
+                <div className="sjp-contour-tabbar-trailing">
+                  <StatusPill state={selectedRun.state} />
+                </div>
+              )}
+            </div>
+          ) : null}
           <div className="space-y-4 pt-4">
-            {activeContourSurface === "real-time" && (
+            {selectedRun?.config?.representation === "k_space" ? (
+              <KSpaceNativePanel run={selectedRun} />
+            ) : null}
+            {selectedRun?.config?.representation !== "k_space" && activeContourSurface === "real-time" && (
               <GreenFunctionPanel
                 run={selectedRun}
                 catalog={gfStore.catalog}
@@ -439,7 +449,7 @@ export function SingleJobPage() {
                 sliceError={gfStore.sliceError}
               />
             )}
-            {activeContourSurface === "thermal" && (
+            {selectedRun?.config?.representation !== "k_space" && activeContourSurface === "thermal" && (
               <ThermalBranchPanel
                 run={selectedRun}
                 catalog={gfStore.thermalCatalog}
@@ -458,7 +468,7 @@ export function SingleJobPage() {
                 sliceError={gfStore.thermalSliceError}
               />
             )}
-            {activeContourSurface === "mixed" && (
+            {selectedRun?.config?.representation !== "k_space" && activeContourSurface === "mixed" && (
               <MixedGreenFunctionPanel
                 run={selectedRun}
                 catalog={gfStore.mixedCatalog}

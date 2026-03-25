@@ -290,6 +290,12 @@
     @apply text-success;
   }
 
+  .status-succeeded_with_warnings {
+    background: linear-gradient(135deg, rgba(31, 122, 92, 0.12) 0%, rgba(138, 97, 23, 0.16) 100%);
+    color: var(--success);
+    border: 1px solid rgba(138, 97, 23, 0.32);
+  }
+
   .status-failed,
   .status-cancelled {
     background: rgba(161, 43, 43, 0.14);

@@ -3,14 +3,13 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from numpy.typing import NDArray
 
 from backend.app.schemas import KBESelfEnergyMode, SimulationConfig
 from backend.app.schemas.progress import RunProgressPhase
 from backend.app.solvers.base import (
+    KSpaceNativeTrajectoryData,
     MixedGreenFunctionData,
     ObservableData,
-    SeriesData,
     SimulationArtifacts,
     ThermalBranchGreenFunctionData,
     TwoTimeGreenFunctionData,
@@ -24,21 +23,11 @@ from backend.app.solvers.green_functions import (
     build_two_time_green_functions,
     green_function_diagnostics,
 )
-from backend.app.solvers.hamiltonian import build_one_body_hamiltonian_derivative, vector_potential
-from backend.app.solvers.lattice import SquareLattice
-from backend.app.solvers.nambu import (
-    ComplexMatrix,
-    build_bdg_hamiltonian,
-    effective_energy,
-    extract_density_blocks,
-    pairing_channel,
-    pairing_projections,
-)
-from backend.app.solvers.numerics import cumulative_trapezoid
-from backend.app.solvers.observables import average_current, particle_density_statistics
-from backend.app.solvers.observables import site_current_divergence, site_density_time_derivative
+from backend.app.solvers.kbe_trajectory import analyze_kbe_trajectory
+from backend.app.solvers.nambu import ComplexMatrix
 from backend.app.solvers.self_energy_second_born import (
     apply_reference_second_born_corrections,
+    apply_reference_second_born_corrections_kspace_blocks,
     build_factorized_mixed_branch as build_reference_factorized_mixed_branch,
     build_matsubara_branch_reference,
     build_mixed_branch_reference,
@@ -49,7 +38,6 @@ from backend.app.solvers.self_energy_second_born_prototype import (
     build_matsubara_branch,
     build_mixed_branch,
 )
-from backend.app.solvers.stationarity import stationarity_diagnostics
 from backend.app.solvers.tdhfb import HFBDynamicsResult, simulate_hfb_dynamics
 from backend.app.jobs.progress import SolverProgressUpdate
 
@@ -57,9 +45,12 @@ from backend.app.jobs.progress import SolverProgressUpdate
 def solve(config: SimulationConfig, progress_callback: ProgressCallback | None = None) -> SimulationArtifacts:
     """Run the KBE/HFB solver and assemble observables, diagnostics, and Green-function artifacts."""
     dynamics = simulate_hfb_dynamics(config, progress_callback=progress_callback)
+    is_kspace = config.representation.value == "k_space"
+    include_full_matrix_artifacts = not is_kspace
     diagnostics = dict(dynamics.diagnostics)
     observables = dynamics.observables
     summary_excerpt = dict(dynamics.summary_excerpt)
+    kspace_native_trajectory: KSpaceNativeTrajectoryData | None = None
 
     diagnostics["kbe_self_energy_mode"] = config.kbe.self_energy.value
     diagnostics["kbe_fixed_point_tolerance"] = float(config.kbe.tolerance)
@@ -68,7 +59,11 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
     diagnostics["kbe_fixed_point_accelerator"] = "linear"
     diagnostics["kbe_reference_solver_available"] = config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE
 
-    hfb_green_functions = _build_hfb_green_functions(config, dynamics)
+    hfb_green_functions = _build_hfb_green_functions(
+        config,
+        dynamics,
+        materialize_two_time_green=include_full_matrix_artifacts,
+    )
     green_function_reference = hfb_green_functions
     matsubara_result, contour_seed_mixed = _build_contour_seed(config, dynamics, progress_callback=progress_callback)
     (
@@ -77,32 +72,70 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
         second_born_diagnostics,
         second_born_summary_excerpt,
         green_function_reference,
+        reference_density_blocks,
     ) = _solve_second_born_path(
         config=config,
         dynamics=dynamics,
         hfb_green_functions=hfb_green_functions,
         matsubara_result=matsubara_result,
         contour_seed_mixed=contour_seed_mixed,
+        materialize_two_time_green=include_full_matrix_artifacts,
         progress_callback=progress_callback,
     )
     diagnostics.update(second_born_diagnostics)
     if second_born_summary_excerpt is not None:
         summary_excerpt = second_born_summary_excerpt
 
-    if green_function_reference is None:
-        raise RuntimeError(
-            "green_function_reference is None after KBE solve path "
-            f"(self_energy={config.kbe.self_energy.value}); expected two-time Green-function data."
+    if (
+        is_kspace
+        and dynamics.cumulative_propagator_blocks is not None
+        and dynamics.momentum_context is not None
+    ):
+        density_blocks_history = (
+            reference_density_blocks
+            if reference_density_blocks is not None
+            else (
+                np.asarray(dynamics.density_blocks_history, dtype=np.complex128)
+                if dynamics.density_blocks_history is not None
+                else None
+            )
         )
-    diagnostics.update(
-        green_function_diagnostics(
-            dynamics=dynamics,
-            green_functions=green_function_reference,
-            reference_densities=reference_densities,
-            tdhfb_reference_densities=dynamics.generalized_densities,
-            reconstruction_mode=_reconstruction_mode(config, diagnostics),
+        if density_blocks_history is not None:
+            kspace_native_trajectory = KSpaceNativeTrajectoryData(
+                times=np.asarray(dynamics.times, dtype=np.float64),
+                density_blocks_history=np.asarray(density_blocks_history, dtype=np.complex128),
+                cumulative_propagator_blocks=np.asarray(dynamics.cumulative_propagator_blocks, dtype=np.complex128),
+                kx=np.asarray(dynamics.momentum_context.kx, dtype=np.float64),
+                ky=np.asarray(dynamics.momentum_context.ky, dtype=np.float64),
+                reconstruction_mode=(
+                    str(diagnostics.get("kbe_two_time_reconstruction"))
+                    if diagnostics.get("kbe_two_time_reconstruction") is not None
+                    else "k_space_native_blocks"
+                ),
+            )
+
+    if green_function_reference is not None:
+        diagnostics.update(
+            green_function_diagnostics(
+                dynamics=dynamics,
+                green_functions=green_function_reference,
+                reference_densities=reference_densities,
+                tdhfb_reference_densities=dynamics.generalized_densities,
+                reconstruction_mode=_reconstruction_mode(config, diagnostics),
+            )
         )
-    )
+    else:
+        diagnostics.update(
+            {
+                "kbe_two_time_reconstruction": "k_space_native_trajectory",
+                "two_time_grid_shape": None,
+                "max_equal_time_tdhfb_mismatch": 0.0,
+                "max_equal_time_density_reconstruction_error": 0.0,
+                "max_lesser_hermiticity_error": 0.0,
+                "max_retarded_equal_time_error": 0.0,
+                "max_retarded_causality_error": 0.0,
+            }
+        )
     mixed_result = _build_mixed_branch_result(
         config=config,
         dynamics=dynamics,
@@ -126,14 +159,18 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
         green_function_reference=green_function_reference,
         matsubara_result=matsubara_result,
         mixed_result=mixed_result,
+        include_full_matrix_artifacts=include_full_matrix_artifacts,
+        kspace_native_trajectory=kspace_native_trajectory,
     )
 
 
 def _build_hfb_green_functions(
     config: SimulationConfig,
     dynamics: HFBDynamicsResult,
+    *,
+    materialize_two_time_green: bool,
 ) -> TwoTimeGreenFunctionContainer | None:
-    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
+    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE or not materialize_two_time_green:
         return None
     return build_two_time_green_functions(dynamics)
 
@@ -159,6 +196,7 @@ def _solve_second_born_path(
     hfb_green_functions: TwoTimeGreenFunctionContainer | None,
     matsubara_result: MatsubaraBranchBuildResult,
     contour_seed_mixed: MixedBranchContainer | None,
+    materialize_two_time_green: bool,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[
     list[ComplexMatrix],
@@ -166,6 +204,7 @@ def _solve_second_born_path(
     dict[str, Any],
     dict[str, float | str] | None,
     TwoTimeGreenFunctionContainer | None,
+    np.ndarray | None,
 ]:
     if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN:
         if hfb_green_functions is None:
@@ -180,7 +219,7 @@ def _solve_second_born_path(
             mixed_branch=contour_seed_mixed,
             progress_callback=progress_callback,
         )
-        observables, trajectory_diagnostics, summary_excerpt = _analyze_trajectory(
+        observables, trajectory_diagnostics, summary_excerpt = analyze_kbe_trajectory(
             config=config,
             dynamics=dynamics,
             generalized_densities=second_born_result.generalized_densities,
@@ -193,17 +232,33 @@ def _solve_second_born_path(
             diagnostics,
             summary_excerpt,
             second_born_result.green_functions,
+            None,
         )
 
     if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
-        second_born_result = apply_reference_second_born_corrections(
-            config=config,
-            dynamics=dynamics,
-            matsubara_branch=matsubara_result.branch,
-            mixed_branch=contour_seed_mixed,
-            progress_callback=progress_callback,
-        )
-        observables, trajectory_diagnostics, summary_excerpt = _analyze_trajectory(
+        if (
+            dynamics.density_blocks_history is not None
+            and dynamics.cumulative_propagator_blocks is not None
+            and dynamics.momentum_context is not None
+        ):
+            second_born_result = apply_reference_second_born_corrections_kspace_blocks(
+                config=config,
+                dynamics=dynamics,
+                matsubara_branch=matsubara_result.branch,
+                mixed_branch=contour_seed_mixed,
+                materialize_two_time_green=materialize_two_time_green,
+                progress_callback=progress_callback,
+            )
+        else:
+            second_born_result = apply_reference_second_born_corrections(
+                config=config,
+                dynamics=dynamics,
+                matsubara_branch=matsubara_result.branch,
+                mixed_branch=contour_seed_mixed,
+                materialize_two_time_green=materialize_two_time_green,
+                progress_callback=progress_callback,
+            )
+        observables, trajectory_diagnostics, summary_excerpt = analyze_kbe_trajectory(
             config=config,
             dynamics=dynamics,
             generalized_densities=second_born_result.generalized_densities,
@@ -216,6 +271,7 @@ def _solve_second_born_path(
             diagnostics,
             summary_excerpt,
             second_born_result.green_functions,
+            second_born_result.density_blocks_history,
         )
 
     return (
@@ -224,6 +280,7 @@ def _solve_second_born_path(
         _disabled_second_born_diagnostics(),
         None,
         hfb_green_functions,
+        None,
     )
 
 
@@ -258,10 +315,12 @@ def _reconstruction_mode(
         and diagnostics.get("second_born_solver_mode") == "two_time_causal_marching"
     ):
         return "causal_marching"
-    if (
-        config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE
-        and diagnostics.get("second_born_solver_mode") == "gkba_causal_marching"
-    ):
+    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE and diagnostics.get(
+        "second_born_solver_mode"
+    ) in {
+        "gkba_causal_marching",
+        "gkba_causal_marching_kspace_blocks",
+    }:
         return "gkba_causal_marching"
     return None
 
@@ -329,27 +388,33 @@ def _build_simulation_artifacts(
     observables: dict[str, ObservableData],
     diagnostics: dict[str, Any],
     summary_excerpt: dict[str, Any],
-    green_function_reference: TwoTimeGreenFunctionContainer,
+    green_function_reference: TwoTimeGreenFunctionContainer | None,
     matsubara_result: MatsubaraBranchBuildResult,
     mixed_result: MixedBranchBuildResult,
+    include_full_matrix_artifacts: bool,
+    kspace_native_trajectory: KSpaceNativeTrajectoryData | None,
 ) -> SimulationArtifacts:
     return SimulationArtifacts(
         observables=observables,
         diagnostics=diagnostics,
         summary_excerpt=summary_excerpt,
-        two_time_green_functions=TwoTimeGreenFunctionData(
-            times=green_function_reference.times,
-            components={
-                "retarded": green_function_reference.retarded,
-                "lesser": green_function_reference.lesser,
-            },
+        two_time_green_functions=(
+            TwoTimeGreenFunctionData(
+                times=green_function_reference.times,
+                components={
+                    "retarded": green_function_reference.retarded,
+                    "lesser": green_function_reference.lesser,
+                },
+            )
+            if include_full_matrix_artifacts and green_function_reference is not None
+            else None
         ),
         thermal_branch_green_functions=(
             ThermalBranchGreenFunctionData(
                 tau=matsubara_result.branch.tau,
                 components={"matsubara": matsubara_result.branch.green},
             )
-            if matsubara_result.branch is not None
+            if include_full_matrix_artifacts and matsubara_result.branch is not None
             else None
         ),
         mixed_green_functions=(
@@ -361,263 +426,8 @@ def _build_simulation_artifacts(
                     "mixed_left": mixed_result.branch.left,
                 },
             )
-            if mixed_result.branch is not None
+            if include_full_matrix_artifacts and mixed_result.branch is not None
             else None
         ),
+        kspace_native_trajectory=kspace_native_trajectory,
     )
-
-
-def _analyze_trajectory(
-    *,
-    config: SimulationConfig,
-    dynamics: HFBDynamicsResult,
-    generalized_densities: list[ComplexMatrix],
-) -> tuple[dict[str, ObservableData], dict[str, Any], dict[str, float | str]]:
-    density_mean: list[float] = []
-    density_min: list[float] = []
-    density_max: list[float] = []
-    current_x: list[float] = []
-    current_y: list[float] = []
-    energy: list[float] = []
-    vector_ax: list[float] = []
-    vector_ay: list[float] = []
-    particle_trace: list[float] = []
-    external_power: list[float] = []
-    hermiticity_error: list[float] = []
-    density_bound_violation: list[float] = []
-    continuity_residual_norm: list[float] = []
-    pairing_primary: list[complex] = []
-    pairing_s: list[complex] = []
-    pairing_d: list[complex] = []
-    continuity_residual_supported = (
-        pairing_channel(config).value == "none" and config.kbe.self_energy == KBESelfEnergyMode.HFB
-    )
-
-    for time, generalized_density in zip(dynamics.times, generalized_densities, strict=True):
-        normal_hamiltonian, pairing_field, _, bdg_hamiltonian = build_bdg_hamiltonian(
-            config,
-            dynamics.lattice,
-            float(time),
-            generalized_density,
-            dynamics.equilibrium.effective_chemical_potential,
-        )
-        normal_density, _ = extract_density_blocks(generalized_density, dynamics.lattice.site_count)
-        density_stats = particle_density_statistics(normal_density)
-        density_mean.append(density_stats[0])
-        density_min.append(density_stats[1])
-        density_max.append(density_stats[2])
-        current_x.append(average_current(dynamics.lattice.bonds_x, normal_hamiltonian, normal_density))
-        current_y.append(average_current(dynamics.lattice.bonds_y, normal_hamiltonian, normal_density))
-        energy.append(effective_energy(generalized_density, bdg_hamiltonian))
-        if continuity_residual_supported:
-            continuity_residual = site_density_time_derivative(normal_hamiltonian, normal_density) + site_current_divergence(
-                dynamics.lattice,
-                normal_hamiltonian,
-                normal_density,
-            )
-            continuity_residual_norm.append(float(np.max(np.abs(continuity_residual))))
-        ax, ay = vector_potential(config.drive, float(time))
-        vector_ax.append(ax)
-        vector_ay.append(ay)
-        particle_trace.append(float(np.real(np.trace(normal_density))))
-        external_power.append(
-            _nambu_expectation_value(
-                _explicit_bdg_hamiltonian_derivative(config, dynamics.lattice, float(time)),
-                generalized_density,
-            )
-        )
-        hermiticity_error.append(float(np.max(np.abs(generalized_density - generalized_density.conjugate().T))))
-        site_density = np.real(np.diag(normal_density))
-        density_bound_violation.append(float(np.max(np.maximum(site_density - 1.0, 0.0) + np.maximum(-site_density, 0.0))))
-        pairing_value = pairing_projections(config, dynamics.lattice, pairing_field)
-        pairing_primary.append(pairing_value.primary)
-        pairing_s.append(pairing_value.s_wave)
-        pairing_d.append(pairing_value.d_wave)
-
-    density_mean_array = np.asarray(density_mean, dtype=np.float64)
-    density_min_array = np.asarray(density_min, dtype=np.float64)
-    density_max_array = np.asarray(density_max, dtype=np.float64)
-    current_x_array = np.asarray(current_x, dtype=np.float64)
-    current_y_array = np.asarray(current_y, dtype=np.float64)
-    energy_array = np.asarray(energy, dtype=np.float64)
-    vector_ax_array = np.asarray(vector_ax, dtype=np.float64)
-    vector_ay_array = np.asarray(vector_ay, dtype=np.float64)
-    particle_trace_array = np.asarray(particle_trace, dtype=np.float64)
-    external_power_array = np.asarray(external_power, dtype=np.float64)
-    hermiticity_error_array = np.asarray(hermiticity_error, dtype=np.float64)
-    density_bound_violation_array = np.asarray(density_bound_violation, dtype=np.float64)
-    continuity_residual_norm_array = np.asarray(continuity_residual_norm, dtype=np.float64)
-    pairing_primary_array = np.asarray(pairing_primary, dtype=np.complex128)
-    pairing_s_array = np.asarray(pairing_s, dtype=np.complex128)
-    pairing_d_array = np.asarray(pairing_d, dtype=np.complex128)
-    conservation_diagnostics = _conservation_diagnostics(
-        times=dynamics.times,
-        energy=energy_array,
-        particle_trace=particle_trace_array,
-        external_power=external_power_array,
-    )
-
-    metadata = {
-        "solver": config.solver.value if hasattr(config.solver, "value") else str(config.solver),
-        "pairing_channel": pairing_channel(config).value,
-        "kbe_self_energy": config.kbe.self_energy.value,
-    }
-    saved_indices = dynamics.saved_indices
-    saved_times = dynamics.times[saved_indices]
-    observables = {
-        "density": ObservableData(
-            name="density",
-            time=saved_times,
-            series=[
-                SeriesData(label="mean", values=density_mean_array[saved_indices]),
-                SeriesData(label="min", values=density_min_array[saved_indices]),
-                SeriesData(label="max", values=density_max_array[saved_indices]),
-            ],
-            metadata=metadata,
-        ),
-        "current_x": ObservableData(
-            name="current_x",
-            time=saved_times,
-            series=[SeriesData(label="total", values=current_x_array[saved_indices])],
-            metadata=metadata,
-        ),
-        "current_y": ObservableData(
-            name="current_y",
-            time=saved_times,
-            series=[SeriesData(label="total", values=current_y_array[saved_indices])],
-            metadata=metadata,
-        ),
-        "energy": ObservableData(
-            name="energy",
-            time=saved_times,
-            series=[SeriesData(label="total", values=energy_array[saved_indices])],
-            metadata=metadata,
-        ),
-        "vector_potential": ObservableData(
-            name="vector_potential",
-            time=saved_times,
-            series=[
-                SeriesData(label="ax", values=vector_ax_array[saved_indices]),
-                SeriesData(label="ay", values=vector_ay_array[saved_indices]),
-            ],
-            metadata=metadata,
-        ),
-        "pairing": _complex_observable("pairing", saved_times, pairing_primary_array[saved_indices], metadata),
-        "pairing_s": _complex_observable("pairing_s", saved_times, pairing_s_array[saved_indices], metadata),
-        "pairing_d": _complex_observable("pairing_d", saved_times, pairing_d_array[saved_indices], metadata),
-    }
-    diagnostics = {
-        "particle_number_drift": float(np.max(np.abs(particle_trace_array - particle_trace_array[0]))),
-        "energy_drift": float(np.max(np.abs(energy_array - energy_array[0]))),
-        "max_generalized_hermiticity_error": float(np.max(hermiticity_error_array)),
-        "max_density_bound_violation": float(np.max(density_bound_violation_array)),
-        "max_pairing_magnitude": float(np.max(np.abs(pairing_primary_array))),
-        "max_pairing_s_magnitude": float(np.max(np.abs(pairing_s_array))),
-        "max_pairing_d_magnitude": float(np.max(np.abs(pairing_d_array))),
-        "final_pairing_magnitude": float(np.abs(pairing_primary_array[-1])),
-        "equilibrium_pairing": float(np.abs(pairing_primary_array[0])),
-        "equilibrium_pairing_s": float(np.abs(pairing_s_array[0])),
-        "equilibrium_pairing_d": float(np.abs(pairing_d_array[0])),
-        "equilibrium_density": float(density_mean_array[0]),
-        "equilibrium_energy": float(energy_array[0]),
-        "continuity_residual_supported": continuity_residual_supported,
-        "continuity_residual_history": continuity_residual_norm_array.tolist(),
-        "max_continuity_residual": (
-            float(np.max(continuity_residual_norm_array)) if continuity_residual_supported else None
-        ),
-        "final_continuity_residual": (
-            float(continuity_residual_norm_array[-1]) if continuity_residual_supported else None
-        ),
-    }
-    diagnostics.update(
-        stationarity_diagnostics(
-            generalized_densities=generalized_densities,
-            density_mean=density_mean_array,
-            energy=energy_array,
-            pairing_primary=pairing_primary_array,
-            pairing_d=pairing_d_array,
-        )
-    )
-    diagnostics.update(conservation_diagnostics)
-    summary_excerpt = {
-        "final_energy": float(energy_array[-1]),
-        "final_density": float(density_mean_array[-1]),
-        "final_pairing_magnitude": diagnostics["final_pairing_magnitude"],
-        "pairing_s_final": float(np.abs(pairing_s_array[-1])),
-        "pairing_d_final": float(np.abs(pairing_d_array[-1])),
-        "equilibrium_pairing": diagnostics["equilibrium_pairing"],
-        "equilibrium_pairing_s": diagnostics["equilibrium_pairing_s"],
-        "equilibrium_pairing_d": diagnostics["equilibrium_pairing_d"],
-        "equilibrium_density": diagnostics["equilibrium_density"],
-        "equilibrium_energy": diagnostics["equilibrium_energy"],
-        "particle_number_drift": diagnostics["particle_number_drift"],
-        "max_stationarity_residual": diagnostics["max_stationarity_residual"],
-        "max_particle_conservation_residual": diagnostics["max_particle_conservation_residual"],
-        "max_energy_work_mismatch": diagnostics["max_energy_work_mismatch"],
-        "time_grid_mode": dynamics.diagnostics["time_grid_mode"],
-    }
-    if continuity_residual_supported:
-        summary_excerpt["max_continuity_residual"] = diagnostics["max_continuity_residual"]
-    return {name: observables[name] for name in config.observables}, diagnostics, summary_excerpt
-
-
-def _complex_observable(
-    name: str,
-    times: NDArray[np.float64],
-    values: NDArray[np.complex128],
-    metadata: dict[str, str],
-) -> ObservableData:
-    return ObservableData(
-        name=name,
-        time=times,
-        series=[
-            SeriesData(label="real", values=np.real(values).astype(np.float64)),
-            SeriesData(label="imag", values=np.imag(values).astype(np.float64)),
-            SeriesData(label="magnitude", values=np.abs(values).astype(np.float64)),
-        ],
-        metadata=metadata,
-    )
-
-
-def _nambu_expectation_value(
-    operator: ComplexMatrix,
-    generalized_density: ComplexMatrix,
-) -> float:
-    return float(0.5 * np.real(np.trace(generalized_density @ operator)))
-
-
-def _explicit_bdg_hamiltonian_derivative(
-    config: SimulationConfig,
-    lattice: SquareLattice,
-    time: float,
-) -> ComplexMatrix:
-    normal_derivative = build_one_body_hamiltonian_derivative(config, lattice, time)
-    zero_block = np.zeros_like(normal_derivative)
-    return np.block(
-        [
-            [normal_derivative, zero_block],
-            [zero_block, -normal_derivative.conjugate()],
-        ]
-    )
-
-
-def _conservation_diagnostics(
-    *,
-    times: NDArray[np.float64],
-    energy: NDArray[np.float64],
-    particle_trace: NDArray[np.float64],
-    external_power: NDArray[np.float64],
-) -> dict[str, float | list[float]]:
-    cumulative_external_work = cumulative_trapezoid(external_power, times)
-    particle_residual = np.abs(particle_trace - particle_trace[0])
-    energy_work_mismatch = energy - energy[0] - cumulative_external_work
-    energy_residual = np.abs(energy_work_mismatch)
-    return {
-        "particle_conservation_residual_history": particle_residual.astype(np.float64).tolist(),
-        "max_particle_conservation_residual": float(np.max(particle_residual)),
-        "final_particle_conservation_residual": float(particle_residual[-1]),
-        "energy_work_mismatch_history": energy_work_mismatch.astype(np.float64).tolist(),
-        "energy_conservation_residual_history": energy_residual.astype(np.float64).tolist(),
-        "max_energy_work_mismatch": float(np.max(energy_residual)),
-        "final_energy_work_mismatch": float(energy_residual[-1]),
-    }

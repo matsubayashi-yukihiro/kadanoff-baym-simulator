@@ -1,5 +1,6 @@
 import type { GreenFunctionCatalogResponse, GreenFunctionSliceResponse, RunDetail } from "../api/types";
 import { formatLabel, formatNumber } from "../lib/format";
+import { isSuccessfulState } from "../lib/helpers";
 
 type GreenFunctionPanelProps = {
   run: RunDetail | null;
@@ -43,6 +44,7 @@ export function GreenFunctionPanel(props: GreenFunctionPanelProps) {
   } = props;
 
   const isKbeRun = run?.solver === "kbe_hfb";
+  const runCompleted = run ? isSuccessfulState(run.state) : false;
   const maxTimeIndex = Math.max((catalog?.time_point_count ?? 1) - 1, 0);
   const maxNambuIndex = Math.max((catalog?.nambu_dimension ?? 1) - 1, 0);
   const maxWindow = Math.max(catalog?.nambu_dimension ?? 1, 1);
@@ -71,11 +73,13 @@ export function GreenFunctionPanel(props: GreenFunctionPanelProps) {
         </div>
       ) : null}
 
-      {run && isKbeRun && run.state !== "succeeded" ? (
-        <p className="state-banner">Green-function slices will unlock after the run reaches `succeeded`.</p>
+      {run && isKbeRun && !runCompleted ? (
+        <p className="state-banner">
+          Green-function slices will unlock after the run completes (`succeeded` or `succeeded_with_warnings`).
+        </p>
       ) : null}
 
-      {run && isKbeRun && run.state === "succeeded" && catalogLoading ? (
+      {run && isKbeRun && runCompleted && catalogLoading ? (
         <p className="state-banner">Loading green-function catalog...</p>
       ) : null}
       {catalogError ? <p className="state-banner state-error">{catalogError}</p> : null}

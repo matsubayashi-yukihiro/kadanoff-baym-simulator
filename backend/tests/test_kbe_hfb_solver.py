@@ -9,6 +9,49 @@ from backend.app.solvers.tdhfb import solve as solve_tdhfb
 pytestmark = pytest.mark.physics_invariant
 
 
+def _k_space_second_born_reference_full_contour_config(*, adaptive: dict[str, float | bool] | None = None):
+    payload: dict[str, object] = {
+        "solver": "kbe_hfb",
+        "representation": "k_space",
+        "lattice": {
+            "nx": 2,
+            "ny": 2,
+            "boundary": "periodic",
+            "hopping": 1.0,
+            "chemical_potential": 0.0,
+        },
+        "time": {"t_final": 0.4, "dt": 0.05},
+        "drive": {
+            "amplitude_x": 0.2,
+            "amplitude_y": 0.0,
+            "frequency": 1.0,
+            "center": 0.2,
+            "width": 0.15,
+        },
+        "interaction": {
+            "onsite_u": -1.2,
+            "nearest_neighbor_v": 0.0,
+            "pairing_channel": "none",
+        },
+        "initial_state": {"filling": 0.5, "temperature": 0.2, "seed_pairing": 0.0},
+        "equilibrium": {
+            "method": "hfb",
+            "allow_approximation_mismatch": True,
+        },
+        "kbe": {
+            "self_energy": "second_born_reference",
+            "max_fixed_point_iterations": 10,
+            "tolerance": 1e-5,
+            "mixing": 0.5,
+        },
+        "thermal_branch": {"enabled": True, "n_tau": 8, "max_iterations": 12, "mixing": 0.4},
+        "observables": ["density", "energy"],
+    }
+    if adaptive is not None:
+        payload["adaptive"] = adaptive
+    return SimulationConfig.model_validate(payload)
+
+
 @pytest.mark.parametrize("observable_name,series_index", [("density", 0), ("pairing_d", 2), ("energy", 0)])
 def test_kbe_hfb_matches_tdhfb_equal_time_observables(paired_config, observable_name, series_index):
     tdhfb_config = SimulationConfig.model_validate(paired_config)
@@ -1006,6 +1049,47 @@ def test_kbe_second_born_reference_supports_adaptive_history_against_fixed_refer
     assert adaptive.diagnostics["second_born_solver_mode"] == "gkba_causal_marching"
     assert adaptive.diagnostics["second_born_contour_mode"] == "full_contour"
     assert adaptive.diagnostics["second_born_reference_scope"] == "equal_time_gkba_full_contour"
+    assert adaptive.diagnostics["second_born_converged"] is True
+    assert adaptive.diagnostics["thermal_branch_reference_implementation"] is True
+    assert adaptive.diagnostics["mixed_branch_reference_implementation"] is True
+    assert adaptive.diagnostics["max_second_born_thermal_memory_norm"] > 0.0
+    assert adaptive.diagnostics["max_second_born_mixed_memory_norm"] > 0.0
+    assert adaptive.summary_excerpt["time_grid_mode"] == "adaptive"
+    assert adaptive.summary_excerpt["thermal_branch_factorized_difference"] > 0.0
+    assert adaptive.summary_excerpt["mixed_branch_factorized_difference"] > 0.0
+
+    assert adaptive.summary_excerpt["final_density"] == pytest.approx(
+        fixed.summary_excerpt["final_density"],
+        abs=2e-3,
+    )
+    assert adaptive.summary_excerpt["final_energy"] == pytest.approx(
+        fixed.summary_excerpt["final_energy"],
+        abs=5e-3,
+    )
+
+
+def test_kbe_second_born_reference_k_space_supports_adaptive_history_against_fixed_reference():
+    fixed = solve_kbe_hfb(_k_space_second_born_reference_full_contour_config())
+    adaptive = solve_kbe_hfb(
+        _k_space_second_born_reference_full_contour_config(
+            adaptive={
+                "enabled": True,
+                "rtol": 1e-3,
+                "atol": 1e-5,
+                "min_dt": 0.025,
+                "max_dt": 0.1,
+            },
+        )
+    )
+
+    assert adaptive.diagnostics["solver_representation"] == "k_space"
+    assert adaptive.diagnostics["time_grid_mode"] == "adaptive"
+    assert adaptive.diagnostics["accepted_time_steps"] < adaptive.diagnostics["requested_time_steps"]
+    assert adaptive.diagnostics["second_born_reference_implementation"] is True
+    assert adaptive.diagnostics["second_born_contour_mode"] == "full_contour"
+    assert adaptive.diagnostics["second_born_reference_scope"] == "equal_time_gkba_full_contour"
+    assert adaptive.diagnostics["second_born_kspace_block_path"] is True
+    assert adaptive.diagnostics["second_born_solver_mode"] == "gkba_causal_marching_kspace_blocks"
     assert adaptive.diagnostics["second_born_converged"] is True
     assert adaptive.diagnostics["thermal_branch_reference_implementation"] is True
     assert adaptive.diagnostics["mixed_branch_reference_implementation"] is True

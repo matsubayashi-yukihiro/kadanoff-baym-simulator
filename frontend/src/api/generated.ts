@@ -294,6 +294,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/kspace-native/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Kspace Native Catalog */
+        get: operations["get_kspace_native_catalog_api_v1_runs__run_id__kspace_native_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/kspace-native/lesser": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Kspace Native Lesser Slice */
+        get: operations["get_kspace_native_lesser_slice_api_v1_runs__run_id__kspace_native_lesser_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/studies": {
         parameters: {
             query?: never;
@@ -1172,6 +1206,61 @@ export interface components {
          * @enum {string}
          */
         KBESelfEnergyMode: "hfb" | "second_born" | "second_born_reference";
+        /** KSpaceNativeCatalogResponse */
+        KSpaceNativeCatalogResponse: {
+            /** Run Id */
+            run_id: string;
+            /** Components */
+            components: string[];
+            /** Time Point Count */
+            time_point_count: number;
+            /** K Point Count */
+            k_point_count: number;
+            /** Block Shape */
+            block_shape: number[];
+            /** Nambu Dimension */
+            nambu_dimension: number;
+            /** Reconstruction Mode */
+            reconstruction_mode?: string | null;
+            /** Points */
+            points: components["schemas"]["KSpaceNativePoint"][];
+        };
+        /** KSpaceNativeLesserSliceResponse */
+        KSpaceNativeLesserSliceResponse: {
+            /** Component */
+            component: string;
+            /** Times Row */
+            times_row: number[];
+            /** Times Col */
+            times_col: number[];
+            /** K Start */
+            k_start: number;
+            /** K Stop */
+            k_stop: number;
+            /** Nambu Start */
+            nambu_start: number;
+            /** Nambu Stop */
+            nambu_stop: number;
+            /** Shape */
+            shape: number[];
+            /** Real */
+            real: number[][][][][];
+            /** Imag */
+            imag: number[][][][][];
+        };
+        /** KSpaceNativePoint */
+        KSpaceNativePoint: {
+            /** Index */
+            index: number;
+            /** Grid Index X */
+            grid_index_x: number;
+            /** Grid Index Y */
+            grid_index_y: number;
+            /** Kx */
+            kx: number;
+            /** Ky */
+            ky: number;
+        };
         /** LatticeConfig */
         LatticeConfig: {
             /**
@@ -2365,6 +2454,77 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MixedGreenFunctionSliceResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_kspace_native_catalog_api_v1_runs__run_id__kspace_native_catalog_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KSpaceNativeCatalogResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_kspace_native_lesser_slice_api_v1_runs__run_id__kspace_native_lesser_get: {
+        parameters: {
+            query?: {
+                row_start?: number | null;
+                row_stop?: number | null;
+                col_start?: number | null;
+                col_stop?: number | null;
+                k_start?: number | null;
+                k_stop?: number | null;
+                nambu_start?: number | null;
+                nambu_stop?: number | null;
+            };
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KSpaceNativeLesserSliceResponse"];
                 };
             };
             /** @description Validation Error */

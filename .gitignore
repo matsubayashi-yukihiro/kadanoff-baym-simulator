@@ -21,3 +21,9 @@ embedded-research-runtime
 # Runtime data
 backend/data/runs/
 tmp-debug-runs/
+
+# Frontend test outputs
+frontend/playwright-report/
+frontend/test-results/
+frontend/.playwright-system-libs/
+frontend/dist-codex-verify/

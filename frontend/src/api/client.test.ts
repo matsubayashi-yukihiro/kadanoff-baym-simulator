@@ -264,6 +264,7 @@ describe("api client", () => {
 
     const capabilities = await getBackendCapabilities(true);
     expect(capabilities.supportsEquilibriumPayload).toBe(true);
+    expect(capabilities.supportsDerivedAnalysisLaunch).toBe(true);
     expect(capabilities.supportsDerivedAnalysisRunKspace).toBe(true);
   });
 
@@ -293,6 +294,7 @@ describe("api client", () => {
 
     const capabilities = await getBackendCapabilities(true);
     expect(capabilities.supportsEquilibriumPayload).toBe(false);
+    expect(capabilities.supportsDerivedAnalysisLaunch).toBe(true);
     expect(capabilities.supportsDerivedAnalysisRunKspace).toBe(false);
   });
 });

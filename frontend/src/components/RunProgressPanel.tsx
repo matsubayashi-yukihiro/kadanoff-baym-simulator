@@ -10,6 +10,11 @@ type RunProgressPanelProps = {
   loading: boolean;
   error: string | null;
   isStale: boolean;
+  staleDetails: {
+    heartbeatAgeSeconds: number;
+    phase: RunProgressRecord["phase"];
+    statusLine: string | null;
+  } | null;
 };
 
 const METRIC_ORDER = [
@@ -28,7 +33,7 @@ const METRIC_ORDER = [
 ] as const;
 
 export function RunProgressPanel(props: RunProgressPanelProps) {
-  const { run, progress, loading, error, isStale } = props;
+  const { run, progress, loading, error, isStale, staleDetails } = props;
 
   if (!run || (run.state !== "queued" && run.state !== "running")) {
     return null;
@@ -71,7 +76,20 @@ export function RunProgressPanel(props: RunProgressPanelProps) {
       </div>
 
       {error ? <p className="state-banner state-error">{error}</p> : null}
-      {isStale ? <p className="state-banner state-warning">Progress updates look stale. Worker heartbeat has not advanced recently.</p> : null}
+      {isStale ? (
+        <p className="state-banner state-warning">
+          Progress updates look stale. Worker heartbeat has not advanced recently.
+          {staleDetails ? (
+            <>
+              {" "}
+              Last heartbeat age: {staleDetails.heartbeatAgeSeconds}s.
+              {" "}
+              phase={staleDetails.phase}
+              {staleDetails.statusLine ? `, status=${staleDetails.statusLine}` : ""}.
+            </>
+          ) : null}
+        </p>
+      ) : null}
       {loading && !progress ? <p className="state-banner">Loading progress telemetry…</p> : null}
 
       {progress ? (

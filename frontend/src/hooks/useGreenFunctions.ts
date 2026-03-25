@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { getGreenFunctionSlice, listGreenFunctions } from "../api/client";
 import type { GreenFunctionCatalogResponse, GreenFunctionSliceResponse, RunDetail } from "../api/types";
-import { clamp, toErrorMessage } from "../lib/helpers";
+import { clamp, isSuccessfulState, toErrorMessage } from "../lib/helpers";
 
 export type UseGreenFunctionsReturn = {
   catalog: GreenFunctionCatalogResponse | null;
@@ -42,7 +42,10 @@ export function useGreenFunctions(
 
   useEffect(() => {
     const shouldLoad =
-      Boolean(selectedRunId) && selectedRun?.state === "succeeded" && selectedRun?.solver === "kbe_hfb";
+      Boolean(selectedRunId) &&
+      Boolean(selectedRun && isSuccessfulState(selectedRun.state)) &&
+      selectedRun?.solver === "kbe_hfb" &&
+      selectedRun?.config?.representation !== "k_space";
 
     if (!shouldLoad || !selectedRunId) {
       setCatalog(null);

@@ -962,7 +962,7 @@ backend は計算実行だけでなく、
 
 - API は artifact を登録する
 - job runner は別プロセスで実行する
-- `queued/running/succeeded/failed/cancelled` を全 artifact で一貫させる
+- `queued/running/succeeded/succeeded_with_warnings/failed/cancelled` を全 artifact で一貫させる
 - compare / sweep でも child run と親 artifact の両方に状態を持つ
 
 ### 5.4 現行の基準 API 契約
@@ -1017,8 +1017,6 @@ backend は計算実行だけでなく、
 
 現時点の残作業は主に frontend 側にある。
 
-- `Compare Jobs` / `Parameter Sweep` の actual result surface 接続
-- local FFT preview を含む FFT 系 derived analysis を backend 保存 `derived analysis artifact` に置換すること
 - `k` 空間 / `tr-ARPES` の derived analysis surface と result payload の追加
 - `study` / tab / run / group / sweep / bundle を横断する URL deep link
 - 一覧 / filter / re-read を含む artifact 導線の整理

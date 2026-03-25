@@ -40,20 +40,24 @@ def execute_run(run_id: str, config_data: dict, data_dir: str, registry_db_path:
         if startup_delay_seconds > 0.0:
             time.sleep(startup_delay_seconds)
         artifacts = run_simulation(config, progress_callback=reporter.update)
-        reporter.update(
-            SolverProgressUpdate(
-                phase=RunProgressPhase.FINALIZING,
-                status_line="finalizing artifacts",
-                physical_time_current=float(config.time.t_final),
-                physical_time_final=float(config.time.t_final),
-                physical_progress_fraction=1.0,
-                accepted_steps=int(config.time.n_steps),
-                requested_steps=int(config.time.n_steps),
-                saved_samples_written=int(artifacts.diagnostics.get("saved_samples", 0)),
-                solver_metrics={},
-            ),
-            force=True,
-        )
+
+        def emit_finalizing_heartbeat(step: str) -> None:
+            reporter.update(
+                SolverProgressUpdate(
+                    phase=RunProgressPhase.FINALIZING,
+                    status_line=f"finalizing: {step}",
+                    physical_time_current=float(config.time.t_final),
+                    physical_time_final=float(config.time.t_final),
+                    physical_progress_fraction=1.0,
+                    accepted_steps=int(config.time.n_steps),
+                    requested_steps=int(config.time.n_steps),
+                    saved_samples_written=int(artifacts.diagnostics.get("saved_samples", 0)),
+                    solver_metrics={},
+                ),
+                force=True,
+            )
+
+        emit_finalizing_heartbeat("prepare artifact payload")
         repository.write_results(
             run_id,
             observables=artifacts.observables,
@@ -62,7 +66,10 @@ def execute_run(run_id: str, config_data: dict, data_dir: str, registry_db_path:
             two_time_green_functions=artifacts.two_time_green_functions,
             thermal_branch_green_functions=artifacts.thermal_branch_green_functions,
             mixed_green_functions=artifacts.mixed_green_functions,
+            kspace_native_trajectory=artifacts.kspace_native_trajectory,
+            heartbeat=emit_finalizing_heartbeat,
         )
+        emit_finalizing_heartbeat("update terminal state")
         second_born_converged = bool(artifacts.diagnostics.get("second_born_converged", True))
         convergence_criterion = str(artifacts.diagnostics.get("second_born_convergence_criterion", "strict"))
         second_born_strict = convergence_criterion == "strict"

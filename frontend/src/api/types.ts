@@ -20,6 +20,10 @@ export type GreenFunctionCatalogResponse =
   paths["/api/v1/runs/{run_id}/green-functions"]["get"]["responses"][200]["content"]["application/json"];
 export type GreenFunctionSliceResponse =
   paths["/api/v1/runs/{run_id}/green-functions/{component}"]["get"]["responses"][200]["content"]["application/json"];
+export type KSpaceNativeCatalogResponse =
+  paths["/api/v1/runs/{run_id}/kspace-native/catalog"]["get"]["responses"][200]["content"]["application/json"];
+export type KSpaceNativeLesserSliceResponse =
+  paths["/api/v1/runs/{run_id}/kspace-native/lesser"]["get"]["responses"][200]["content"]["application/json"];
 export type ThermalBranchCatalogResponse =
   paths["/api/v1/runs/{run_id}/thermal-branch"]["get"]["responses"][200]["content"]["application/json"];
 export type ThermalBranchSliceResponse =

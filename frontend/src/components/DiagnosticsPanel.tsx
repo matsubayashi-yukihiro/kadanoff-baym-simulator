@@ -31,6 +31,36 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
   const failure = analyzeFailure(run);
   const diagnostics = run.diagnostics && Object.keys(run.diagnostics).length > 0 ? run.diagnostics : run.diagnostics_excerpt ?? {};
   const groups = groupDiagnostics(diagnostics as Record<string, unknown>);
+  const isKSpaceRun = run.config?.representation === "k_space";
+  const kSpacePathMode = typeof diagnostics["k_space_path_mode"] === "string" ? String(diagnostics["k_space_path_mode"]) : null;
+  const kSpaceFallbackReason =
+    typeof diagnostics["k_space_path_fallback_reason"] === "string"
+      ? String(diagnostics["k_space_path_fallback_reason"])
+      : null;
+  const kSpaceInitialBlockError =
+    typeof diagnostics["k_space_initial_block_structure_error"] === "number"
+      ? Number(diagnostics["k_space_initial_block_structure_error"])
+      : null;
+  const secondBornKspaceBlockPath =
+    typeof diagnostics["second_born_kspace_block_path"] === "boolean"
+      ? Boolean(diagnostics["second_born_kspace_block_path"])
+      : null;
+  const secondBornSolverMode =
+    typeof diagnostics["second_born_solver_mode"] === "string"
+      ? String(diagnostics["second_born_solver_mode"])
+      : null;
+  const hasKSpacePathSignal =
+    isKSpaceRun &&
+    (kSpacePathMode !== null ||
+      kSpaceFallbackReason !== null ||
+      secondBornKspaceBlockPath !== null ||
+      secondBornSolverMode !== null);
+  const kSpaceFullFallback = kSpacePathMode === "full_matrix_fallback";
+  const secondBornBlockInactive =
+    run.solver === "kbe_hfb" &&
+    run.config?.kbe?.self_energy === "second_born_reference" &&
+    secondBornKspaceBlockPath === false;
+  const kSpaceFallbackDetected = kSpaceFullFallback || secondBornBlockInactive;
   const anomalyCount = countAnomalies(groups);
   const entryCount = groups.reduce((sum, group) => sum + group.entries.length, 0);
   const anomalousEntries = groups
@@ -74,6 +104,40 @@ export function DiagnosticsPanel(props: DiagnosticsPanelProps) {
         <p className="state-banner state-warning">{anomalyCount} anomal{anomalyCount === 1 ? "y" : "ies"} detected in diagnostics.</p>
       ) : groups.length > 0 ? (
         <p className="state-banner state-nominal">All diagnostics nominal.</p>
+      ) : null}
+
+      {hasKSpacePathSignal ? (
+        <>
+          <div className="diagnostic-summary">
+            <div>
+              <span className="focus-key">k-space path mode</span>
+              <span>{kSpacePathMode ?? "n/a"}</span>
+            </div>
+            <div>
+              <span className="focus-key">fallback reason</span>
+              <span>{kSpaceFallbackReason ?? "none"}</span>
+            </div>
+            <div>
+              <span className="focus-key">2nd Born block path</span>
+              <span>
+                {secondBornKspaceBlockPath === null ? "n/a" : String(secondBornKspaceBlockPath)}
+              </span>
+            </div>
+            <div>
+              <span className="focus-key">initial block error</span>
+              <span>{kSpaceInitialBlockError === null ? "n/a" : formatValue(kSpaceInitialBlockError)}</span>
+            </div>
+          </div>
+          {kSpaceFallbackDetected ? (
+            <p className="state-banner state-warning">
+              k-space block path is inactive and fallback is in effect
+              {kSpacePathMode ? ` (mode: ${kSpacePathMode})` : ""}
+              {kSpaceFallbackReason ? `; reason: ${kSpaceFallbackReason}` : ""}.
+            </p>
+          ) : (
+            <p className="state-banner state-nominal">k-space block path is active for this run.</p>
+          )}
+        </>
       ) : null}
 
       {failure ? (

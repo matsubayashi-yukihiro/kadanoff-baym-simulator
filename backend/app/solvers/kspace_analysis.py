@@ -128,6 +128,72 @@ def compute_k_resolved_trarpes(
     }
 
 
+def compute_k_resolved_trarpes_from_kspace_native(
+    *,
+    density_blocks_history: ComplexArray,
+    cumulative_propagator_blocks: ComplexArray,
+    times: FloatArray,
+    config: SimulationConfig,
+    momentum_selection: MomentumSelection,
+    energy_grid: FloatArray,
+    probe_center: float,
+    probe_width: float,
+    broadening: float,
+) -> dict[str, Any]:
+    if density_blocks_history.ndim != 4 or cumulative_propagator_blocks.ndim != 4:
+        raise ValueError("k-space native trajectories must have shape [time, k, 2, 2]")
+    if density_blocks_history.shape != cumulative_propagator_blocks.shape:
+        raise ValueError("density/progagator block trajectories must have identical shape")
+    if density_blocks_history.shape[0] != times.shape[0]:
+        raise ValueError("k-space native trajectory time axis must match stored times")
+    if density_blocks_history.shape[2:] != (2, 2):
+        raise ValueError("k-space native blocks must be 2x2 Nambu blocks")
+    if probe_width <= 0.0:
+        raise ValueError("probe_width must be > 0")
+    if broadening <= 0.0:
+        raise ValueError("broadening must be > 0")
+
+    k_indices = _selection_to_k_indices(config, momentum_selection, density_blocks_history.shape[1])
+    selected_propagators = np.asarray(cumulative_propagator_blocks[:, k_indices], dtype=np.complex128)
+    initial_density_blocks = np.asarray(density_blocks_history[0, k_indices], dtype=np.complex128)
+    selected_propagators_dagger = np.conjugate(np.swapaxes(selected_propagators, -1, -2))
+    intermediate = np.einsum(
+        "tkab,kbc->tkac",
+        selected_propagators,
+        initial_density_blocks,
+        optimize=True,
+    )
+    lesser_blocks = 1j * np.einsum(
+        "tkab,skbc->tskac",
+        intermediate,
+        selected_propagators_dagger,
+        optimize=True,
+    )
+    gk_lesser = lesser_blocks[:, :, :, 0, 0]
+
+    delta_t = _infer_uniform_dt(times)
+    window = np.exp(-0.5 * ((times - probe_center) / probe_width) ** 2)
+    weighted = window[:, None, None] * window[None, :, None] * (-1j * gk_lesser)
+    phase_argument = times[:, None] - times[None, :]
+    kernel = np.exp(1j * energy_grid[:, None, None] * phase_argument[None, :, :])
+    intensity = np.einsum("wij,ijk->wk", kernel, weighted, optimize=True)
+    intensity = (delta_t**2) * np.real(intensity.T)
+
+    gaussian_energy_smoothing = np.exp(
+        -0.5 * ((energy_grid[:, None] - energy_grid[None, :]) / broadening) ** 2
+    )
+    normalization = np.sum(gaussian_energy_smoothing, axis=1, keepdims=True)
+    smoothed = intensity @ (gaussian_energy_smoothing / normalization)
+    smoothed = np.clip(smoothed, a_min=0.0, a_max=None)
+    return {
+        "intensity": smoothed.astype(float),
+        "gk_lesser_shape": [int(value) for value in gk_lesser.shape],
+        "time_step": float(delta_t),
+        "window_norm": float(np.sum(window)),
+        "occupied_weight": np.trapezoid(smoothed, energy_grid, axis=1).astype(float),
+    }
+
+
 def build_gap_indicator(
     *,
     energy_grid: FloatArray,
@@ -302,6 +368,20 @@ def _nearest_momentum_point(points: list[MomentumPoint], target: tuple[float, fl
 
 def _same_grid_point(left: MomentumPoint, right: MomentumPoint) -> bool:
     return left.grid_index_x == right.grid_index_x and left.grid_index_y == right.grid_index_y
+
+
+def _selection_to_k_indices(
+    config: SimulationConfig,
+    selection: MomentumSelection,
+    k_point_count: int,
+) -> list[int]:
+    lattice = build_square_lattice(config.lattice)
+    if lattice.site_count != k_point_count:
+        raise ValueError("k-space native trajectory k-count does not match lattice site count")
+    return [
+        int(point.grid_index_x + lattice.nx * point.grid_index_y)
+        for point in selection.points
+    ]
 
 
 def _infer_uniform_dt(times: FloatArray) -> float:

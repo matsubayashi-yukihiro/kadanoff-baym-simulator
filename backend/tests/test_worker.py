@@ -100,6 +100,7 @@ def test_execute_run_promotes_warning_state_from_combined_convergence_flags(
         two_time_green_functions=None,
         thermal_branch_green_functions=None,
         mixed_green_functions=None,
+        kspace_native_trajectory=None,
     )
 
     monkeypatch.setattr(worker, "RunProgressReporter", _FakeReporter)
@@ -116,4 +117,3 @@ def test_execute_run_promotes_warning_state_from_combined_convergence_flags(
     )
 
     assert status_updates[-1] == expected_state
-

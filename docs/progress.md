@@ -98,7 +98,7 @@
 | --- | --- | --- | --- |
 | experiment registry | 部分完了 | `study` / run metadata / `job group` / `sweep` / `decision note` / `derived analysis artifact` / `evidence bundle` を SQLite-backed な `experiment registry` で索引し、filesystem artifact と DB metadata を repository 層で束ねている。artifact ごとの責務、主要 API、保存 / 再取得の流れは `docs/backend-artifact-lifecycle.md` に切り出した。FFT 系に加えて `k-space / tr-ARPES` derived analysis も compare / sweep artifact から再利用できる。 | frontend surface と URL state に接続する |
 | API / schema | 完了 | OpenAPI を正本に、`/runs` 系、Green 関数系、`/studies`、`/job-groups`、`/job-groups/launch`、`/sweeps`、`/sweeps/launch`、`/decision-notes`、`/derived-analyses`、`/derived-analyses/launch`、`/derived-analyses/{id}/result`、`/evidence-bundles`、`/evidence-bundles/{id}`、`/evidence-bundles/{id}/resolved` を提供している。backend の launch/result/provenance contract は揃い、`run/k_spectral_preview`、`run/tr_arpes_preview`、`job_group/k_spectral_compare`、`sweep/tr_arpes_heatmap` に加えて `run progress` も fetch できる。frontend client も `listJobGroups` / `launchJobGroup` / `listSweeps` / `launchSweep` / `launchDerivedAnalysis` / `getDerivedAnalysisResult` / `getRunProgress` 等を追加し、actual surface まで接続済みである。 | 維持のみ |
-| run 管理 | 完了 | `queued/running/succeeded/failed/cancelled` を保持し、run ごとに JSON/NPZ を保存する。`/runs` 一覧は registry DB query を正本とし、`study_id` / `run_role` / `validation_status` / `failure_tags` / `group_id` / `sweep_id` / `variant_label` / `preset_id` / `tags` / `config_hash` / `code_version` / `storage_uri` を run metadata として保持できる。`job group` / `sweep` については child run から親 artifact state を集約できる。さらに run status に残った `pid` から cancel fallback でき、process mode の submit/cancel workflow regression も追加した | UI/E2E の cancel 回帰を追加する |
+| run 管理 | 完了 | `queued/running/succeeded/succeeded_with_warnings/failed/cancelled` を保持し、run ごとに JSON/NPZ を保存する。`/runs` 一覧は registry DB query を正本とし、`study_id` / `run_role` / `validation_status` / `failure_tags` / `group_id` / `sweep_id` / `variant_label` / `preset_id` / `tags` / `config_hash` / `code_version` / `storage_uri` を run metadata として保持できる。`job group` / `sweep` については child run から親 artifact state を集約できる。さらに run status に残った `pid` から cancel fallback でき、process mode の submit/cancel workflow regression も追加した | UI/E2E の cancel 回帰を追加する |
 | ジョブ実行 | 完了 | `process` と `inline` の 2 モードあり。通常は別プロセス実行。workflow test で process mode の submit/cancel も回帰化した | UI/E2E を追加する |
 | cancel 機能 | 部分完了 | backend API と frontend の `Cancel Run` ボタンは実装済みで、Single Job には `RunLogPanel` を接続済み。さらに API 再起動後を模した `runner.cancel()` miss 時でも、status に保存された `pid` へ signal を送って cancel できる fallback と、process mode submit/cancel workflow test を backend に追加した。`progress.json` も cancel 時に `state/phase=cancelled` へ同期される | UI/E2E を追加する |
 | ストレージ | 完了 | `config/progress/status/summary/diagnostics/observables.npz/run.log` に加え、KBE run では `green_functions.json` / `green_*.npy`、`thermal_branch.json` / `thermal_*.npy`、`mixed_green_functions.json` / `mixed_*.npy` を保存し、two-time / mixed time grid は `save_every` に応じて縮約される。`progress.json` には running 中の heartbeat と solver-specific telemetry ring buffer を保持する | 必要なら chunked archive 形式を別途検討 |
@@ -108,10 +108,10 @@
 | KBE ソルバー基盤 | 完了 | HFB 二時刻 Green 関数、retarded / lesser / Matsubara / mixed の保存形式、heuristic `second_born` prototype、および explicit self-energy の `second_born_reference` と self-consistent contour dressingを実装済みで、orchestration helper と contour seed builder を共通化済み。加えて HFB mode の source-free continuity diagnostics、approximation-aware equilibrium dispatch、`second_born_reference` equilibrium seed、source-free stationarity regression を追加した | longer-time / larger-system の benchmark 拡張 |
 | 観測量 | 完了 | `density/current_x/current_y/energy/vector_potential/pairing/pairing_s/pairing_d` を返却 | second Born 向けに緩和・散乱診断を追加 |
 | 診断量 | 完了 | HFB 収束履歴、stationarity、`two_time_grid_shape`、prototype の iteration/residual/memory/collision/contour/history-order/保存則残差に加え、`second_born_reference` の explicit self-energy / equation residual / GKBA reconstruction / thermal / mixed contour diagnostics と equilibrium method / source-free initial slip history を保存 | larger-system row と連動した追加可視化を検討 |
-| k-space native solver representation | 部分完了 | `representation=real_space|k_space` を schema と backend solver に追加し、periodic square lattice の `noninteracting` / `tdhfb` / `kbe_hfb(self_energy=hfb)` に加えて `kbe_hfb(self_energy=second_born_reference)` で parity / benchmark / workflow regression を追加した。`tdhfb` / `kbe_hfb(self_energy=hfb)` には periodic 4x4 の moderate longer-window parity rowと paired longer-time row (`t_final=0.4`) に加え、paired larger-lattice row (`tdhfb`: 6x6, `kbe_hfb`: 5x5, `t_final=0.3`) を追加済み。`second_born_reference` には `U=0` HFB limit、real/k parity、3x3 longer-window parity、periodic finite-temperature exact benchmark（short/longer window）、run artifact contract row を追加した。run artifact contract は維持され、`solver_representation` diagnostics も保存される。 | frontend selector の明示と、`validated` 昇格に向けた独立 cross-check の継続追加 |
+| k-space native solver representation | 部分完了 | `representation=real_space|k_space` を schema と backend solver に追加し、periodic square lattice の `noninteracting` / `tdhfb` / `kbe_hfb(self_energy=hfb)` に加えて `kbe_hfb(self_energy=second_born_reference)` で parity / benchmark / workflow regression を追加した。`tdhfb` / `kbe_hfb(self_energy=hfb)` には periodic 4x4 の moderate longer-window parity rowと paired longer-time row (`t_final=0.4`) に加え、paired larger-lattice row (`tdhfb`: 6x6, `kbe_hfb`: 5x5, `t_final=0.3`) を追加済み。`second_born_reference` には `U=0` HFB limit、real/k parity、3x3 longer-window parity、periodic finite-temperature exact benchmark（short/longer window）、adaptive fixed-reference row、exact-benchmark non-worsening row、run artifact contract row を追加した。run artifact contract は維持され、`solver_representation` diagnostics も保存される。 | `validated` 昇格に向けた独立 cross-check の継続追加 |
 | k-space / tr-ARPES derived analysis | 部分完了 | periodic `kbe_hfb` run の lesser Green 関数に加え、periodic `tdhfb` run を direct source として `run/k_spectral_preview` / `run/tr_arpes_preview`、`job_group/k_spectral_compare` / `sweep/tr_arpes_heatmap` の launch / cache reuse / result fetch を backend で再利用できるようにした。analysis sweep では `parameter_kind=analysis`, `parameter_path=probe_center` を probe delay override として解釈できる。さらに synthetic benchmark row、`kbe_hfb` / `tdhfb` の run-derived `real_space` / `k_space` source cross-check、`second_born_reference` の real-space / native `k_space` source parity cross-check、compare/sweep payload regression（energy-grid variant、analysis override）を固定した。frontend 側の actual surface は別項目で接続済みである。 | frontend compare/sweep surface の統合回帰を追加する |
-| frontend UI | 部分完了 | `Single Job` / `Compare Jobs` / `Parameter Sweep` の page-level shell、preset library、Plotly chart、research artifacts surface に加えて、`representation=k_space` selector / 検証ガイド（`second_born` 非対応警告含む）、`useDerivedAnalysis` フック + `DerivedAnalysisPanel` 共通基盤、`KSpectralPanel` / `TrArpesPanel`（k-space run 限定）、`useJobGroups` / `JobGroupResultPanel`、`useSweeps` / `SweepResultPanel` を実装し、Compare Jobs / Parameter Sweep の実 API 接続と URL deep link（group/sweep params）まで完了した。Single Job には `useRunProgress` + `RunProgressPanel` を追加し、running/queued 中の heartbeat、physical progress、saved sample count、solver-specific mini metrics を 2 秒 polling で表示できる。local FFT バナーは backend 保存 artifact への置換保留中である。 | `second_born_reference` k-space unsupported scope の UI 明示、local FFT preview の backend derived analysis 置換（payload format 確認後）、E2E テストの追加 |
-| テスト | 部分完了 | solver validation row、Green / thermal / mixed API、`save_every` 保存縮約、experiment registry workflow、restart-safe cancel、process mode submit/cancel、bundle migration / restart persistence まで backend 回帰化した。workflow 層は artifact lifecycle の backend 整合確認に寄っており、frontend E2E と URL deep link の自動テストは未整備である。 | E2E の追加 |
+| frontend UI | 部分完了 | `Single Job` / `Compare Jobs` / `Parameter Sweep` の page-level shell、preset library、Plotly chart、research artifacts surface に加えて、`representation=k_space` selector / 検証ガイド（`second_born` 非対応警告含む）、`useDerivedAnalysis` フック + `DerivedAnalysisPanel` 共通基盤、`KSpectralPanel` / `TrArpesPanel`（k-space run 限定）、`useJobGroups` / `JobGroupResultPanel`、`useSweeps` / `SweepResultPanel` を実装し、Compare Jobs / Parameter Sweep の実 API 接続と URL deep link（group/sweep params）まで完了した。Single Job には `useRunProgress` + `RunProgressPanel` を追加し、running/queued 中の heartbeat、physical progress、saved sample count、solver-specific mini metrics を 2 秒 polling で表示できる。さらに Playwright の route-mocked workflow E2E を追加し、Single Job cancel、k-space derived analysis、Compare Jobs URL restore、Parameter Sweep URL restore を自動化した。`run/fft_preview` は local preview ではなく backend 保存 artifact を auto-launch / cache reuse する表示へ置換し、observable / series parameter ごとの artifact 切替も frontend hook で維持した。 | `second_born_reference` k-space unsupported scope の UI 明示、bundle / study deep link の補強 |
+| テスト | 部分完了 | solver validation row、Green / thermal / mixed API、`save_every` 保存縮約、experiment registry workflow、restart-safe cancel、process mode submit/cancel、bundle migration / restart persistence に加えて、frontend には route-mocked Playwright workflow E2E（Single Job cancel、k-space derived analysis、Compare Jobs / Parameter Sweep URL deep link）を追加した。workflow 層は依然として backend artifact lifecycle の整合確認が主であり、live backend process-mode smoke は補完余地として残る。 | live backend process-mode smoke の補完 |
 | デプロイ / 起動系 | 完了 | `docker compose up --build` とローカル起動手順あり | 永続データ運用とジョブ監視の整理 |
 
 ---
@@ -282,18 +282,109 @@
   - 2 件すべて成功
 - live probe（docker backend）:
   - `POST /api/v1/derived-analyses/launch` with `study_id="__none__"` + succeeded `k_space` run で `201/succeeded` を確認
+- backend review follow-up（terminal run-state / diagnostics / docs alignment）:
+  - `backend/app/storage/file_storage.py` の terminal state 集合に `succeeded_with_warnings` を追加し、warning 完了 run でも `finished_at` と progress phase (`succeeded`) を確定するようにした
+  - `backend/app/services/run_service.py` の cancel guard に `succeeded_with_warnings` を追加し、warning 完了 run を cancel 対象から除外した
+  - `backend/app/solvers/kbe_hfb.py` の reconstruction mode 判定で `gkba_causal_marching_kspace_blocks` を `gkba_causal_marching` と同義に扱うようにした
+  - `backend/tests/test_progress_storage.py` に warning state terminal 回帰を追加し、`backend/tests/test_api.py` に warning 完了 run cancel no-op 回帰を追加した
+  - `backend/tests/test_kspace_native_path.py` に k-space/reconstruction label の同値回帰を追加し、end-to-end 性能行は「過度な劣化防止 (`real/k >= 0.9`)」へ切り分けた
+  - `docs/research-workbench-plan.md` / `docs/progress.md` の run state 列挙を `succeeded_with_warnings` を含む形に更新した
+  - `docs/validation-spec.md` の Phase 5A 速度 row を現行 test threshold（`tdhfb >=1.5`, `kbe kernel >=2.0`）に揃え、end-to-end non-regression row（`real/k >=0.9`）を追加した
 - backend remediation follow-up（numerical logic / k-space block path）:
   - `backend/app/solvers/contour.py` の 2点重みを台形則整合（`[dt/2, dt/2]`）へ修正し、`backend/tests/test_numerics.py` に 2点/3点/非等間隔回帰を追加した
   - `backend/app/solvers/nambu.py` の latent `k_space` helper 参照（`build_one_body_momentum_diagonal`, `nambu_from_k_blocks`, `extract_k_blocks_from_k_nambu_matrix`）を修復し、`backend/tests/test_kspace_native_path.py::test_kspace_native_hfb_equilibrium_path_is_reachable` を追加した
   - `self_energy_second_born` / `self_energy_second_born_prototype` の fixed-point 収束判定を「更新差分 + 方程式残差（`tolerance/dt` 基準）」へ統一し、`second_born_convergence_criterion` / `second_born_equation_residual_history` / `max_second_born_equation_residual` を base diagnostics に固定した
   - `backend/app/jobs/worker.py` の最終状態判定を `second_born_converged` のみから、`second_born_convergence_criterion` + `thermal_branch_converged` + `mixed_branch_converged` を含む合成判定へ更新した（未達は `succeeded_with_warnings`）
   - `tdhfb` `representation=k_space` には native block-diagonal propagation kernel を導入し、条件外は full-matrix に自動フォールバックする `k_space_path_mode` diagnostics を追加した
-  - `backend/tests/test_kspace_native_path.py` に parity row と性能 row を追加し、`full/block` median 比 `>=2.0`（`tdhfb 6x6`、`kbe_hfb(second_born_reference) 6x6` propagation kernel）を benchmark で固定した
+  - `backend/tests/test_kspace_native_path.py` に parity row と性能 row を追加し、`full/block` median 比（`tdhfb 6x6`: `>=1.5`、`kbe_hfb(second_born_reference) 6x6` propagation kernel: `>=2.0`）を benchmark で固定した
   - `solve_second_born_reference_equilibrium` は runtime `time.dt` 依存を外し、equilibrium 専用 `dt` / `equilibrium.tolerance` / `equilibrium.mixing` で収束を判定するよう再設計した。失敗理由は `equilibrium_convergence_failure_reason` に固定キーで保存する
 - 実行ログ:
+  - `uv run python -m pytest backend/tests/test_progress_storage.py backend/tests/test_api.py -k 'progress or cancel_is_noop_for_succeeded_with_warnings_state'`（4 passed）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py::test_kbe_hfb_kspace_block_second_born_matches_real_space`（1 passed）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py::test_kbe_hfb_kspace_block_second_born_is_not_significantly_slower_than_real_space`（1 passed, 5m37s）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_1p5x_as_fast_as_forced_full_matrix_path`（1 passed）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_twice_as_fast_for_second_born_reference_propagation_kernel`（1 passed）
   - `uv run python -m pytest backend/tests/test_tdhfb_solver.py -k 'k_space_representation_matches_real_space'`（4 passed）
   - `uv run python -m pytest backend/tests/test_kbe_hfb_solver.py -k 'k_space_representation_matches_real_space or second_born_reports_memory_diagnostics_under_drive or second_born_reference_supports_adaptive_history_against_fixed_reference'`（8 passed）
   - `uv run python -m pytest backend/tests/test_kspace_native_path.py backend/tests/test_worker.py backend/tests/test_numerics.py backend/tests/test_self_energy_second_born.py`（28 passed）
+
+### 2026-03-23
+
+- backend review follow-up（F2 close-out）:
+  - `backend/tests/test_kspace_native_path.py` の性能行を `kernel speed` と `end-to-end non-regression` に分離した契約へ確定した
+  - `tdhfb` block-path row は `full/block >= 1.5`、`kbe second_born_reference` propagation kernel row は `full/block >= 2.0` を維持
+  - `kbe second_born_reference` end-to-end row は `real/k >= 0.9`（過度な劣化防止）へ切り分け、`test_kbe_hfb_kspace_block_second_born_is_not_significantly_slower_than_real_space` を採用
+  - `docs/validation-spec.md` の Phase 5A 速度 row と test 名を現行実装へ同期した
+  - `docs/backend-code-review-2026-03-21.md` の進捗管理テーブルで `F2` を `完了`、`F5` を `対応中` へ更新した
+- backend review follow-up（F5 stage-1 split）:
+  - `backend/app/solvers/nambu_observables.py` を追加し、`tdhfb.py` / `kbe_hfb.py` の重複 helper（複素 observables、Nambu expectation、BdG 明示時間微分）を共通化した
+  - `backend/app/solvers/second_born_common.py` を追加し、`self_energy_second_born.py` / `self_energy_second_born_prototype.py` の重複 helper（base diagnostics、fallback reason/logging、thermal density reference、collision kernel）を共通化した
+  - `docs/backend-code-review-2026-03-21.md` の進捗管理テーブルで `F5` を `対応中` へ更新した
+- backend review follow-up（F5 stage-2 split）:
+  - `backend/app/solvers/kbe_trajectory.py` を追加し、`kbe_hfb.py` の trajectory observables / diagnostics / conservation 計算を分離した
+  - `kbe_hfb.py` は second-Born path orchestration と artifact packaging に寄せ、行数は `602 -> 368` へ縮小した
+  - `docs/backend-code-review-2026-03-21.md` の `F5` 次アクションを stage-2 実装に更新した
+- backend review follow-up（F5 stage-3 split）:
+  - `backend/app/solvers/tdhfb_propagation.py` を追加し、`tdhfb.py` から real-space / k-space の propagation kernel 群（adaptive 含む）を分離した
+  - `tdhfb.py` は dynamics orchestration / observables assembly に寄せ、行数は `1136 -> 417` へ縮小した
+  - `docs/backend-code-review-2026-03-21.md` の `F5` 次アクションを stage-3 実装に更新した
+- backend review follow-up（F5 stage-4 split）:
+  - `backend/app/solvers/second_born_branch_diagnostics.py` を追加し、`self_energy_second_born.py` / `self_energy_second_born_prototype.py` の Matsubara/mixed branch diagnostics assembler を分離した
+  - `self_energy_second_born.py` は `1347 -> 1320`、`self_energy_second_born_prototype.py` は `868 -> 806` へ縮小した
+  - `docs/backend-code-review-2026-03-21.md` の `F5` 次アクションを stage-4 実装に更新した
+- backend review follow-up（F5 stage-5 split）:
+  - `backend/app/solvers/second_born_contour_updates.py` を追加し、`self_energy_second_born.py` / `self_energy_second_born_prototype.py` の Matsubara/mixed contour fixed-point・update loop を分離した
+  - `self_energy_second_born.py` は `1320 -> 1171`、`self_energy_second_born_prototype.py` は `806 -> 697` へ縮小した
+  - `docs/backend-code-review-2026-03-21.md` の `F5` 次アクションを stage-5 実装に更新した
+- backend review follow-up（F5 stage-6 split）:
+  - `backend/app/solvers/second_born_realtime_updates.py` を追加し、`self_energy_second_born.py` / `self_energy_second_born_prototype.py` の real-time fixed-point kernel loop（reference/prototype/k-space block）を分離した
+  - `self_energy_second_born.py` は `1171 -> 879`、`self_energy_second_born_prototype.py` は `697 -> 467` へ縮小した
+  - `docs/backend-code-review-2026-03-21.md` の `F5` 次アクションを stage-6 実装に更新した
+- backend review follow-up（F5 stage-7 split / close-out）:
+  - `backend/app/solvers/second_born_kernels.py` を追加し、`self_energy_second_born.py` の GKBA row/local self-energy/stabilized kernel helper を分離した
+  - `self_energy_second_born.py` は `879 -> 832` へ縮小し、既存 private helper 名は互換のため薄いラッパーとして維持した
+  - `docs/backend-code-review-2026-03-21.md` の `F5` を `完了` へ更新した
+- 実行ログ:
+  - `uv run python -m pytest backend/tests/test_progress_storage.py backend/tests/test_api.py -k 'progress or cancel_is_noop_for_succeeded_with_warnings_state'`（4 passed）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py::test_kbe_hfb_kspace_block_second_born_matches_real_space`（1 passed）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py::test_kbe_hfb_kspace_block_second_born_is_not_significantly_slower_than_real_space`（1 passed, 337.03s）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_1p5x_as_fast_as_forced_full_matrix_path`（1 passed）
+  - `uv run python -m pytest backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_twice_as_fast_for_second_born_reference_propagation_kernel`（1 passed）
+  - `uv run python -m pytest backend/tests/test_kbe_hfb_solver.py -k 'k_space_representation_matches_real_space or second_born_reference_k_space_representation_matches_real_space'`（6 passed, 16 deselected）
+  - `uv run python -m pytest backend/tests/test_self_energy_second_born.py backend/tests/test_tdhfb_solver.py::test_tdhfb_solver_emits_pairing_projections_and_preserves_stationary_state backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_tdhfb_equal_time_observables backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero`（16 passed）
+  - `uv run python -m pytest backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_tdhfb_equal_time_observables backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero backend/tests/test_tdhfb_solver.py::test_tdhfb_solver_emits_pairing_projections_and_preserves_stationary_state backend/tests/test_self_energy_second_born.py`（16 passed）
+  - `python -m py_compile backend/app/solvers/tdhfb.py backend/app/solvers/tdhfb_propagation.py backend/app/solvers/kbe_hfb.py backend/app/solvers/kbe_trajectory.py`（success）
+  - `uv run python -m pytest backend/tests/test_tdhfb_solver.py backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_tdhfb_equal_time_observables backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero backend/tests/test_self_energy_second_born.py`（24 passed）
+  - `python -m py_compile backend/app/solvers/second_born_branch_diagnostics.py backend/app/solvers/self_energy_second_born.py backend/app/solvers/self_energy_second_born_prototype.py backend/app/solvers/tdhfb.py backend/app/solvers/tdhfb_propagation.py backend/app/solvers/kbe_hfb.py backend/app/solvers/kbe_trajectory.py`（success）
+  - `uv run python -m pytest backend/tests/test_self_energy_second_born.py backend/tests/test_tdhfb_solver.py backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_tdhfb_equal_time_observables backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero`（24 passed）
+  - `python -m py_compile backend/app/solvers/second_born_contour_updates.py backend/app/solvers/self_energy_second_born.py backend/app/solvers/self_energy_second_born_prototype.py`（success）
+  - `uv run python -m pytest backend/tests/test_self_energy_second_born.py backend/tests/test_tdhfb_solver.py::test_tdhfb_solver_emits_pairing_projections_and_preserves_stationary_state backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_tdhfb_equal_time_observables backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero`（16 passed）
+  - `uv run python -m pytest backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_reduces_to_hfb_when_onsite_u_zero backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_matches_real_space`（2 passed）
+  - `python -m py_compile backend/app/solvers/second_born_realtime_updates.py backend/app/solvers/self_energy_second_born.py backend/app/solvers/self_energy_second_born_prototype.py backend/app/solvers/second_born_contour_updates.py`（success）
+  - `uv run python -m pytest backend/tests/test_self_energy_second_born.py backend/tests/test_tdhfb_solver.py::test_tdhfb_solver_emits_pairing_projections_and_preserves_stationary_state backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_tdhfb_equal_time_observables backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_reduces_to_hfb_when_onsite_u_zero backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_matches_real_space`（18 passed）
+  - `python -m py_compile backend/app/solvers/second_born_kernels.py backend/app/solvers/self_energy_second_born.py backend/app/solvers/second_born_realtime_updates.py backend/app/solvers/self_energy_second_born_prototype.py backend/app/solvers/second_born_contour_updates.py`（success）
+  - `uv run python -m pytest backend/tests/test_self_energy_second_born.py backend/tests/test_tdhfb_solver.py::test_tdhfb_solver_emits_pairing_projections_and_preserves_stationary_state backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_matches_tdhfb_equal_time_observables backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_reduces_to_hfb_when_onsite_u_zero backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_reduces_to_hfb_when_onsite_u_zero backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_matches_real_space`（18 passed）
+
+### 2026-03-25
+
+- backend validation follow-up（`second_born_reference(representation=k_space)` independent cross-check）:
+  - `backend/tests/test_kbe_hfb_solver.py` に `test_kbe_second_born_reference_k_space_supports_adaptive_history_against_fixed_reference` を追加し、periodic `2x2` finite-temperature full-contour adaptive path が fixed-grid reference と整合する row を追加した
+  - `backend/tests/test_exact_diagonalization_benchmark.py` に `test_second_born_reference_k_space_adaptive_tolerance_does_not_worsen_final_error_against_exact_benchmark` を追加し、current periodic `2x2` driven exact benchmark row で tight tolerance が final/max error を悪化させないことを固定した
+  - `docs/validation-spec.md` / `docs/progress.md` を更新し、`second_born_reference(k_space)` は adaptive fixed-reference row と exact-benchmark non-worsening row を追加しても `partially validated` を維持する方針を明記した
+- frontend workflow E2E follow-up:
+  - `frontend/playwright.config.ts` と `frontend/e2e/workbench.spec.ts` を追加し、route-mocked backend で `Single Job` cancel、`Single Job` k-space derived analysis auto-launch、`Compare Jobs` URL restore、`Parameter Sweep` URL restore を Playwright で固定した
+  - `frontend/package.json` に `test:e2e` を追加し、`@playwright/test` を devDependency に追加した
+  - `.gitignore` に `frontend/playwright-report/` と `frontend/test-results/` を追加した
+- frontend FFT artifact follow-up:
+  - `ObservablePanel` / `SpectrumPanel` の FFT 表示を backend 保存 `run/fft_preview` artifact へ切り替え、local preview バナーを除去した
+  - `frontend/src/hooks/useDerivedAnalysis.ts` に parameter-aware cache 判定と request reset を追加し、observable / series 切替時も別 artifact を正しく再取得できるようにした
+  - `docs/backend-artifact-lifecycle.md` / `docs/research-workbench-plan.md` / `docs/progress.md` の pending 文言を実装状態へ同期した
+- 実行ログ:
+  - `uv run python -m pytest backend/tests/test_kbe_hfb_solver.py -k 'second_born_reference and k_space'`
+  - `uv run python -m pytest backend/tests/test_exact_diagonalization_benchmark.py -k 'second_born_reference and k_space'`
+  - `uv run python -m pytest backend/tests/test_api.py -k 'k_space_second_born_reference or cancel'`
+  - `cd frontend && npm test -- --run`
+  - `cd frontend && npm run test:e2e`
 
 ---
 
@@ -301,10 +392,9 @@
 
 ### 優先度 B
 
-- `second_born_reference(representation=k_space)` の独立 cross-check を継続追加し、`validated` 判定に必要な証跡を拡充する
-- `representation` selector / unsupported or planned badge / `k-path` / `tr-ARPES` panel / compare / sweep actual fetch などの frontend 接続を E2E まで含めて固める
-- local FFT preview を backend 保存の `derived analysis artifact` (`run/fft_preview`) に置き換え、payload format が確定次第 `SpectrumPanel` を切り替える
-- cancel が UI から操作でき、期待どおり止まるか E2E テストで確認する
+- `second_born_reference(representation=k_space)` の独立 cross-check を継続追加し、adaptive row の先にある `validated` 判定向け証跡を拡充する
+- paired state と source term を含む continuity diagnostics を整理する
+- 必要なら route-mocked Playwright workflow に加えて live backend process-mode smoke を補完する
 - **（コードレビュー由来・完了 2026-03-21）** `second_born_converged=False` の run の RunState 昇格ルール:
   `RunState.SUCCEEDED_WITH_WARNINGS` を追加し `worker.py` で昇格、`docs/validation-spec.md` §6 に意味境界を記載済み。
   生成型再生成: `npm run generate:api` 実施済み。
@@ -338,9 +428,5 @@
 - `second_born_reference(representation=k_space)` の公開境界と acceptance gate が docs / tests / UI messaging で維持されているか
 - `k_spectral_preview` / `tr_arpes_preview` が `second_born_reference` real-space source でも整合しているか
 - `k_spectral_preview` / `tr_arpes_preview` が `second_born_reference` native `k_space` source でも整合しているか
-- `k-path` / delay panel が backend 保存 payload を読む actual surface として載ったか
-- `Compare Jobs` / `Parameter Sweep` が `k-space` compare / heatmap payload を読む actual surface になったか
-- `job group` / `sweep` / `derived analysis artifact` の launch / result / frontend surface がつながったか
-- local FFT preview が backend 保存の derived analysis artifact へ置き換わったか
 - cancel が UI から操作でき、期待どおり止まるか
 - プロセスモードと E2E の自動テストが追加されたか

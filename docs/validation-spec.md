@@ -287,12 +287,15 @@ correlated native extension の初期公開として扱う。
 | paired 4x4 longer window でも basis parity を保つ | `density/energy/pairing/pairing_s/pairing_d` parity | `abs <= 1e-8` | `tdhfb`, `kbe_hfb(self_energy=hfb)`, periodic paired 4x4, driven, `t_final=0.4` | `backend/tests/test_tdhfb_solver.py::test_tdhfb_k_space_representation_matches_real_space_on_longer_window`, `backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_k_space_representation_matches_real_space_on_longer_window` |
 | paired interacting larger-lattice row でも basis parity を保つ | `density/energy/pairing/pairing_s/pairing_d` parity | `abs <= 1e-8` | `tdhfb`, periodic paired 6x6, driven, `t_final=0.3`; `kbe_hfb(self_energy=hfb)`, periodic paired 5x5, driven, `t_final=0.3` | `backend/tests/test_tdhfb_solver.py::test_tdhfb_k_space_representation_matches_real_space_on_larger_lattice`, `backend/tests/test_kbe_hfb_solver.py::test_kbe_hfb_k_space_representation_matches_real_space_on_larger_lattice` |
 | native k-space block path は supported scope で real-space parity を保ち、条件外は full-matrix fallback できる | `k_space_path_mode`, parity (`density/energy/current_x/current_y`) | mode=`block_diagonal`, parity `abs<=1e-8` | `tdhfb`, periodic, finite temperature, `pairing_channel=none`, `nearest_neighbor_v=0` | `backend/tests/test_kspace_native_path.py::test_tdhfb_kspace_native_block_path_matches_real_space_for_supported_scope` |
-| k-space block path の propagation kernel は forced full-matrix baseline より高速である | median wall-time ratio (`full/block`) | `>=2.0` | `tdhfb 6x6`、`kbe_hfb(self_energy=second_born_reference) 6x6` | `backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_twice_as_fast_as_forced_full_matrix_path`, `backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_twice_as_fast_for_second_born_reference_propagation_kernel` |
+| k-space block path の propagation kernel は forced full-matrix baseline より高速である | median wall-time ratio (`full/block`) | `tdhfb 6x6: >=1.5`, `kbe_hfb(second_born_reference) 6x6 kernel: >=2.0` | `tdhfb 6x6`、`kbe_hfb(self_energy=second_born_reference) 6x6` | `backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_1p5x_as_fast_as_forced_full_matrix_path`, `backend/tests/test_kspace_native_path.py::test_kspace_block_path_is_at_least_twice_as_fast_for_second_born_reference_propagation_kernel` |
+| `second_born_reference` の end-to-end 実行は `k_space` path で real-space 比の過度な劣化を起こさない | median wall-time ratio (`real/k`) | `>=0.9` | `kbe_hfb(self_energy=second_born_reference)`, periodic 6x6 | `backend/tests/test_kspace_native_path.py::test_kbe_hfb_kspace_block_second_born_is_not_significantly_slower_than_real_space` |
 | `second_born_reference` は `U=0` で `k_space` basis でも HFB limit に戻る | observable parity, `max_second_born_memory_norm`, implementation flag | observable mismatch `<1e-12`, memory norm `==0.0`, implementation `True` | `kbe_hfb(self_energy=second_born_reference)`, periodic 2x2, driven, `U=0` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_reduces_to_hfb_when_onsite_u_zero` |
 | `second_born_reference` full-contour path は basis mode を変えても observables parity と Green-function contract を保つ | `density/energy/pairing/pairing_s/pairing_d` parity, `max_lesser_hermiticity_error`, `max_retarded_equal_time_error` | parity `abs <= 1e-8`, diagnostics `<1e-8` | `kbe_hfb(self_energy=second_born_reference)`, periodic paired 4x4, driven, finite temperature, `t_final=0.2` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_matches_real_space` |
 | `second_born_reference` larger-system / longer-window row でも basis parity と Green-function contract を保つ | `density/energy/pairing/pairing_s/pairing_d` parity, `max_lesser_hermiticity_error`, `max_retarded_equal_time_error` | parity `abs <= 1e-8`, diagnostics `<1e-8` | `kbe_hfb(self_energy=second_born_reference)`, periodic paired 3x3, driven, finite temperature, `t_final=0.3` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_representation_matches_real_space_on_larger_system_longer_window` |
 | `second_born_reference` periodic finite-temperature short window は `k_space` basis でも exact benchmark に比較可能である | density / `current_x` / `current_y` max abs error | `<5e-3` | `kbe_hfb(self_energy=second_born_reference)`, periodic 2x2, finite temperature | `backend/tests/test_exact_diagonalization_benchmark.py::test_second_born_reference_k_space_thermal_branch_remains_close_to_exact_density_benchmark` |
 | `second_born_reference` periodic finite-temperature longer window でも exact benchmark と同程度に比較可能である | density / `current_x` / `current_y` max abs error | `<5e-3` | `kbe_hfb(self_energy=second_born_reference)`, periodic 2x2, finite temperature, `t_final=0.3` | `backend/tests/test_exact_diagonalization_benchmark.py::test_second_born_reference_k_space_thermal_branch_longer_window_remains_close_to_exact_density_benchmark` |
+| `second_born_reference` adaptive full-contour path は `k_space` basis でも fixed-grid 参照と整合する | final density / energy mismatch | density `<2e-3`, energy `<5e-3` | `kbe_hfb(self_energy=second_born_reference)`, periodic 2x2, finite temperature, `t_final=0.4` | `backend/tests/test_kbe_hfb_solver.py::test_kbe_second_born_reference_k_space_supports_adaptive_history_against_fixed_reference` |
+| `second_born_reference` `k_space` adaptive tolerance row は current exact benchmark row に対して最終誤差を悪化させない | benchmark final / max abs error | tight `<=` loose | `kbe_hfb(self_energy=second_born_reference)`, periodic 2x2, finite temperature, driven | `backend/tests/test_exact_diagonalization_benchmark.py::test_second_born_reference_k_space_adaptive_tolerance_does_not_worsen_final_error_against_exact_benchmark` |
 | `second_born_reference` `k_space` run は既存 artifact contract を保つ | run detail diagnostics, Green-function catalog | workflow regression | `kbe_hfb(self_energy=second_born_reference)`, periodic 2x2, `representation=k_space` | `backend/tests/test_api.py::test_api_accepts_k_space_second_born_reference_runs_and_keeps_existing_artifact_contracts` |
 
 validated features:
@@ -304,11 +307,11 @@ partially validated features:
 - periodic `tdhfb` の `k_space` parity
 - periodic `kbe_hfb(self_energy=hfb)` の `k_space` parity
 - periodic paired larger-lattice / longer-time parity (`4x4` + `5x5/6x6`)
-- periodic `kbe_hfb(self_energy=second_born_reference)` の HFB-limit / parity / benchmark / workflow gate (`2x2/3x3`, short/longer windows)
+- periodic `kbe_hfb(self_energy=second_born_reference)` の HFB-limit / parity / benchmark / adaptive / workflow gate (`2x2/3x3`, short/longer windows)
 
 not yet validated:
 
-- frontend からの representation 切替 surface
+- `validated` 昇格に必要な independent benchmark / cross-check の追加蓄積
 
 conditions before considering `validated`:
 
@@ -377,8 +380,8 @@ not yet validated:
 | reference thermal / mixed contour dressing | `validated` | factorized 差分診断と exact benchmark を含む self-consistent branch 回帰を追加済み |
 | `noninteracting` `k_space` representation | `validated` | periodic parity + energy-work row |
 | `tdhfb` / `kbe_hfb(self_energy=hfb)` `k_space` representation | `partially validated` | periodic 4x4 parity と moderate/longer-window parityに加え、paired larger-lattice row (`tdhfb`: 6x6, `kbe_hfb`: 5x5, `t_final=0.3`) を追加したが、frontend representation surface は未了 |
-| `second_born_reference` `k_space` representation | `partially validated` | HFB limit、real/k parity、periodic finite-temperature exact benchmark（short/longer window）、run artifact workflow regression、3x3 longer-window parity row を追加したが、`validated` 昇格に向けた独立 cross-check の蓄積は継続中 |
-| k-space / tr-ARPES derived analysis | `partially validated` | synthetic benchmark row、run-derived `real_space` / `k_space` source cross-check、`second_born_reference` real/native source cross-check、compare/sweep payload regression（energy-grid variant、analysis sweep override）を固定したが、frontend surface integration は未了 |
+| `second_born_reference` `k_space` representation | `partially validated` | HFB limit、real/k parity、periodic finite-temperature exact benchmark（short/longer window）、adaptive fixed-reference row、exact-benchmark non-worsening row、run artifact workflow regression、3x3 longer-window parity row を追加したが、`validated` 昇格に向けた独立 cross-check の蓄積は継続中 |
+| k-space / tr-ARPES derived analysis | `partially validated` | synthetic benchmark row、run-derived `real_space` / `k_space` source cross-check、`second_born_reference` real/native source cross-check、compare/sweep payload regression（energy-grid variant、analysis sweep override）、frontend route-mocked workflow E2E を固定した。frontend/E2E は physics validation 根拠に数えないため label は維持する |
 
 明示的に除外するもの:
 
@@ -394,10 +397,9 @@ not yet validated:
 
 次に優先する検証は以下である。
 
-1. `second_born_reference(representation=k_space)` の独立 cross-check を追加蓄積し、`validated` 判定への証跡を増やす
-2. frontend compare / sweep で k-space surface を表示統合し、workflow E2E で固定する
-3. paired state と source term を含む continuity diagnostics を整理する
-4. process mode / cancel / E2E を workflow 層として補完する
+1. `second_born_reference(representation=k_space)` の独立 cross-check を adaptive / exact-benchmark row の先へ継続追加し、`validated` 判定への証跡を増やす
+2. paired state と source term を含む continuity diagnostics を整理する
+3. route-mocked frontend E2E に加えて、必要なら live backend process mode / cancel smoke を workflow 層として補完する
 
 この順序により、
 

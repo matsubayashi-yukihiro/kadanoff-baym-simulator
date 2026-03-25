@@ -8,32 +8,41 @@ from numpy.typing import NDArray
 
 from backend.app.schemas import SimulationConfig
 from backend.app.schemas.progress import RunProgressPhase
-from backend.app.solvers.base import ObservableData, SeriesData, SimulationArtifacts, TwoTimeGreenFunctionData
+from backend.app.solvers.base import (
+    KSpaceNativeTrajectoryData,
+    ObservableData,
+    SeriesData,
+    SimulationArtifacts,
+    TwoTimeGreenFunctionData,
+)
 from backend.app.solvers.equilibrium_solvers import solve_equilibrium
 from backend.app.solvers.green_functions import build_two_time_green_functions
-from backend.app.solvers.progress import ProgressCallback
-from backend.app.solvers.hamiltonian import build_one_body_hamiltonian, build_one_body_hamiltonian_derivative, vector_potential
+from backend.app.solvers.hamiltonian import vector_potential
 from backend.app.solvers.lattice import SquareLattice, build_square_lattice
+from backend.app.solvers.nambu_observables import (
+    build_complex_observable,
+    explicit_bdg_hamiltonian_derivative,
+    nambu_expectation_value,
+)
+from backend.app.solvers.progress import ProgressCallback
 from backend.app.solvers.nambu import (
     ComplexMatrix,
     HFBEquilibriumState,
     PairingProjections,
-    build_kspace_bdg_blocks,
     build_bdg_hamiltonian,
     effective_energy,
-    enforce_kspace_density_block_constraints,
     extract_density_blocks,
     pairing_channel,
     pairing_projections,
-    propagate_generalized_density,
-    propagate_kspace_density_blocks,
-    saved_step_indices,
-    saved_step_indices_from_count,
 )
 from backend.app.solvers.observables import average_current, particle_density_statistics
 from backend.app.solvers.observables import site_current_divergence, site_density_time_derivative
-from backend.app.solvers.representation import extract_k_blocks_from_k_nambu_matrix, nambu_from_k_blocks
+from backend.app.solvers.representation import MomentumSpaceContext
 from backend.app.solvers.stationarity import stationarity_diagnostics
+from backend.app.solvers.tdhfb_propagation import (
+    _propagate_generalized_densities,
+    _propagate_generalized_densities_kspace,
+)
 from backend.app.jobs.progress import SolverProgressUpdate
 
 
@@ -48,6 +57,9 @@ class HFBDynamicsResult:
     observables: dict[str, ObservableData]
     diagnostics: dict[str, Any]
     summary_excerpt: dict[str, Any]
+    density_blocks_history: list[NDArray[np.complex128]] | None = None
+    cumulative_propagator_blocks: list[NDArray[np.complex128]] | None = None
+    momentum_context: MomentumSpaceContext | None = None
 
 
 def simulate_hfb_dynamics(
@@ -86,6 +98,9 @@ def simulate_hfb_dynamics(
             ),
             force=True,
         )
+    density_blocks_history: list[NDArray[np.complex128]] | None = None
+    cumulative_propagator_blocks_result: list[NDArray[np.complex128]] | None = None
+    momentum_context_result: MomentumSpaceContext | None = None
     if config.representation.value == "k_space":
         (
             times,
@@ -93,6 +108,9 @@ def simulate_hfb_dynamics(
             generalized_densities,
             cumulative_propagators,
             propagation_diagnostics,
+            density_blocks_history,
+            cumulative_propagator_blocks_result,
+            momentum_context_result,
         ) = _propagate_generalized_densities_kspace(config, equilibrium, progress_callback=progress_callback)
     else:
         (
@@ -161,7 +179,10 @@ def simulate_hfb_dynamics(
         site_density = np.real(np.diag(normal_density))
         density_bound_violation.append(float(np.max(np.maximum(site_density - 1.0, 0.0) + np.maximum(-site_density, 0.0))))
         pairing_values.append(pairing_projections(config, lattice, pairing_field))
-        external_power = _nambu_expectation_value(_explicit_bdg_hamiltonian_derivative(config, lattice, time), generalized_density)
+        external_power = nambu_expectation_value(
+            explicit_bdg_hamiltonian_derivative(config, lattice, time),
+            generalized_density,
+        )
         if previous_time is not None and previous_external_power is not None:
             cumulative_external_work += 0.5 * (previous_external_power + external_power) * float(time - previous_time)
         energy_work_mismatch = energy[-1] - energy[0] - cumulative_external_work
@@ -310,624 +331,49 @@ def simulate_hfb_dynamics(
         observables={name: observables[name] for name in config.observables},
         diagnostics=diagnostics,
         summary_excerpt=summary_excerpt,
+        density_blocks_history=density_blocks_history,
+        cumulative_propagator_blocks=cumulative_propagator_blocks_result,
+        momentum_context=momentum_context_result,
     )
 
 
 def solve(config: SimulationConfig, progress_callback: ProgressCallback | None = None) -> SimulationArtifacts:
-    """Run TDHFB propagation and return observables, diagnostics, and equal-time two-time artifacts."""
+    """Run TDHFB propagation and return observables plus representation-specific artifacts."""
     dynamics = simulate_hfb_dynamics(config, progress_callback=progress_callback)
-    two_time = build_two_time_green_functions(dynamics)
+    kspace_native: KSpaceNativeTrajectoryData | None = None
+    if (
+        config.representation.value == "k_space"
+        and dynamics.density_blocks_history is not None
+        and dynamics.cumulative_propagator_blocks is not None
+        and dynamics.momentum_context is not None
+    ):
+        kspace_native = KSpaceNativeTrajectoryData(
+            times=np.asarray(dynamics.times, dtype=np.float64),
+            density_blocks_history=np.asarray(dynamics.density_blocks_history, dtype=np.complex128),
+            cumulative_propagator_blocks=np.asarray(dynamics.cumulative_propagator_blocks, dtype=np.complex128),
+            kx=np.asarray(dynamics.momentum_context.kx, dtype=np.float64),
+            ky=np.asarray(dynamics.momentum_context.ky, dtype=np.float64),
+            reconstruction_mode="k_space_native_blocks",
+        )
+    two_time: TwoTimeGreenFunctionData | None = None
+    if config.representation.value != "k_space":
+        two_time_built = build_two_time_green_functions(dynamics)
+        two_time = TwoTimeGreenFunctionData(
+            times=two_time_built.times,
+            components={
+                "retarded": two_time_built.retarded,
+                "lesser": two_time_built.lesser,
+            },
+        )
     return SimulationArtifacts(
         observables=dynamics.observables,
         diagnostics=dynamics.diagnostics,
         summary_excerpt=dynamics.summary_excerpt,
-        two_time_green_functions=TwoTimeGreenFunctionData(
-            times=two_time.times,
-            components={
-                "retarded": two_time.retarded,
-                "lesser": two_time.lesser,
-            },
-        ),
+        two_time_green_functions=two_time,
+        kspace_native_trajectory=kspace_native,
     )
 
 
-def _propagate_generalized_densities(
-    config: SimulationConfig,
-    lattice: SquareLattice,
-    equilibrium: HFBEquilibriumState,
-    progress_callback: ProgressCallback | None = None,
-    ) -> tuple[
-    NDArray[np.float64],
-    NDArray[np.int64],
-    list[ComplexMatrix],
-    list[ComplexMatrix],
-    dict[str, Any],
-]:
-    if not config.adaptive.enabled:
-        times = np.asarray(config.time.time_points(), dtype=np.float64)
-        generalized_densities = [equilibrium.generalized_density]
-        cumulative_propagators = [np.eye(2 * lattice.site_count, dtype=np.complex128)]
-        for time in times[:-1]:
-            next_density, propagator = _advance_generalized_density_step(
-                config=config,
-                lattice=lattice,
-                equilibrium=equilibrium,
-                current_density=generalized_densities[-1],
-                time=float(time),
-                dt=config.time.dt,
-            )
-            generalized_densities.append(next_density)
-            cumulative_propagators.append(propagator @ cumulative_propagators[-1])
-            if progress_callback is not None:
-                accepted_steps = len(generalized_densities) - 1
-                current_time = float(times[accepted_steps])
-                progress_callback(
-                    SolverProgressUpdate(
-                        phase=RunProgressPhase.PROPAGATING,
-                        status_line=f"propagating generalized density at t={current_time:.3f}",
-                        physical_time_current=current_time,
-                        physical_time_final=float(config.time.t_final),
-                        physical_progress_fraction=current_time / float(config.time.t_final) if config.time.t_final > 0 else 1.0,
-                        accepted_steps=accepted_steps,
-                        requested_steps=int(config.time.n_steps),
-                        rejected_steps=0,
-                        saved_samples_written=int(np.count_nonzero(saved_step_indices(config) <= accepted_steps)),
-                        solver_metrics={
-                            "current_dt": float(config.time.dt),
-                            "latest_adaptive_error_estimate": 0.0,
-                        },
-                    )
-                )
-        return (
-            times,
-            saved_step_indices(config),
-            generalized_densities,
-            cumulative_propagators,
-            {
-                "requested_time_steps": config.time.n_steps,
-                "accepted_time_steps": config.time.n_steps,
-                "rejected_time_steps": 0,
-                "time_grid_mode": "uniform",
-                "adaptive_enabled": False,
-                "time_step_history": [float(config.time.dt)] * config.time.n_steps,
-                "adaptive_error_estimate_history": [],
-                "adaptive_max_error_estimate": 0.0,
-            },
-        )
-
-    times = [0.0]
-    generalized_densities = [equilibrium.generalized_density]
-    cumulative_propagators = [np.eye(2 * lattice.site_count, dtype=np.complex128)]
-    error_estimates: list[float] = []
-    time_step_history: list[float] = []
-    rejected_steps = 0
-    current_time = 0.0
-    min_dt = config.adaptive.min_dt if config.adaptive.min_dt is not None else config.time.dt / 32.0
-    max_dt = config.adaptive.max_dt if config.adaptive.max_dt is not None else config.time.dt
-    next_dt = min(config.time.dt, max_dt, config.time.t_final)
-
-    while current_time < config.time.t_final - 1e-12:
-        current_density = generalized_densities[-1]
-        trial_dt = min(next_dt, config.time.t_final - current_time)
-        if trial_dt <= 0.0:
-            break
-
-        full_density, _ = _advance_generalized_density_step(
-            config=config,
-            lattice=lattice,
-            equilibrium=equilibrium,
-            current_density=current_density,
-            time=current_time,
-            dt=trial_dt,
-        )
-        half_density, half_propagator_left = _advance_generalized_density_step(
-            config=config,
-            lattice=lattice,
-            equilibrium=equilibrium,
-            current_density=current_density,
-            time=current_time,
-            dt=0.5 * trial_dt,
-        )
-        accepted_density, half_propagator_right = _advance_generalized_density_step(
-            config=config,
-            lattice=lattice,
-            equilibrium=equilibrium,
-            current_density=half_density,
-            time=current_time + 0.5 * trial_dt,
-            dt=0.5 * trial_dt,
-        )
-        accepted_propagator = half_propagator_right @ half_propagator_left
-
-        scale = config.adaptive.atol + config.adaptive.rtol * max(
-            1.0,
-            float(np.max(np.abs(current_density))),
-            float(np.max(np.abs(accepted_density))),
-        )
-        error_estimate = float(np.max(np.abs(accepted_density - full_density)) / scale)
-
-        if error_estimate <= 1.0 or trial_dt <= min_dt * (1.0 + 1e-12):
-            current_time += trial_dt
-            times.append(float(current_time))
-            generalized_densities.append(accepted_density)
-            cumulative_propagators.append(accepted_propagator @ cumulative_propagators[-1])
-            time_step_history.append(float(trial_dt))
-            error_estimates.append(error_estimate)
-            if progress_callback is not None:
-                progress_callback(
-                    SolverProgressUpdate(
-                        phase=RunProgressPhase.PROPAGATING,
-                        status_line=f"accepted adaptive step to t={current_time:.3f}",
-                        physical_time_current=float(current_time),
-                        physical_time_final=float(config.time.t_final),
-                        physical_progress_fraction=float(current_time / config.time.t_final) if config.time.t_final > 0 else 1.0,
-                        accepted_steps=int(len(times) - 1),
-                        requested_steps=int(config.time.n_steps),
-                        rejected_steps=rejected_steps,
-                        saved_samples_written=int(
-                            np.count_nonzero(saved_step_indices_from_count(len(times), config.time.save_every) <= len(times) - 1)
-                        ),
-                        solver_metrics={
-                            "current_dt": float(trial_dt),
-                            "latest_adaptive_error_estimate": error_estimate,
-                        },
-                    )
-                )
-            next_dt = min(
-                max_dt,
-                max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config)),
-            )
-        else:
-            rejected_steps += 1
-            if progress_callback is not None:
-                progress_callback(
-                    SolverProgressUpdate(
-                        phase=RunProgressPhase.PROPAGATING,
-                        status_line=f"rejected adaptive step at t={current_time:.3f}",
-                        physical_time_current=float(current_time),
-                        physical_time_final=float(config.time.t_final),
-                        physical_progress_fraction=float(current_time / config.time.t_final) if config.time.t_final > 0 else 1.0,
-                        accepted_steps=int(len(times) - 1),
-                        requested_steps=int(config.time.n_steps),
-                        rejected_steps=rejected_steps,
-                        saved_samples_written=int(
-                            np.count_nonzero(saved_step_indices_from_count(len(times), config.time.save_every) <= len(times) - 1)
-                        ),
-                        solver_metrics={
-                            "current_dt": float(trial_dt),
-                            "latest_adaptive_error_estimate": error_estimate,
-                        },
-                    )
-                )
-            next_dt = max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config))
-
-    times_array = np.asarray(times, dtype=np.float64)
-    return (
-        times_array,
-        saved_step_indices_from_count(len(times_array), config.time.save_every),
-        generalized_densities,
-        cumulative_propagators,
-        {
-            "requested_time_steps": config.time.n_steps,
-            "accepted_time_steps": int(len(times_array) - 1),
-            "rejected_time_steps": rejected_steps,
-            "time_grid_mode": "adaptive",
-            "adaptive_enabled": True,
-            "time_step_history": time_step_history,
-            "adaptive_error_estimate_history": error_estimates,
-            "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
-            "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
-            "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
-        },
-    )
-
-
-def _advance_generalized_density_step(
-    *,
-    config: SimulationConfig,
-    lattice: SquareLattice,
-    equilibrium: HFBEquilibriumState,
-    current_density: ComplexMatrix,
-    time: float,
-    dt: float,
-) -> tuple[ComplexMatrix, ComplexMatrix]:
-    _, _, _, bdg_hamiltonian = build_bdg_hamiltonian(
-        config,
-        lattice,
-        time,
-        current_density,
-        equilibrium.effective_chemical_potential,
-    )
-    predicted_density, _ = propagate_generalized_density(current_density, bdg_hamiltonian, dt)
-    midpoint_density = 0.5 * (current_density + predicted_density)
-    midpoint_density = 0.5 * (midpoint_density + midpoint_density.conjugate().T)
-    _, _, _, midpoint_hamiltonian = build_bdg_hamiltonian(
-        config,
-        lattice,
-        time + 0.5 * dt,
-        midpoint_density,
-        equilibrium.effective_chemical_potential,
-    )
-    return propagate_generalized_density(current_density, midpoint_hamiltonian, dt)
-
-
-def _adaptive_step_factor(error_estimate: float, config: SimulationConfig) -> float:
-    if error_estimate <= 1e-16:
-        return config.adaptive.max_growth
-    proposed = 0.9 * error_estimate ** (-1.0 / 3.0)
-    return min(config.adaptive.max_growth, max(config.adaptive.min_shrink, proposed))
-
-
-def _propagate_generalized_densities_kspace(
-    config: SimulationConfig,
-    equilibrium: HFBEquilibriumState,
-    progress_callback: ProgressCallback | None = None,
-) -> tuple[
-    NDArray[np.float64],
-    NDArray[np.int64],
-    list[ComplexMatrix],
-    list[ComplexMatrix],
-    dict[str, Any],
-]:
-    context = equilibrium.momentum_context
-    current_density_k = equilibrium.momentum_generalized_density
-    assert context is not None
-    assert current_density_k is not None
-    kspace_path_mode, kspace_path_fallback_reason, initial_block_structure_error, current_density_blocks = (
-        _resolve_kspace_path_mode(
-            config=config,
-            equilibrium=equilibrium,
-            context=context,
-            current_density_k=current_density_k,
-        )
-    )
-    use_block_path = kspace_path_mode == "block_diagonal"
-
-    if not config.adaptive.enabled:
-        times = np.asarray(config.time.time_points(), dtype=np.float64)
-        generalized_densities = [equilibrium.generalized_density]
-        cumulative_propagators = [np.eye(2 * context.site_count, dtype=np.complex128)]
-        for time in times[:-1]:
-            if use_block_path:
-                assert current_density_blocks is not None
-                next_density_blocks, propagator_blocks = _advance_generalized_density_step_kspace_blocks(
-                    config=config,
-                    equilibrium=equilibrium,
-                    context=context,
-                    current_density_blocks=current_density_blocks,
-                    time=float(time),
-                    dt=config.time.dt,
-                )
-                next_density_k = nambu_from_k_blocks(context, next_density_blocks)
-                propagator_k = nambu_from_k_blocks(context, propagator_blocks)
-                current_density_blocks = next_density_blocks
-            else:
-                next_density_k, propagator_k = _advance_generalized_density_step_kspace(
-                    config=config,
-                    equilibrium=equilibrium,
-                    context=context,
-                    current_density_k=current_density_k,
-                    time=float(time),
-                    dt=config.time.dt,
-                )
-            generalized_densities.append(context.nambu_momentum_to_site @ next_density_k @ context.nambu_site_to_momentum)
-            cumulative_propagators.append(
-                (context.nambu_momentum_to_site @ propagator_k @ context.nambu_site_to_momentum) @ cumulative_propagators[-1]
-            )
-            current_density_k = next_density_k
-            if progress_callback is not None:
-                accepted_steps = len(generalized_densities) - 1
-                current_time = float(times[accepted_steps])
-                progress_callback(
-                    SolverProgressUpdate(
-                        phase=RunProgressPhase.PROPAGATING,
-                        status_line=f"propagating generalized density at t={current_time:.3f}",
-                        physical_time_current=current_time,
-                        physical_time_final=float(config.time.t_final),
-                        physical_progress_fraction=current_time / float(config.time.t_final) if config.time.t_final > 0 else 1.0,
-                        accepted_steps=accepted_steps,
-                        requested_steps=int(config.time.n_steps),
-                        rejected_steps=0,
-                        saved_samples_written=int(np.count_nonzero(saved_step_indices(config) <= accepted_steps)),
-                        solver_metrics={
-                            "current_dt": float(config.time.dt),
-                            "latest_adaptive_error_estimate": 0.0,
-                        },
-                    )
-                )
-        return (
-            times,
-            saved_step_indices(config),
-            generalized_densities,
-            cumulative_propagators,
-            {
-                "requested_time_steps": config.time.n_steps,
-                "accepted_time_steps": config.time.n_steps,
-                "rejected_time_steps": 0,
-                "time_grid_mode": "uniform",
-                "adaptive_enabled": False,
-                "time_step_history": [float(config.time.dt)] * config.time.n_steps,
-                "adaptive_error_estimate_history": [],
-                "adaptive_max_error_estimate": 0.0,
-                "k_space_path_mode": kspace_path_mode,
-                "k_space_path_fallback_reason": kspace_path_fallback_reason,
-                "k_space_initial_block_structure_error": initial_block_structure_error,
-            },
-        )
-
-    times = [0.0]
-    generalized_densities = [equilibrium.generalized_density]
-    cumulative_propagators = [np.eye(2 * context.site_count, dtype=np.complex128)]
-    error_estimates: list[float] = []
-    time_step_history: list[float] = []
-    rejected_steps = 0
-    current_time = 0.0
-    min_dt = config.adaptive.min_dt if config.adaptive.min_dt is not None else config.time.dt / 32.0
-    max_dt = config.adaptive.max_dt if config.adaptive.max_dt is not None else config.time.dt
-    next_dt = min(config.time.dt, max_dt, config.time.t_final)
-
-    while current_time < config.time.t_final - 1e-12:
-        trial_dt = min(next_dt, config.time.t_final - current_time)
-        if trial_dt <= 0.0:
-            break
-
-        if use_block_path:
-            assert current_density_blocks is not None
-            full_density_blocks, _ = _advance_generalized_density_step_kspace_blocks(
-                config=config,
-                equilibrium=equilibrium,
-                context=context,
-                current_density_blocks=current_density_blocks,
-                time=current_time,
-                dt=trial_dt,
-            )
-            half_density_blocks, half_propagator_blocks_left = _advance_generalized_density_step_kspace_blocks(
-                config=config,
-                equilibrium=equilibrium,
-                context=context,
-                current_density_blocks=current_density_blocks,
-                time=current_time,
-                dt=0.5 * trial_dt,
-            )
-            accepted_density_blocks, half_propagator_blocks_right = _advance_generalized_density_step_kspace_blocks(
-                config=config,
-                equilibrium=equilibrium,
-                context=context,
-                current_density_blocks=half_density_blocks,
-                time=current_time + 0.5 * trial_dt,
-                dt=0.5 * trial_dt,
-            )
-            scale = config.adaptive.atol + config.adaptive.rtol * max(
-                1.0,
-                float(np.max(np.abs(current_density_blocks))),
-                float(np.max(np.abs(accepted_density_blocks))),
-            )
-            error_estimate = float(np.max(np.abs(accepted_density_blocks - full_density_blocks)) / scale)
-            accepted_density = nambu_from_k_blocks(context, accepted_density_blocks)
-            accepted_propagator = nambu_from_k_blocks(context, half_propagator_blocks_right @ half_propagator_blocks_left)
-        else:
-            full_density, _ = _advance_generalized_density_step_kspace(
-                config=config,
-                equilibrium=equilibrium,
-                context=context,
-                current_density_k=current_density_k,
-                time=current_time,
-                dt=trial_dt,
-            )
-            half_density, half_propagator_left = _advance_generalized_density_step_kspace(
-                config=config,
-                equilibrium=equilibrium,
-                context=context,
-                current_density_k=current_density_k,
-                time=current_time,
-                dt=0.5 * trial_dt,
-            )
-            accepted_density, half_propagator_right = _advance_generalized_density_step_kspace(
-                config=config,
-                equilibrium=equilibrium,
-                context=context,
-                current_density_k=half_density,
-                time=current_time + 0.5 * trial_dt,
-                dt=0.5 * trial_dt,
-            )
-            accepted_propagator = half_propagator_right @ half_propagator_left
-            scale = config.adaptive.atol + config.adaptive.rtol * max(
-                1.0,
-                float(np.max(np.abs(current_density_k))),
-                float(np.max(np.abs(accepted_density))),
-            )
-            error_estimate = float(np.max(np.abs(accepted_density - full_density)) / scale)
-
-        if error_estimate <= 1.0 or trial_dt <= min_dt * (1.0 + 1e-12):
-            current_time += trial_dt
-            times.append(float(current_time))
-            generalized_densities.append(
-                context.nambu_momentum_to_site @ accepted_density @ context.nambu_site_to_momentum
-            )
-            cumulative_propagators.append(
-                (context.nambu_momentum_to_site @ accepted_propagator @ context.nambu_site_to_momentum)
-                @ cumulative_propagators[-1]
-            )
-            time_step_history.append(float(trial_dt))
-            error_estimates.append(error_estimate)
-            current_density_k = accepted_density
-            if use_block_path:
-                current_density_blocks = accepted_density_blocks
-            if progress_callback is not None:
-                progress_callback(
-                    SolverProgressUpdate(
-                        phase=RunProgressPhase.PROPAGATING,
-                        status_line=f"accepted adaptive step to t={current_time:.3f}",
-                        physical_time_current=float(current_time),
-                        physical_time_final=float(config.time.t_final),
-                        physical_progress_fraction=float(current_time / config.time.t_final) if config.time.t_final > 0 else 1.0,
-                        accepted_steps=int(len(times) - 1),
-                        requested_steps=int(config.time.n_steps),
-                        rejected_steps=rejected_steps,
-                        saved_samples_written=int(
-                            np.count_nonzero(saved_step_indices_from_count(len(times), config.time.save_every) <= len(times) - 1)
-                        ),
-                        solver_metrics={
-                            "current_dt": float(trial_dt),
-                            "latest_adaptive_error_estimate": error_estimate,
-                        },
-                    )
-                )
-            next_dt = min(
-                max_dt,
-                max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config)),
-            )
-        else:
-            rejected_steps += 1
-            if progress_callback is not None:
-                progress_callback(
-                    SolverProgressUpdate(
-                        phase=RunProgressPhase.PROPAGATING,
-                        status_line=f"rejected adaptive step at t={current_time:.3f}",
-                        physical_time_current=float(current_time),
-                        physical_time_final=float(config.time.t_final),
-                        physical_progress_fraction=float(current_time / config.time.t_final) if config.time.t_final > 0 else 1.0,
-                        accepted_steps=int(len(times) - 1),
-                        requested_steps=int(config.time.n_steps),
-                        rejected_steps=rejected_steps,
-                        saved_samples_written=int(
-                            np.count_nonzero(saved_step_indices_from_count(len(times), config.time.save_every) <= len(times) - 1)
-                        ),
-                        solver_metrics={
-                            "current_dt": float(trial_dt),
-                            "latest_adaptive_error_estimate": error_estimate,
-                        },
-                    )
-                )
-            next_dt = max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config))
-
-    times_array = np.asarray(times, dtype=np.float64)
-    return (
-        times_array,
-        saved_step_indices_from_count(len(times_array), config.time.save_every),
-        generalized_densities,
-        cumulative_propagators,
-        {
-            "requested_time_steps": config.time.n_steps,
-            "accepted_time_steps": int(len(times_array) - 1),
-            "rejected_time_steps": rejected_steps,
-            "time_grid_mode": "adaptive",
-            "adaptive_enabled": True,
-            "time_step_history": time_step_history,
-            "adaptive_error_estimate_history": error_estimates,
-            "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
-            "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
-            "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
-            "k_space_path_mode": kspace_path_mode,
-            "k_space_path_fallback_reason": kspace_path_fallback_reason,
-            "k_space_initial_block_structure_error": initial_block_structure_error,
-        },
-    )
-
-
-def _resolve_kspace_path_mode(
-    *,
-    config: SimulationConfig,
-    equilibrium: HFBEquilibriumState,
-    context,
-    current_density_k: ComplexMatrix,
-) -> tuple[str, str | None, float, NDArray[np.complex128] | None]:
-    initial_density_blocks = extract_k_blocks_from_k_nambu_matrix(current_density_k)
-    reconstructed = nambu_from_k_blocks(context, initial_density_blocks)
-    initial_error = float(np.max(np.abs(current_density_k - reconstructed)))
-    if initial_error > 1e-8:
-        return "full_matrix_fallback", "initial_density_not_block_diagonal", initial_error, None
-    if equilibrium.solver_mode.startswith("hfb_kspace_fallback_"):
-        return "full_matrix_fallback", "equilibrium_not_kspace_native", initial_error, None
-    one_body = build_one_body_hamiltonian(config, context.lattice, time=0.0)
-    one_body_k = context.site_to_momentum @ one_body @ context.momentum_to_site
-    off_diagonal = one_body_k - np.diag(np.diag(one_body_k))
-    if float(np.max(np.abs(off_diagonal))) > 1e-8:
-        return "full_matrix_fallback", "one_body_not_block_diagonal", initial_error, None
-    return "block_diagonal", None, initial_error, enforce_kspace_density_block_constraints(initial_density_blocks)
-
-
-def _advance_generalized_density_step_kspace_blocks(
-    *,
-    config: SimulationConfig,
-    equilibrium: HFBEquilibriumState,
-    context,
-    current_density_blocks: NDArray[np.complex128],
-    time: float,
-    dt: float,
-) -> tuple[NDArray[np.complex128], NDArray[np.complex128]]:
-    density_blocks = enforce_kspace_density_block_constraints(current_density_blocks)
-    _, _, _, bdg_blocks = build_kspace_bdg_blocks(
-        config=config,
-        context=context,
-        density_blocks=density_blocks,
-        effective_chemical_potential=equilibrium.effective_chemical_potential,
-        time=time,
-    )
-    predicted_density_blocks, _ = propagate_kspace_density_blocks(density_blocks, bdg_blocks, dt)
-    midpoint_density_blocks = enforce_kspace_density_block_constraints(0.5 * (density_blocks + predicted_density_blocks))
-    _, _, _, midpoint_bdg_blocks = build_kspace_bdg_blocks(
-        config=config,
-        context=context,
-        density_blocks=midpoint_density_blocks,
-        effective_chemical_potential=equilibrium.effective_chemical_potential,
-        time=time + 0.5 * dt,
-    )
-    return propagate_kspace_density_blocks(density_blocks, midpoint_bdg_blocks, dt)
-
-
-def _advance_generalized_density_step_kspace(
-    *,
-    config: SimulationConfig,
-    equilibrium: HFBEquilibriumState,
-    context,
-    current_density_k: ComplexMatrix,
-    time: float,
-    dt: float,
-) -> tuple[ComplexMatrix, ComplexMatrix]:
-    site_current_density = context.nambu_momentum_to_site @ current_density_k @ context.nambu_site_to_momentum
-    _, _, _, bdg_site = build_bdg_hamiltonian(
-        config,
-        context.lattice,
-        time,
-        site_current_density,
-        equilibrium.effective_chemical_potential,
-    )
-    bdg_k = context.nambu_site_to_momentum @ bdg_site @ context.nambu_momentum_to_site
-    predicted_density, _ = propagate_generalized_density(current_density_k, bdg_k, dt)
-    midpoint_density = 0.5 * (current_density_k + predicted_density)
-    midpoint_density = 0.5 * (midpoint_density + midpoint_density.conjugate().T)
-    site_midpoint_density = context.nambu_momentum_to_site @ midpoint_density @ context.nambu_site_to_momentum
-    _, _, _, midpoint_site_hamiltonian = build_bdg_hamiltonian(
-        config,
-        context.lattice,
-        time + 0.5 * dt,
-        site_midpoint_density,
-        equilibrium.effective_chemical_potential,
-    )
-    midpoint_hamiltonian = context.nambu_site_to_momentum @ midpoint_site_hamiltonian @ context.nambu_momentum_to_site
-    return propagate_generalized_density(current_density_k, midpoint_hamiltonian, dt)
-
-
-def _nambu_expectation_value(
-    operator: ComplexMatrix,
-    generalized_density: ComplexMatrix,
-) -> float:
-    return float(0.5 * np.real(np.trace(generalized_density @ operator)))
-
-
-def _explicit_bdg_hamiltonian_derivative(
-    config: SimulationConfig,
-    lattice: SquareLattice,
-    time: float,
-) -> ComplexMatrix:
-    normal_derivative = build_one_body_hamiltonian_derivative(config, lattice, time)
-    zero_block = np.zeros_like(normal_derivative)
-    return np.block(
-        [
-            [normal_derivative, zero_block],
-            [zero_block, -normal_derivative.conjugate()],
-        ]
-    )
 
 
 def _build_observables(
@@ -990,25 +436,7 @@ def _build_observables(
             ],
             metadata=metadata,
         ),
-        "pairing": _complex_observable("pairing", saved_times, pairing_primary[saved_indices], metadata),
-        "pairing_s": _complex_observable("pairing_s", saved_times, pairing_s[saved_indices], metadata),
-        "pairing_d": _complex_observable("pairing_d", saved_times, pairing_d[saved_indices], metadata),
+        "pairing": build_complex_observable("pairing", saved_times, pairing_primary[saved_indices], metadata),
+        "pairing_s": build_complex_observable("pairing_s", saved_times, pairing_s[saved_indices], metadata),
+        "pairing_d": build_complex_observable("pairing_d", saved_times, pairing_d[saved_indices], metadata),
     }
-
-
-def _complex_observable(
-    name: str,
-    times: NDArray[np.float64],
-    values: NDArray[np.complex128],
-    metadata: dict[str, str],
-) -> ObservableData:
-    return ObservableData(
-        name=name,
-        time=times,
-        series=[
-            SeriesData(label="real", values=np.real(values).astype(np.float64)),
-            SeriesData(label="imag", values=np.imag(values).astype(np.float64)),
-            SeriesData(label="magnitude", values=np.abs(values).astype(np.float64)),
-        ],
-        metadata=metadata,
-    )

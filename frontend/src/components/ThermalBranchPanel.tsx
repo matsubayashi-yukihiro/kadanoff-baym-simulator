@@ -1,5 +1,6 @@
 import type { RunDetail, ThermalBranchCatalogResponse, ThermalBranchSliceResponse } from "../api/types";
 import { formatLabel, formatNumber } from "../lib/format";
+import { isSuccessfulState } from "../lib/helpers";
 
 type ThermalBranchPanelProps = {
   run: RunDetail | null;
@@ -40,6 +41,7 @@ export function ThermalBranchPanel(props: ThermalBranchPanelProps) {
 
   const isKbeRun = run?.solver === "kbe_hfb";
   const thermalEnabled = run?.config?.thermal_branch?.enabled === true;
+  const runCompleted = run ? isSuccessfulState(run.state) : false;
   const maxTauIndex = Math.max((catalog?.tau_point_count ?? 1) - 1, 0);
   const maxNambuIndex = Math.max((catalog?.nambu_dimension ?? 1) - 1, 0);
   const maxWindow = Math.max(catalog?.nambu_dimension ?? 1, 1);
@@ -74,8 +76,10 @@ export function ThermalBranchPanel(props: ThermalBranchPanelProps) {
         </div>
       ) : null}
 
-      {run && isKbeRun && thermalEnabled && run.state !== "succeeded" ? (
-        <p className="state-banner">Thermal branch slices will unlock after the run reaches `succeeded`.</p>
+      {run && isKbeRun && thermalEnabled && !runCompleted ? (
+        <p className="state-banner">
+          Thermal branch slices will unlock after the run completes (`succeeded` or `succeeded_with_warnings`).
+        </p>
       ) : null}
 
       {catalogLoading ? <p className="state-banner">Loading thermal branch catalog...</p> : null}

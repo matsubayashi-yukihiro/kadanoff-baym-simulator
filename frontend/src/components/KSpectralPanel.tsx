@@ -3,6 +3,7 @@ import type { RunDetail } from "../api/types";
 import { useDerivedAnalysis } from "../hooks/useDerivedAnalysis";
 import { useBackendCapabilities } from "../hooks/useBackendCapabilities";
 import { normalizeKSpectralPayload } from "../lib/derivedPayload";
+import { isSuccessfulState } from "../lib/helpers";
 import { DerivedAnalysisPanel } from "./DerivedAnalysisPanel";
 import { PlotlyChart } from "./charts/PlotlyChart";
 
@@ -13,7 +14,7 @@ type KSpectralPanelProps = {
 
 export function KSpectralPanel({ run, studyId }: KSpectralPanelProps) {
   const isKSpace = run?.config?.representation === "k_space";
-  const runId = run?.state === "succeeded" ? (run?.run_id ?? null) : null;
+  const runId = run && isSuccessfulState(run.state) ? run.run_id : null;
   const { capabilities } = useBackendCapabilities();
   const capabilityBlockedReason = capabilities.supportsDerivedAnalysisRunKspace
     ? null

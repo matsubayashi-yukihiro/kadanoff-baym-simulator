@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { getThermalBranchSlice, listThermalBranch } from "../api/client";
 import type { RunDetail, ThermalBranchCatalogResponse, ThermalBranchSliceResponse } from "../api/types";
-import { clamp, toErrorMessage } from "../lib/helpers";
+import { clamp, isSuccessfulState, toErrorMessage } from "../lib/helpers";
 
 export type UseThermalBranchReturn = {
   catalog: ThermalBranchCatalogResponse | null;
@@ -38,8 +38,9 @@ export function useThermalBranch(
 
   const shouldLoad =
     Boolean(selectedRunId) &&
-    selectedRun?.state === "succeeded" &&
+    Boolean(selectedRun && isSuccessfulState(selectedRun.state)) &&
     selectedRun?.solver === "kbe_hfb" &&
+    selectedRun?.config?.representation !== "k_space" &&
     selectedRun?.config?.thermal_branch?.enabled === true;
 
   useEffect(() => {

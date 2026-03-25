@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { getMixedGreenFunctionSlice, listMixedGreenFunctions } from "../api/client";
 import type { MixedGreenFunctionCatalogResponse, MixedGreenFunctionSliceResponse, RunDetail } from "../api/types";
-import { clamp, toErrorMessage } from "../lib/helpers";
+import { clamp, isSuccessfulState, toErrorMessage } from "../lib/helpers";
 
 export type UseMixedGreenFunctionsReturn = {
   catalog: MixedGreenFunctionCatalogResponse | null;
@@ -41,8 +41,9 @@ export function useMixedGreenFunctions(
 
   const shouldLoad =
     Boolean(selectedRunId) &&
-    selectedRun?.state === "succeeded" &&
+    Boolean(selectedRun && isSuccessfulState(selectedRun.state)) &&
     selectedRun?.solver === "kbe_hfb" &&
+    selectedRun?.config?.representation !== "k_space" &&
     selectedRun?.config?.thermal_branch?.enabled === true;
 
   useEffect(() => {

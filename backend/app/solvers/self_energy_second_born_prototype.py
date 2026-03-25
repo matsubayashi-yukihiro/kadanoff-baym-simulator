@@ -8,14 +8,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 from backend.app.schemas import KBESelfEnergyMode, SimulationConfig
-from backend.app.schemas.progress import RunProgressPhase
-from backend.app.solvers.contour import (
-    causal_history_rule,
-    history_average_matrix,
-    history_average_rank3,
-    normalized_weights,
-    tau_average_matrix,
-)
 from backend.app.solvers.green_functions import (
     MatsubaraBranchBuildResult,
     MatsubaraBranchContainer,
@@ -26,10 +18,24 @@ from backend.app.solvers.green_functions import (
     build_factorized_mixed_branch as build_shared_factorized_mixed_branch,
 )
 from backend.app.solvers.progress import ProgressCallback
-from backend.app.solvers.nambu import ComplexMatrix, build_bdg_hamiltonian, extract_density_blocks
-from backend.app.solvers.numerics import linear_mix
+from backend.app.solvers.nambu import ComplexMatrix, build_bdg_hamiltonian
+from backend.app.solvers.second_born_common import (
+    base_second_born_diagnostics as _base_second_born_diagnostics_common,
+    damping_collision as _damping_collision_common,
+    log_second_born_fallback as _log_second_born_fallback_common,
+    second_born_hfb_limit_reason as _second_born_hfb_limit_reason_common,
+    thermal_branch_density_reference as thermal_branch_density_reference_common,
+)
+from backend.app.solvers.second_born_branch_diagnostics import (
+    matsubara_diagnostics_prototype as _matsubara_diagnostics_prototype_common,
+    mixed_branch_diagnostics_prototype as _mixed_branch_diagnostics_prototype_common,
+)
+from backend.app.solvers.second_born_contour_updates import (
+    run_prototype_matsubara_updates,
+    run_prototype_mixed_updates,
+)
+from backend.app.solvers.second_born_realtime_updates import run_prototype_realtime_updates
 from backend.app.solvers.tdhfb import HFBDynamicsResult
-from backend.app.jobs.progress import SolverProgressUpdate
 
 
 PROTOTYPE_IMPLEMENTATION_KIND = "heuristic_prototype"
@@ -86,257 +92,22 @@ def apply_second_born_corrections(
             diagnostics=diagnostics,
         )
 
-    corrected = [density.copy() for density in dynamics.generalized_densities[:1]]
     sample_count = len(dynamics.times)
-    site_count = dynamics.lattice.site_count
-    nambu_dimension = 2 * site_count
-    identity = np.eye(nambu_dimension, dtype=np.complex128)
-    retarded = hfb_green_functions.retarded.copy()
-    lesser = hfb_green_functions.lesser.copy()
     contour_density_reference = thermal_branch_density_reference(matsubara_branch)
     contour_mode = (
         "full_contour"
         if matsubara_branch is not None and mixed_branch is not None
         else ("thermal_only" if matsubara_branch is not None else "keldysh_only")
     )
-
-    residual_history: list[float] = []
-    iteration_history: list[int] = []
-    memory_norm_history: list[float] = []
-    collision_norm_history: list[float] = []
-    thermal_memory_norm_history: list[float] = []
-    mixed_memory_norm_history: list[float] = []
-    history_order_history: list[int] = []
-    equation_residual_history: list[float] = []
-    converged = True
-    used_relaxed_convergence = False
-
-    for time_index in range(1, sample_count):
-        base_density = dynamics.generalized_densities[time_index]
-        base_row_lesser = lesser[time_index, :time_index].copy()
-        base_row_retarded = retarded[time_index, :time_index].copy()
-        guess_density = base_density.copy()
-        guess_row_lesser = base_row_lesser.copy()
-        guess_row_retarded = base_row_retarded.copy()
-        step_dt = float(dynamics.times[time_index] - dynamics.times[time_index - 1])
-        equation_tolerance = config.kbe.tolerance / max(step_dt, 1e-12)
-        history_start = 0 if config.kbe.memory_window is None else max(0, time_index - config.kbe.memory_window)
-        window_indices = np.arange(history_start, time_index, dtype=np.int64)
-        history_rule = causal_history_rule(dynamics.times, history_start=history_start, stop_index=time_index)
-        if len(window_indices) == 0 or (
-            float(np.sum(history_rule.past_weights)) <= 1e-15 and history_rule.current_weight <= 1e-15
-        ):
-            corrected.append(base_density.copy())
-            lesser[time_index, time_index] = 1j * base_density
-            retarded[time_index, time_index] = -1j * identity
-            residual_history.append(0.0)
-            iteration_history.append(1)
-            memory_norm_history.append(0.0)
-            collision_norm_history.append(0.0)
-            thermal_memory_norm_history.append(0.0)
-            mixed_memory_norm_history.append(0.0)
-            history_order_history.append(history_rule.order)
-            equation_residual_history.append(0.0)
-            continue
-
-        last_residual = 0.0
-        last_memory_norm = 0.0
-        last_collision_norm = 0.0
-        last_thermal_norm = 0.0
-        last_mixed_norm = 0.0
-        last_equation_residual = 0.0
-        converged_step = False
-
-        for iteration in range(1, config.kbe.max_fixed_point_iterations + 1):
-            density_history_average = history_average_matrix(
-                past_values=np.asarray([corrected[index] for index in window_indices], dtype=np.complex128),
-                past_weights=history_rule.past_weights,
-                current_value=guess_density,
-                current_weight=history_rule.current_weight,
-            )
-            row_lesser_history_average = history_average_rank3(
-                past_values=lesser[window_indices, :time_index],
-                past_weights=history_rule.past_weights,
-                current_value=guess_row_lesser,
-                current_weight=history_rule.current_weight,
-            )
-            row_retarded_history_average = history_average_rank3(
-                past_values=retarded[window_indices, :time_index],
-                past_weights=history_rule.past_weights,
-                current_value=guess_row_retarded,
-                current_weight=history_rule.current_weight,
-            )
-            normal_guess, pairing_guess = extract_density_blocks(guess_density, site_count)
-            guess_occupancy = np.clip(np.real(np.diag(normal_guess)), 0.0, 1.0)
-            guess_pairing = np.abs(np.diag(pairing_guess))
-            gamma_site = np.zeros(site_count, dtype=np.float64)
-            keldysh_envelope_scale = 0.0
-
-            normalized_past_weights = normalized_weights(history_rule.past_weights)
-            for normalized_weight, weight, history_index in zip(
-                normalized_past_weights,
-                history_rule.past_weights,
-                window_indices,
-                strict=True,
-            ):
-                history_normal, history_pairing = extract_density_blocks(corrected[history_index], site_count)
-                history_occupancy = np.clip(np.real(np.diag(history_normal)), 0.0, 1.0)
-                history_pairing_strength = np.abs(np.diag(history_pairing))
-                envelope = np.abs(np.diagonal(guess_row_lesser[history_index, :site_count, :site_count]))
-                gamma_site += (
-                    weight
-                    * abs(config.interaction.onsite_u) ** 2
-                    * envelope
-                    * (guess_occupancy * (1.0 - guess_occupancy) + guess_pairing**2)
-                    * (history_occupancy * (1.0 - history_occupancy) + history_pairing_strength**2 + 1e-12)
-                )
-                keldysh_envelope_scale += normalized_weight * float(np.mean(envelope))
-
-            thermal_reference = density_history_average
-            thermal_envelope_scale = 0.0
-            if contour_density_reference is not None:
-                thermal_reference = 0.5 * (density_history_average + contour_density_reference)
-                contour_normal, contour_pairing = extract_density_blocks(contour_density_reference, site_count)
-                contour_occupancy = np.clip(np.real(np.diag(contour_normal)), 0.0, 1.0)
-                contour_pairing_strength = np.abs(np.diag(contour_pairing))
-                thermal_gamma = (
-                    abs(config.interaction.onsite_u) ** 2
-                    * (guess_occupancy * (1.0 - guess_occupancy) + guess_pairing**2)
-                    * (contour_occupancy * (1.0 - contour_occupancy) + contour_pairing_strength**2 + 1e-12)
-                )
-                gamma_site += thermal_gamma
-                thermal_envelope_scale = float(np.mean(contour_occupancy + contour_pairing_strength))
-                last_thermal_norm = float(np.max(thermal_gamma)) if len(thermal_gamma) else 0.0
-            else:
-                last_thermal_norm = 0.0
-
-            mixed_reference = row_lesser_history_average
-            if mixed_branch is not None and time_index < mixed_branch.right.shape[0]:
-                mixed_right_average = tau_average_matrix(mixed_branch.tau, mixed_branch.right[time_index])
-                mixed_left_average = tau_average_matrix(mixed_branch.tau, mixed_branch.left[time_index])
-                mixed_reference = np.broadcast_to(
-                    0.5 * (-1j * mixed_right_average + 1j * mixed_left_average),
-                    guess_row_lesser.shape,
-                ).copy()
-                mixed_envelope = 0.5 * (
-                    np.abs(np.diagonal(mixed_right_average[:site_count, :site_count]))
-                    + np.abs(np.diagonal(mixed_left_average[:site_count, :site_count]))
-                )
-                mixed_gamma = abs(config.interaction.onsite_u) ** 2 * mixed_envelope
-                gamma_site += mixed_gamma
-                last_mixed_norm = float(np.max(mixed_gamma)) if len(mixed_gamma) else 0.0
-            else:
-                last_mixed_norm = 0.0
-
-            gamma_matrix = np.diag(np.concatenate([gamma_site, gamma_site]).astype(np.complex128))
-            density_memory_drive = (
-                keldysh_envelope_scale * (guess_density - density_history_average)
-                + thermal_envelope_scale * (guess_density - thermal_reference)
-            )
-            row_lesser_memory_drive = (
-                keldysh_envelope_scale * (guess_row_lesser - row_lesser_history_average)
-                + max(last_mixed_norm, 1e-12) * (guess_row_lesser - mixed_reference)
-            )
-            row_retarded_memory_drive = keldysh_envelope_scale * (guess_row_retarded - row_retarded_history_average)
-
-            density_collision = dissipative_collision(gamma_matrix, density_memory_drive)
-            row_lesser_collision = dissipative_collision(gamma_matrix, row_lesser_memory_drive)
-            row_retarded_collision = dissipative_collision(gamma_matrix, row_retarded_memory_drive)
-
-            target_density = base_density + step_dt * density_collision
-            target_row_lesser = base_row_lesser + step_dt * row_lesser_collision
-            target_row_retarded = base_row_retarded + step_dt * row_retarded_collision
-
-            updated_density = linear_mix(guess_density, target_density, config.kbe.mixing)
-            updated_density = 0.5 * (updated_density + updated_density.conjugate().T)
-            updated_row_lesser = linear_mix(guess_row_lesser, target_row_lesser, config.kbe.mixing)
-            updated_row_retarded = linear_mix(guess_row_retarded, target_row_retarded, config.kbe.mixing)
-
-            last_residual = float(
-                max(
-                    np.max(np.abs(updated_density - guess_density)),
-                    np.max(np.abs(updated_row_lesser - guess_row_lesser)) if updated_row_lesser.size else 0.0,
-                    np.max(np.abs(updated_row_retarded - guess_row_retarded)) if updated_row_retarded.size else 0.0,
-                )
-            )
-            last_memory_norm = float(np.max(gamma_site)) if len(gamma_site) else 0.0
-            last_collision_norm = float(
-                max(
-                    np.max(np.abs(density_collision)),
-                    np.max(np.abs(row_lesser_collision)) if row_lesser_collision.size else 0.0,
-                    np.max(np.abs(row_retarded_collision)) if row_retarded_collision.size else 0.0,
-                )
-            )
-            last_equation_residual = float(
-                max(
-                    np.max(np.abs((updated_density - base_density) / step_dt - density_collision)),
-                    (
-                        np.max(np.abs((updated_row_lesser - base_row_lesser) / step_dt - row_lesser_collision))
-                        if updated_row_lesser.size
-                        else 0.0
-                    ),
-                    (
-                        np.max(np.abs((updated_row_retarded - base_row_retarded) / step_dt - row_retarded_collision))
-                        if updated_row_retarded.size
-                        else 0.0
-                    ),
-                )
-            )
-            guess_density = updated_density
-            guess_row_lesser = updated_row_lesser
-            guess_row_retarded = updated_row_retarded
-            if progress_callback is not None:
-                progress_callback(
-                    SolverProgressUpdate(
-                        phase=RunProgressPhase.PROPAGATING,
-                        status_line=f"prototype second Born fixed-point at t={float(dynamics.times[time_index]):.3f}",
-                        physical_time_current=float(dynamics.times[time_index]),
-                        physical_time_final=float(dynamics.times[-1]),
-                        physical_progress_fraction=(
-                            float(dynamics.times[time_index] / dynamics.times[-1]) if dynamics.times[-1] > 0 else 1.0
-                        ),
-                        accepted_steps=int(time_index),
-                        requested_steps=int(sample_count - 1),
-                        saved_samples_written=int(np.count_nonzero(dynamics.saved_indices <= time_index)),
-                        solver_metrics={
-                            "current_time_index": int(time_index),
-                            "latest_fixed_point_iterations": int(iteration),
-                            "latest_fixed_point_residual": last_residual,
-                            "latest_equation_residual": last_equation_residual,
-                            "latest_memory_norm": last_memory_norm,
-                            "history_integration_order": int(history_rule.order),
-                        },
-                    )
-                )
-            if last_residual <= config.kbe.tolerance and last_equation_residual <= equation_tolerance:
-                converged_step = True
-                iteration_history.append(iteration)
-                break
-        else:
-            iteration_history.append(config.kbe.max_fixed_point_iterations)
-
-        if (
-            not converged_step
-            and last_residual <= 5.0 * config.kbe.tolerance
-            and last_equation_residual <= 5.0 * equation_tolerance
-        ):
-            converged_step = True
-            used_relaxed_convergence = True
-
-        converged = converged and converged_step
-        corrected.append(guess_density)
-        lesser[time_index, time_index] = 1j * guess_density
-        retarded[time_index, time_index] = -1j * identity
-        lesser[time_index, :time_index] = guess_row_lesser
-        lesser[:time_index, time_index] = -guess_row_lesser.conjugate().transpose(0, 2, 1)
-        retarded[time_index, :time_index] = guess_row_retarded
-        residual_history.append(last_residual)
-        memory_norm_history.append(last_memory_norm)
-        collision_norm_history.append(last_collision_norm)
-        thermal_memory_norm_history.append(last_thermal_norm)
-        mixed_memory_norm_history.append(last_mixed_norm)
-        history_order_history.append(history_rule.order)
-        equation_residual_history.append(last_equation_residual)
+    realtime_update = run_prototype_realtime_updates(
+        config=config,
+        dynamics=dynamics,
+        hfb_green_functions=hfb_green_functions,
+        contour_density_reference=contour_density_reference,
+        mixed_branch=mixed_branch,
+        collision=dissipative_collision,
+        progress_callback=progress_callback,
+    )
 
     diagnostics = _base_second_born_diagnostics(
         sample_count=sample_count,
@@ -344,25 +115,39 @@ def apply_second_born_corrections(
     )
     diagnostics.update(
         {
-            "second_born_converged": converged,
-            "second_born_convergence_criterion": "relaxed_5x" if used_relaxed_convergence else "strict",
-            "second_born_iteration_history": iteration_history,
-            "second_born_residual_history": residual_history,
-            "second_born_memory_norm_history": memory_norm_history,
-            "second_born_collision_norm_history": collision_norm_history,
-            "second_born_thermal_memory_norm_history": thermal_memory_norm_history,
-            "second_born_mixed_memory_norm_history": mixed_memory_norm_history,
-            "second_born_history_integration_order_history": history_order_history,
-            "second_born_equation_residual_history": equation_residual_history,
-            "max_second_born_memory_norm": float(max(memory_norm_history)) if memory_norm_history else 0.0,
-            "max_second_born_collision_norm": float(max(collision_norm_history)) if collision_norm_history else 0.0,
-            "max_second_born_thermal_memory_norm": (
-                float(max(thermal_memory_norm_history)) if thermal_memory_norm_history else 0.0
+            "second_born_converged": realtime_update.converged,
+            "second_born_convergence_criterion": (
+                "relaxed_5x" if realtime_update.used_relaxed_convergence else "strict"
             ),
-            "max_second_born_mixed_memory_norm": float(max(mixed_memory_norm_history)) if mixed_memory_norm_history else 0.0,
-            "second_born_history_integration_max_order": max(history_order_history) if history_order_history else 1,
+            "second_born_iteration_history": realtime_update.iteration_history,
+            "second_born_residual_history": realtime_update.residual_history,
+            "second_born_memory_norm_history": realtime_update.memory_norm_history,
+            "second_born_collision_norm_history": realtime_update.collision_norm_history,
+            "second_born_thermal_memory_norm_history": realtime_update.thermal_memory_norm_history,
+            "second_born_mixed_memory_norm_history": realtime_update.mixed_memory_norm_history,
+            "second_born_history_integration_order_history": realtime_update.history_order_history,
+            "second_born_equation_residual_history": realtime_update.equation_residual_history,
+            "max_second_born_memory_norm": (
+                float(max(realtime_update.memory_norm_history)) if realtime_update.memory_norm_history else 0.0
+            ),
+            "max_second_born_collision_norm": (
+                float(max(realtime_update.collision_norm_history)) if realtime_update.collision_norm_history else 0.0
+            ),
+            "max_second_born_thermal_memory_norm": (
+                float(max(realtime_update.thermal_memory_norm_history))
+                if realtime_update.thermal_memory_norm_history
+                else 0.0
+            ),
+            "max_second_born_mixed_memory_norm": (
+                float(max(realtime_update.mixed_memory_norm_history)) if realtime_update.mixed_memory_norm_history else 0.0
+            ),
+            "second_born_history_integration_max_order": (
+                max(realtime_update.history_order_history) if realtime_update.history_order_history else 1
+            ),
             "max_second_born_equation_residual": (
-                float(max(equation_residual_history)) if equation_residual_history else 0.0
+                float(max(realtime_update.equation_residual_history))
+                if realtime_update.equation_residual_history
+                else 0.0
             ),
             "second_born_contour_terms_included": contour_mode != "keldysh_only",
             "second_born_contour_mode": contour_mode,
@@ -370,11 +155,11 @@ def apply_second_born_corrections(
         }
     )
     return SecondBornCorrectionResult(
-        generalized_densities=corrected,
+        generalized_densities=realtime_update.corrected_densities,
         green_functions=TwoTimeGreenFunctionContainer(
             times=dynamics.times,
-            retarded=retarded,
-            lesser=lesser,
+            retarded=realtime_update.retarded,
+            lesser=realtime_update.lesser,
         ),
         diagnostics=diagnostics,
     )
@@ -433,91 +218,18 @@ def build_matsubara_branch(
             ),
         )
 
-    current_green = factorized_branch.green.copy()
-    density_reference = dynamics.equilibrium.generalized_density.copy()
-    identity = np.eye(density_reference.shape[0], dtype=np.complex128)
     site_count = dynamics.lattice.site_count
-    residual_history: list[float] = []
-    memory_norm_history: list[float] = []
-    order_history: list[int] = []
-    converged = False
-    iterations = config.thermal_branch.max_iterations
-
-    for iteration in range(1, config.thermal_branch.max_iterations + 1):
-        updated_green = current_green.copy()
-        max_residual = 0.0
-        max_memory_norm = 0.0
-        max_order = 1
-        density_normal, density_pairing = extract_density_blocks(density_reference, site_count)
-        density_occupancy = np.clip(np.real(np.diag(density_normal)), 0.0, 1.0)
-        density_pairing_strength = np.abs(np.diag(density_pairing))
-
-        for tau_index in range(1, len(factorized_branch.tau) - 1):
-            history_rule = causal_history_rule(factorized_branch.tau, history_start=0, stop_index=tau_index)
-            history_average = history_average_matrix(
-                past_values=updated_green[:tau_index],
-                past_weights=history_rule.past_weights,
-                current_value=current_green[tau_index],
-                current_weight=history_rule.current_weight,
-            )
-            branch_value = current_green[tau_index]
-            envelope = np.abs(np.diagonal(branch_value[:site_count, :site_count]))
-            gamma_site = (
-                onsite_strength**2
-                * envelope
-                * (density_occupancy * (1.0 - density_occupancy) + density_pairing_strength**2 + 1e-12)
-            )
-            gamma_matrix = np.diag(np.concatenate([gamma_site, gamma_site]).astype(np.complex128))
-            dtau = float(factorized_branch.tau[tau_index] - factorized_branch.tau[tau_index - 1])
-            collision = dissipative_collision(gamma_matrix, branch_value - history_average)
-            target = factorized_branch.green[tau_index] + dtau * collision
-            updated_green[tau_index] = linear_mix(branch_value, target, config.thermal_branch.mixing)
-            updated_green[tau_index] = 0.5 * (updated_green[tau_index] + updated_green[tau_index].conjugate().T)
-            max_residual = max(max_residual, float(np.max(np.abs(updated_green[tau_index] - branch_value))))
-            max_memory_norm = max(max_memory_norm, float(np.max(gamma_site)) if len(gamma_site) else 0.0)
-            max_order = max(max_order, history_rule.order)
-
-        density_candidate = thermal_branch_density_reference(
-            MatsubaraBranchContainer(tau=factorized_branch.tau, green=updated_green)
-        )
-        if density_candidate is not None:
-            density_reference = linear_mix(density_reference, density_candidate, config.thermal_branch.mixing)
-            density_reference = 0.5 * (density_reference + density_reference.conjugate().T)
-        updated_green[0] = -(identity - density_reference)
-        updated_green[-1] = -density_reference
-
-        current_green = updated_green
-        residual_history.append(max_residual)
-        memory_norm_history.append(max_memory_norm)
-        order_history.append(max_order)
-        iterations = iteration
-        if progress_callback is not None:
-            progress_callback(
-                SolverProgressUpdate(
-                    phase=RunProgressPhase.THERMAL_BRANCH,
-                    status_line=f"thermal branch iteration {iteration}",
-                    physical_time_current=float(dynamics.times[-1]),
-                    physical_time_final=float(dynamics.times[-1]),
-                    physical_progress_fraction=1.0,
-                    accepted_steps=int(len(dynamics.times) - 1),
-                    requested_steps=int(config.time.n_steps),
-                    saved_samples_written=int(len(dynamics.saved_indices)),
-                    solver_metrics={
-                        "thermal_branch_iterations": int(iteration),
-                        "latest_fixed_point_residual": max_residual,
-                        "latest_memory_norm": max_memory_norm,
-                        "history_integration_order": int(max_order),
-                    },
-                )
-            )
-        if max_residual <= config.kbe.tolerance:
-            converged = True
-            break
-
-    if not converged and residual_history and residual_history[-1] <= 5.0 * config.kbe.tolerance:
-        converged = True
-
-    correlated_branch = MatsubaraBranchContainer(tau=factorized_branch.tau, green=current_green)
+    contour_update = run_prototype_matsubara_updates(
+        config=config,
+        dynamics=dynamics,
+        factorized_branch=factorized_branch,
+        onsite_strength=onsite_strength,
+        site_count=site_count,
+        damping_collision=dissipative_collision,
+        thermal_density_reference=thermal_branch_density_reference,
+        progress_callback=progress_callback,
+    )
+    correlated_branch = MatsubaraBranchContainer(tau=factorized_branch.tau, green=contour_update.green)
     return MatsubaraBranchBuildResult(
         branch=correlated_branch,
         factorized_branch=factorized_branch,
@@ -526,11 +238,11 @@ def build_matsubara_branch(
             dynamics=dynamics,
             matsubara_branch=correlated_branch,
             factorized_branch=factorized_branch,
-            converged=converged,
-            iterations=iterations,
-            residual_history=residual_history,
-            memory_norm_history=memory_norm_history,
-            order_history=order_history,
+            converged=contour_update.converged,
+            iterations=contour_update.iterations,
+            residual_history=contour_update.residual_history,
+            memory_norm_history=contour_update.memory_norm_history,
+            order_history=contour_update.order_history,
             implementation_kind=PROTOTYPE_IMPLEMENTATION_KIND,
             fallback_reason=None,
         ),
@@ -607,66 +319,24 @@ def build_mixed_branch(
             ),
         )
 
-    right = factorized_branch.right.copy()
-    left = factorized_branch.left.copy()
     site_count = dynamics.lattice.site_count
-    memory_norm_history: list[float] = []
-    sample_count = len(dynamics.times)
-
-    for time_index in range(1, sample_count):
-        density_reference = reference_densities[time_index]
-        density_normal, density_pairing = extract_density_blocks(density_reference, site_count)
-        density_occupancy = np.clip(np.real(np.diag(density_normal)), 0.0, 1.0)
-        density_pairing_strength = np.abs(np.diag(density_pairing))
-        mixed_envelope = np.abs(
-            np.diagonal(tau_average_matrix(matsubara_branch.tau, right[time_index])[:site_count, :site_count])
-        )
-        gamma_site = (
-            onsite_strength**2
-            * mixed_envelope
-            * (density_occupancy * (1.0 - density_occupancy) + density_pairing_strength**2 + 1e-12)
-        )
-        gamma_matrix = np.diag(np.concatenate([gamma_site, gamma_site]).astype(np.complex128))
-        step_dt = float(dynamics.times[time_index] - dynamics.times[time_index - 1])
-        right_reference = np.broadcast_to(-1j * matsubara_branch.green, right[time_index].shape)
-        left_reference = np.broadcast_to(
-            1j * matsubara_branch.green[::-1].conjugate().transpose(0, 2, 1),
-            left[time_index].shape,
-        )
-        right[time_index] = factorized_branch.right[time_index] + step_dt * dissipative_collision(
-            gamma_matrix,
-            right[time_index] - right_reference,
-        )
-        left[time_index] = factorized_branch.left[time_index] + step_dt * dissipative_collision(
-            gamma_matrix,
-            left[time_index] - left_reference,
-        )
-        memory_norm_history.append(float(np.max(gamma_site)) if len(gamma_site) else 0.0)
-        if progress_callback is not None:
-            progress_callback(
-                SolverProgressUpdate(
-                    phase=RunProgressPhase.MIXED_BRANCH,
-                    status_line=f"mixed branch t-index {time_index}",
-                    physical_time_current=float(dynamics.times[time_index]),
-                    physical_time_final=float(dynamics.times[-1]),
-                    physical_progress_fraction=(
-                        float(dynamics.times[time_index] / dynamics.times[-1]) if dynamics.times[-1] > 0 else 1.0
-                    ),
-                    accepted_steps=int(time_index),
-                    requested_steps=int(sample_count - 1),
-                    saved_samples_written=int(np.count_nonzero(dynamics.saved_indices <= time_index)),
-                    solver_metrics={
-                        "current_time_index": int(time_index),
-                        "latest_memory_norm": float(np.max(gamma_site)) if len(gamma_site) else 0.0,
-                    },
-                )
-            )
+    contour_update = run_prototype_mixed_updates(
+        config=config,
+        dynamics=dynamics,
+        matsubara_branch=matsubara_branch,
+        factorized_branch=factorized_branch,
+        reference_densities=reference_densities,
+        onsite_strength=onsite_strength,
+        site_count=site_count,
+        damping_collision=dissipative_collision,
+        progress_callback=progress_callback,
+    )
 
     branch = MixedBranchContainer(
         times=dynamics.times,
         tau=matsubara_branch.tau,
-        right=right,
-        left=left,
+        right=contour_update.right,
+        left=contour_update.left,
     )
     diagnostics = _mixed_branch_diagnostics(
         matsubara_branch=matsubara_branch,
@@ -675,8 +345,10 @@ def build_mixed_branch(
         implementation_kind=PROTOTYPE_IMPLEMENTATION_KIND,
         fallback_reason=None,
     )
-    diagnostics["mixed_branch_memory_norm_history"] = memory_norm_history
-    diagnostics["max_mixed_branch_memory_norm"] = float(max(memory_norm_history)) if memory_norm_history else 0.0
+    diagnostics["mixed_branch_memory_norm_history"] = contour_update.memory_norm_history
+    diagnostics["max_mixed_branch_memory_norm"] = (
+        float(max(contour_update.memory_norm_history)) if contour_update.memory_norm_history else 0.0
+    )
     return MixedBranchBuildResult(
         branch=branch,
         factorized_branch=factorized_branch,
@@ -687,53 +359,23 @@ def build_mixed_branch(
 def thermal_branch_density_reference(
     matsubara_branch: MatsubaraBranchContainer | None,
 ) -> ComplexMatrix | None:
-    if matsubara_branch is None:
-        return None
-    density = -matsubara_branch.green[-1]
-    return 0.5 * (density + density.conjugate().T)
+    return thermal_branch_density_reference_common(matsubara_branch)
 
 
 def dissipative_collision(
     kernel: ComplexMatrix,
     values: NDArray[np.complex128],
 ) -> NDArray[np.complex128]:
-    if values.ndim == 2:
-        return -0.5 * (kernel @ values + values @ kernel)
-    if values.ndim == 3:
-        return -0.5 * (
-            np.einsum("ab,kbc->kac", kernel, values)
-            + np.einsum("kab,bc->kac", values, kernel)
-        )
-    raise ValueError(f"unsupported value rank for collision kernel: {values.ndim}")
+    return _damping_collision_common(kernel, values)
 
 
 def _base_second_born_diagnostics(*, sample_count: int, memory_window: int | None) -> dict[str, Any]:
-    zero_history_length = max(sample_count - 1, 0)
-    return {
-        "second_born_enabled": True,
-        "second_born_converged": True,
-        "second_born_convergence_criterion": "strict",
-        "second_born_applied_fallback": None,
-        "thermal_branch_applied_fallback": None,
-        "mixed_branch_applied_fallback": None,
-        "second_born_iteration_history": [1] * zero_history_length,
-        "second_born_residual_history": [0.0] * zero_history_length,
-        "second_born_memory_norm_history": [0.0] * zero_history_length,
-        "second_born_collision_norm_history": [0.0] * zero_history_length,
-        "second_born_thermal_memory_norm_history": [0.0] * zero_history_length,
-        "second_born_mixed_memory_norm_history": [0.0] * zero_history_length,
-        "second_born_history_integration_order_history": [1] * zero_history_length,
-        "second_born_equation_residual_history": [0.0] * zero_history_length,
-        "max_second_born_memory_norm": 0.0,
-        "max_second_born_collision_norm": 0.0,
-        "max_second_born_thermal_memory_norm": 0.0,
-        "max_second_born_mixed_memory_norm": 0.0,
-        "max_second_born_equation_residual": 0.0,
-        "second_born_memory_window": int(memory_window or max(sample_count - 1, 0)),
-        "second_born_history_integration_max_order": 1,
-        "second_born_reference_implementation": False,
-        "second_born_implementation_kind": PROTOTYPE_IMPLEMENTATION_KIND,
-    }
+    return _base_second_born_diagnostics_common(
+        sample_count=sample_count,
+        memory_window=memory_window,
+        reference_implementation=False,
+        implementation_kind=PROTOTYPE_IMPLEMENTATION_KIND,
+    )
 
 
 def _build_factorized_matsubara_branch(
@@ -771,53 +413,19 @@ def _matsubara_diagnostics(
     implementation_kind: str,
     fallback_reason: str | None,
 ) -> dict[str, Any]:
-    if matsubara_branch is None:
-        return {
-            "thermal_branch_enabled": False,
-            "thermal_branch_correlated": False,
-            "mixed_components_included": False,
-            "thermal_branch_factorized_difference": 0.0,
-            "thermal_branch_reference_implementation": False,
-            "thermal_branch_implementation_kind": "disabled",
-            "thermal_branch_applied_fallback": None,
-        }
-
-    density_reference = thermal_branch_density_reference(matsubara_branch)
-    if density_reference is None:
-        density_reference = dynamics.equilibrium.generalized_density
-    identity = np.eye(density_reference.shape[0], dtype=np.complex128)
-    zero_plus_error = float(np.max(np.abs(matsubara_branch.green[0] + (identity - density_reference))))
-    beta_minus_error = float(np.max(np.abs(matsubara_branch.green[-1] + density_reference)))
-    factorized_difference = (
-        float(np.max(np.abs(matsubara_branch.green - factorized_branch.green)))
-        if factorized_branch is not None
-        else 0.0
+    return _matsubara_diagnostics_prototype_common(
+        config=config,
+        dynamics=dynamics,
+        matsubara_branch=matsubara_branch,
+        factorized_branch=factorized_branch,
+        converged=converged,
+        iterations=iterations,
+        residual_history=residual_history,
+        memory_norm_history=memory_norm_history,
+        order_history=order_history,
+        implementation_kind=implementation_kind,
+        fallback_reason=fallback_reason,
     )
-    density_shift = float(np.max(np.abs(density_reference - dynamics.equilibrium.generalized_density)))
-    return {
-        "thermal_branch_enabled": True,
-        "thermal_branch_correlated": factorized_difference > 0.0,
-        "mixed_components_included": False,
-        "matsubara_beta": float(1.0 / config.initial_state.temperature),
-        "matsubara_grid_shape": [
-            int(matsubara_branch.green.shape[0]),
-            int(matsubara_branch.green.shape[1]),
-            int(matsubara_branch.green.shape[2]),
-        ],
-        "matsubara_zero_plus_error": zero_plus_error,
-        "matsubara_beta_minus_error": beta_minus_error,
-        "thermal_branch_converged": converged,
-        "thermal_branch_iterations": iterations,
-        "thermal_branch_residual_history": residual_history,
-        "thermal_branch_memory_norm_history": memory_norm_history,
-        "thermal_branch_history_integration_order_history": order_history,
-        "thermal_branch_history_integration_max_order": max(order_history) if order_history else 1,
-        "thermal_branch_factorized_difference": factorized_difference,
-        "thermal_branch_density_shift": density_shift,
-        "thermal_branch_reference_implementation": False,
-        "thermal_branch_implementation_kind": implementation_kind,
-        "thermal_branch_applied_fallback": fallback_reason,
-    }
 
 
 def _mixed_branch_diagnostics(
@@ -828,53 +436,17 @@ def _mixed_branch_diagnostics(
     implementation_kind: str,
     fallback_reason: str | None,
 ) -> dict[str, Any]:
-    if matsubara_branch is None or mixed_branch is None:
-        return {
-            "mixed_components_included": False,
-            "mixed_branch_factorized_difference": 0.0,
-            "mixed_branch_reference_implementation": False,
-            "mixed_branch_implementation_kind": "disabled",
-            "mixed_branch_applied_fallback": None,
-        }
-
-    right_initial_target = -1j * matsubara_branch.green
-    left_initial_target = 1j * matsubara_branch.green[::-1].conjugate().transpose(0, 2, 1)
-    right_factorized_difference = (
-        float(np.max(np.abs(mixed_branch.right - factorized_branch.right)))
-        if factorized_branch is not None
-        else 0.0
+    return _mixed_branch_diagnostics_prototype_common(
+        matsubara_branch=matsubara_branch,
+        mixed_branch=mixed_branch,
+        factorized_branch=factorized_branch,
+        implementation_kind=implementation_kind,
+        fallback_reason=fallback_reason,
     )
-    left_factorized_difference = (
-        float(np.max(np.abs(mixed_branch.left - factorized_branch.left)))
-        if factorized_branch is not None
-        else 0.0
-    )
-    return {
-        "mixed_components_included": True,
-        "mixed_component_names": ["mixed_right", "mixed_left"],
-        "mixed_grid_shape": [
-            int(mixed_branch.right.shape[0]),
-            int(mixed_branch.right.shape[1]),
-            int(mixed_branch.right.shape[2]),
-            int(mixed_branch.right.shape[3]),
-        ],
-        "mixed_right_initial_error": float(np.max(np.abs(mixed_branch.right[0] - right_initial_target))),
-        "mixed_left_initial_error": float(np.max(np.abs(mixed_branch.left[0] - left_initial_target))),
-        "mixed_right_factorized_difference": right_factorized_difference,
-        "mixed_left_factorized_difference": left_factorized_difference,
-        "mixed_branch_factorized_difference": max(right_factorized_difference, left_factorized_difference),
-        "mixed_branch_reference_implementation": False,
-        "mixed_branch_implementation_kind": implementation_kind,
-        "mixed_branch_applied_fallback": fallback_reason,
-    }
 
 
 def _second_born_hfb_limit_reason(*, sample_count: int, onsite_strength: float) -> str | None:
-    if sample_count <= 1:
-        return "hfb_limit_single_sample"
-    if onsite_strength <= 1e-12:
-        return "hfb_limit_onsite_u_zero"
-    return None
+    return _second_born_hfb_limit_reason_common(sample_count=sample_count, onsite_strength=onsite_strength)
 
 
 def _log_second_born_fallback(
@@ -885,12 +457,11 @@ def _log_second_born_fallback(
     sample_count: int | None = None,
     onsite_strength: float | None = None,
 ) -> None:
-    if not warn:
-        return
-    logger.warning(
-        "Applying second-Born fallback in %s: reason=%s, sample_count=%s, onsite_strength=%s",
-        branch,
-        reason,
-        "n/a" if sample_count is None else str(sample_count),
-        "n/a" if onsite_strength is None else f"{onsite_strength:.3e}",
+    _log_second_born_fallback_common(
+        logger=logger,
+        branch=branch,
+        reason=reason,
+        warn=warn,
+        sample_count=sample_count,
+        onsite_strength=onsite_strength,
     )

@@ -35,6 +35,10 @@ const META: Record<string, DiagnosticMeta> = {
   second_born_solver_mode: {
     description: "Second Born ソルバーの動作モード（hfb_limit / two_time_causal_marching / gkba_causal_marching）。",
   },
+  second_born_kspace_block_path: {
+    description: "k-space block-diagonal kernel が second_born_reference path で有効だったかどうか。",
+    threshold: "true（k-space native block path が有効なとき）",
+  },
   second_born_contour_mode: {
     description: "Second Born の輪郭積分モード（keldysh_only / thermal_only / full_contour / hfb_limit）。",
   },
@@ -46,6 +50,15 @@ const META: Record<string, DiagnosticMeta> = {
   },
   adaptive_enabled: {
     description: "適応時間刻みが有効かどうか。",
+  },
+  k_space_path_mode: {
+    description: "k-space 伝播カーネルの実行モード（block_diagonal / full_matrix_fallback）。",
+  },
+  k_space_path_fallback_reason: {
+    description: "k-space block path が無効化され full-matrix fallback した理由。",
+  },
+  k_space_initial_block_structure_error: {
+    description: "初期密度の block-diagonal 再構成誤差。大きい場合は block path を使わず fallback する。",
   },
   kbe_reference_solver_available: {
     description: "参照実装のソルバーが利用可能かどうか。",

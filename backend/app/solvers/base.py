@@ -42,6 +42,16 @@ class MixedGreenFunctionData:
 
 
 @dataclass(slots=True)
+class KSpaceNativeTrajectoryData:
+    times: NDArray[np.float64]
+    density_blocks_history: NDArray[np.complex128]
+    cumulative_propagator_blocks: NDArray[np.complex128]
+    kx: NDArray[np.float64]
+    ky: NDArray[np.float64]
+    reconstruction_mode: str | None = None
+
+
+@dataclass(slots=True)
 class SimulationArtifacts:
     observables: dict[str, ObservableData]
     diagnostics: dict[str, Any]
@@ -49,3 +59,4 @@ class SimulationArtifacts:
     two_time_green_functions: TwoTimeGreenFunctionData | None = None
     thermal_branch_green_functions: ThermalBranchGreenFunctionData | None = None
     mixed_green_functions: MixedGreenFunctionData | None = None
+    kspace_native_trajectory: KSpaceNativeTrajectoryData | None = None

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getObservable, listObservables } from "../api/client";
 import type { ObservableCatalogResponse, ObservableResponse, RunDetail } from "../api/types";
-import { toErrorMessage } from "../lib/helpers";
+import { isSuccessfulState, toErrorMessage } from "../lib/helpers";
 
 export type UseObservablesReturn = {
   catalog: ObservableCatalogResponse | null;
@@ -52,7 +52,7 @@ export function useObservables(
   }, []);
 
   useEffect(() => {
-    if (!selectedRunId || selectedRun?.state !== "succeeded") {
+    if (!selectedRunId || !selectedRun || !isSuccessfulState(selectedRun.state)) {
       setCatalog(null);
       setCatalogError(null);
       setCatalogLoading(false);
@@ -101,7 +101,7 @@ export function useObservables(
   }, [catalog, selectedObservable]);
 
   useEffect(() => {
-    if (!selectedRunId || !selectedObservable || selectedRun?.state !== "succeeded") {
+    if (!selectedRunId || !selectedObservable || !selectedRun || !isSuccessfulState(selectedRun.state)) {
       setData(null);
       setDataError(null);
       setDataLoading(false);
@@ -133,7 +133,7 @@ export function useObservables(
 
   // Fetch overlay data for each overlayName not yet in overlayData
   useEffect(() => {
-    if (!selectedRunId || selectedRun?.state !== "succeeded") return;
+    if (!selectedRunId || !selectedRun || !isSuccessfulState(selectedRun.state)) return;
 
     for (const name of overlayNames) {
       if (name === selectedObservable) continue;

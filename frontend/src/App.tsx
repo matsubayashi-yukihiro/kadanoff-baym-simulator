@@ -27,6 +27,7 @@ import { useRuns } from "./hooks/useRuns";
 import { useThermalBranch } from "./hooks/useThermalBranch";
 import { readUrlState, useUrlStateSync } from "./hooks/useUrlState";
 import { createDefaultConfig } from "./lib/defaultConfig";
+import { isTerminalState } from "./lib/helpers";
 import { getSimulationTrack } from "./lib/projectNarrative";
 import {
   cloneConfig,
@@ -78,7 +79,7 @@ export default function App() {
   const mixed = useMixedGreenFunctions(selectedRunId, selectedRun);
   const artifacts = useResearchArtifacts(selectedRun, () => runState.refresh());
 
-  const canCancel = Boolean(selectedRun && selectedRun.state !== "succeeded" && selectedRun.state !== "failed" && selectedRun.state !== "cancelled");
+  const canCancel = Boolean(selectedRun && !isTerminalState(selectedRun.state));
   const isSingleJobPage = activeTab === "single-job";
   const isCompareJobsPage = activeTab === "compare-jobs";
   const isParameterSweepPage = activeTab === "parameter-sweep";
@@ -319,6 +320,7 @@ export default function App() {
                       loading={runProgress.loading}
                       error={runProgress.error}
                       isStale={runProgress.isStale}
+                      staleDetails={runProgress.staleDetails}
                     />
                     <DiagnosticsPanel run={selectedRun} />
                     <RunLogPanel run={selectedRun} />

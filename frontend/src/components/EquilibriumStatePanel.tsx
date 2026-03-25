@@ -1,5 +1,6 @@
 import type { RunDetail } from "../api/types";
 import { formatNumber, formatValue } from "../lib/format";
+import { isSuccessfulState } from "../lib/helpers";
 
 type EquilibriumStatePanelProps = {
   run: RunDetail | null;
@@ -50,7 +51,7 @@ export function EquilibriumStatePanel(props: EquilibriumStatePanelProps) {
     equilibriumDensity !== undefined ||
     equilibriumPairing !== undefined;
 
-  if (!hasEquilibriumData && run.state !== "succeeded") {
+  if (!hasEquilibriumData && !isSuccessfulState(run.state)) {
     return (
       <section className="panel">
         <div className="panel-header">
@@ -60,7 +61,9 @@ export function EquilibriumStatePanel(props: EquilibriumStatePanelProps) {
           </div>
           <span className={`status-pill status-${run.state}`}>{run.state}</span>
         </div>
-        <p className="state-banner">Equilibrium results will appear after the run completes.</p>
+        <p className="state-banner">
+          Equilibrium results will appear after the run completes (`succeeded` or `succeeded_with_warnings`).
+        </p>
       </section>
     );
   }

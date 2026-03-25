@@ -5,7 +5,7 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Any
+from typing import Any, Callable
 from uuid import uuid4
 
 import numpy as np
@@ -15,6 +15,9 @@ from backend.app.schemas import (
     DerivedAnalysisResultRecord,
     GreenFunctionCatalogResponse,
     GreenFunctionSliceResponse,
+    KSpaceNativeCatalogResponse,
+    KSpaceNativeLesserSliceResponse,
+    KSpaceNativePoint,
     MixedGreenFunctionCatalogResponse,
     MixedGreenFunctionSliceResponse,
     ObservableDescriptor,
@@ -34,6 +37,7 @@ from backend.app.schemas import (
     ThermalBranchSliceResponse,
 )
 from backend.app.solvers.base import (
+    KSpaceNativeTrajectoryData,
     MixedGreenFunctionData,
     ObservableData,
     ThermalBranchGreenFunctionData,
@@ -41,7 +45,12 @@ from backend.app.solvers.base import (
 )
 
 
-TERMINAL_STATES = {RunState.SUCCEEDED, RunState.FAILED, RunState.CANCELLED}
+TERMINAL_STATES = {
+    RunState.SUCCEEDED,
+    RunState.SUCCEEDED_WITH_WARNINGS,
+    RunState.FAILED,
+    RunState.CANCELLED,
+}
 
 
 class FileRunStorage:
@@ -195,10 +204,14 @@ class FileRunStorage:
         two_time_green_functions: TwoTimeGreenFunctionData | None = None,
         thermal_branch_green_functions: ThermalBranchGreenFunctionData | None = None,
         mixed_green_functions: MixedGreenFunctionData | None = None,
+        kspace_native_trajectory: KSpaceNativeTrajectoryData | None = None,
+        heartbeat: Callable[[str], None] | None = None,
     ) -> None:
         config = self.read_config(run_id)
         arrays: dict[str, np.ndarray] = {}
         descriptors: list[ObservableDescriptor] = []
+        if heartbeat is not None:
+            heartbeat("writing observables")
         for name, observable in observables.items():
             time_key = f"{name}__time"
             arrays[time_key] = observable.time
@@ -218,8 +231,12 @@ class FileRunStorage:
             )
 
         np.savez_compressed(self._path(run_id, "observables.npz"), **arrays)
+        if heartbeat is not None:
+            heartbeat("writing diagnostics")
         self._write_json(self._path(run_id, "diagnostics.json"), diagnostics)
         if two_time_green_functions is not None:
+            if heartbeat is not None:
+                heartbeat("writing green-functions")
             stored_two_time = _subsample_two_time_green_functions(
                 two_time_green_functions,
                 save_every=config.time.save_every,
@@ -231,8 +248,12 @@ class FileRunStorage:
                 save_every=config.time.save_every,
             )
         if thermal_branch_green_functions is not None:
+            if heartbeat is not None:
+                heartbeat("writing thermal-branch")
             self._write_thermal_branch(run_id, thermal_branch_green_functions)
         if mixed_green_functions is not None:
+            if heartbeat is not None:
+                heartbeat("writing mixed-green-functions")
             stored_mixed = _subsample_mixed_green_functions(
                 mixed_green_functions,
                 save_every=config.time.save_every,
@@ -242,6 +263,15 @@ class FileRunStorage:
                 stored_mixed,
                 full_time_point_count=int(mixed_green_functions.times.shape[0]),
                 save_every=config.time.save_every,
+            )
+        if kspace_native_trajectory is not None:
+            if heartbeat is not None:
+                heartbeat("writing kspace-native")
+            self._write_kspace_native_trajectory(
+                run_id,
+                kspace_native_trajectory,
+                nx=int(config.lattice.nx),
+                ny=int(config.lattice.ny),
             )
 
         summary = self.read_summary(run_id)
@@ -426,6 +456,111 @@ class FileRunStorage:
         times = np.load(self._path(run_id, metadata["times_file"]))
         values = np.load(self._path(run_id, component_file))
         return times, values
+
+    def read_kspace_native_catalog(self, run_id: str) -> KSpaceNativeCatalogResponse:
+        metadata = self._read_kspace_native_metadata(run_id)
+        points = [
+            KSpaceNativePoint(
+                index=int(index),
+                grid_index_x=int(index % int(metadata["nx"])),
+                grid_index_y=int(index // int(metadata["nx"])),
+                kx=float(kx),
+                ky=float(ky),
+            )
+            for index, (kx, ky) in enumerate(zip(metadata["kx"], metadata["ky"], strict=True))
+        ]
+        return KSpaceNativeCatalogResponse(
+            run_id=run_id,
+            components=list(metadata["components"]),
+            time_point_count=int(metadata["time_point_count"]),
+            k_point_count=int(metadata["k_point_count"]),
+            block_shape=[int(value) for value in metadata["block_shape"]],
+            nambu_dimension=int(metadata["nambu_dimension"]),
+            reconstruction_mode=metadata.get("reconstruction_mode"),
+            points=points,
+        )
+
+    def read_kspace_native_lesser_slice(
+        self,
+        run_id: str,
+        *,
+        row_start: int | None = None,
+        row_stop: int | None = None,
+        col_start: int | None = None,
+        col_stop: int | None = None,
+        k_start: int | None = None,
+        k_stop: int | None = None,
+        nambu_start: int | None = None,
+        nambu_stop: int | None = None,
+    ) -> KSpaceNativeLesserSliceResponse:
+        metadata = self._read_kspace_native_metadata(run_id)
+        times = np.load(self._path(run_id, metadata["times_file"]), mmap_mode="r")
+        density_blocks = np.load(self._path(run_id, metadata["density_blocks_file"]), mmap_mode="r")
+        propagator_blocks = np.load(self._path(run_id, metadata["propagator_blocks_file"]), mmap_mode="r")
+
+        time_count = int(metadata["time_point_count"])
+        k_count = int(metadata["k_point_count"])
+        nambu_dimension = int(metadata["nambu_dimension"])
+        row_start_index, row_stop_index = _normalize_slice_bounds(row_start, row_stop, time_count, axis_name="row")
+        col_start_index, col_stop_index = _normalize_slice_bounds(col_start, col_stop, time_count, axis_name="column")
+        k_start_index, k_stop_index = _normalize_slice_bounds(k_start, k_stop, k_count, axis_name="k")
+        nambu_start_index, nambu_stop_index = _normalize_slice_bounds(
+            nambu_start,
+            nambu_stop,
+            nambu_dimension,
+            axis_name="nambu",
+        )
+
+        selected_rows = propagator_blocks[row_start_index:row_stop_index, k_start_index:k_stop_index]
+        selected_cols = propagator_blocks[col_start_index:col_stop_index, k_start_index:k_stop_index]
+        selected_initial_density = density_blocks[0, k_start_index:k_stop_index]
+        selected_cols_dagger = np.conjugate(np.swapaxes(selected_cols, -1, -2))
+        intermediate = np.einsum(
+            "rkab,kbc->rkac",
+            selected_rows,
+            selected_initial_density,
+            optimize=True,
+        )
+        lesser_blocks = 1j * np.einsum(
+            "rkab,ckbd->rckad",
+            intermediate,
+            selected_cols_dagger,
+            optimize=True,
+        )
+        selected = lesser_blocks[
+            :,
+            :,
+            :,
+            nambu_start_index:nambu_stop_index,
+            nambu_start_index:nambu_stop_index,
+        ]
+        return KSpaceNativeLesserSliceResponse(
+            component="lesser",
+            times_row=times[row_start_index:row_stop_index].astype(float).tolist(),
+            times_col=times[col_start_index:col_stop_index].astype(float).tolist(),
+            k_start=k_start_index,
+            k_stop=k_stop_index,
+            nambu_start=nambu_start_index,
+            nambu_stop=nambu_stop_index,
+            shape=[int(value) for value in selected.shape],
+            real=np.real(selected).astype(float).tolist(),
+            imag=np.imag(selected).astype(float).tolist(),
+        )
+
+    def read_kspace_native_trajectory(
+        self,
+        run_id: str,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, Any]]:
+        metadata = self._read_kspace_native_metadata(run_id)
+        times = np.load(self._path(run_id, metadata["times_file"]))
+        density_blocks = np.load(self._path(run_id, metadata["density_blocks_file"]))
+        propagator_blocks = np.load(self._path(run_id, metadata["propagator_blocks_file"]))
+        return (
+            np.asarray(times, dtype=np.float64),
+            np.asarray(density_blocks, dtype=np.complex128),
+            np.asarray(propagator_blocks, dtype=np.complex128),
+            metadata,
+        )
 
     def read_thermal_branch_catalog(self, run_id: str) -> ThermalBranchCatalogResponse:
         metadata = self._read_thermal_branch_metadata(run_id)
@@ -634,7 +769,7 @@ class FileRunStorage:
         append_history = False
         if state == RunState.CANCELLED:
             phase = RunProgressPhase.CANCELLED
-        elif state == RunState.SUCCEEDED:
+        elif state in {RunState.SUCCEEDED, RunState.SUCCEEDED_WITH_WARNINGS}:
             phase = RunProgressPhase.SUCCEEDED
         elif state == RunState.FAILED:
             phase = RunProgressPhase.FAILED
@@ -649,6 +784,59 @@ class FileRunStorage:
             status_line=message,
             append_history=append_history,
         )
+
+    def _write_kspace_native_trajectory(
+        self,
+        run_id: str,
+        trajectory: KSpaceNativeTrajectoryData,
+        *,
+        nx: int,
+        ny: int,
+    ) -> None:
+        times_file = "kspace_native_times.npy"
+        density_blocks_file = "kspace_native_density_blocks.npy"
+        propagator_blocks_file = "kspace_native_propagator_blocks.npy"
+        np.save(self._path(run_id, times_file), np.asarray(trajectory.times, dtype=np.float64))
+        np.save(
+            self._path(run_id, density_blocks_file),
+            np.asarray(trajectory.density_blocks_history, dtype=np.complex128),
+        )
+        np.save(
+            self._path(run_id, propagator_blocks_file),
+            np.asarray(trajectory.cumulative_propagator_blocks, dtype=np.complex128),
+        )
+        kx = np.asarray(trajectory.kx, dtype=np.float64)
+        ky = np.asarray(trajectory.ky, dtype=np.float64)
+        k_point_count = int(kx.shape[0])
+        if k_point_count != int(ky.shape[0]):
+            raise ValueError("kspace native trajectory requires matching kx/ky sizes")
+        density_shape = np.asarray(trajectory.density_blocks_history).shape
+        if len(density_shape) != 4 or density_shape[1] != k_point_count:
+            raise ValueError("kspace native density blocks must have shape [time, k, 2, 2]")
+        if int(nx) * int(ny) != k_point_count:
+            raise ValueError("kspace native trajectory k-point count must match lattice nx*ny")
+        block_shape = [int(density_shape[2]), int(density_shape[3])]
+        self._write_json(
+            self._path(run_id, "kspace_native.json"),
+            {
+                "times_file": times_file,
+                "density_blocks_file": density_blocks_file,
+                "propagator_blocks_file": propagator_blocks_file,
+                "components": ["lesser"],
+                "time_point_count": int(density_shape[0]),
+                "k_point_count": k_point_count,
+                "block_shape": block_shape,
+                "nambu_dimension": int(block_shape[0]),
+                "reconstruction_mode": trajectory.reconstruction_mode,
+                "kx": kx.astype(float).tolist(),
+                "ky": ky.astype(float).tolist(),
+                "nx": int(nx),
+                "ny": int(ny),
+            },
+        )
+
+    def _read_kspace_native_metadata(self, run_id: str) -> dict[str, Any]:
+        return json.loads(self._path(run_id, "kspace_native.json").read_text(encoding="utf-8"))
 
     def _write_green_functions(
         self,

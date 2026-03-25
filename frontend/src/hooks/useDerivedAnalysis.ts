@@ -27,6 +27,19 @@ function normalizeAnalysisType(sourceKind: DerivedAnalysisSourceKind, analysisTy
   return analysisType.startsWith(prefix) ? analysisType.slice(prefix.length) : analysisType;
 }
 
+function stableSerialize(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableSerialize(item)).join(",")}]`;
+  }
+  return `{${Object.entries(value)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, item]) => `${JSON.stringify(key)}:${stableSerialize(item)}`)
+    .join(",")}}`;
+}
+
 function toDerivedAnalysisErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.status === 404 && error.message.includes("derived analysis source not found")) {
     return "Derived analysis source not found. The selected run may be missing from backend registry, or frontend/backend versions are mismatched. Restart/rebuild backend and retry.";
@@ -44,6 +57,16 @@ export function useDerivedAnalysis(
   analysisType: string | null,
   params: { study_id?: string; parameters?: Record<string, unknown> } = {},
 ) {
+  const studyId = params.study_id ?? "__none__";
+  const normalizedParameters = params.parameters ?? {};
+  const requestKey = [
+    sourceKind ?? "",
+    sourceId ?? "",
+    analysisType ?? "",
+    studyId,
+    stableSerialize(normalizedParameters),
+  ].join("|");
+
   const [state, setState] = useState<DerivedAnalysisState>({
     analysis: null,
     result: null,
@@ -95,6 +118,17 @@ export function useDerivedAnalysis(
     [],
   );
 
+  useEffect(() => {
+    abortedRef.current = false;
+    clearPoll();
+    setState({
+      analysis: null,
+      result: null,
+      status: "idle",
+      error: null,
+    });
+  }, [requestKey]);
+
   const launch = useCallback(async () => {
     if (!sourceKind || !sourceId || !analysisType) return;
     const normalizedAnalysisType = normalizeAnalysisType(sourceKind, analysisType);
@@ -105,10 +139,9 @@ export function useDerivedAnalysis(
     setState({ analysis: null, result: null, status: "launching", error: null });
 
     try {
-      const studyId = params.study_id ?? "__none__";
-
       // Check for an existing cached analysis
       const existing = await listDerivedAnalyses({
+        study_id: studyId,
         source_kind: sourceKind,
         source_id: sourceId,
       });
@@ -116,8 +149,11 @@ export function useDerivedAnalysis(
       const cached = existing.find(
         (a) =>
           normalizeAnalysisType(sourceKind, a.analysis_type) === normalizedAnalysisType &&
+          a.study_id === studyId &&
           a.source_kind === sourceKind &&
-          a.source_id === sourceId,
+          a.source_id === sourceId &&
+          a.analysis_version === "v1" &&
+          stableSerialize(a.parameters ?? {}) === stableSerialize(normalizedParameters),
       );
 
       if (cached) {
@@ -151,7 +187,7 @@ export function useDerivedAnalysis(
         source_id: sourceId,
         analysis_type: normalizedAnalysisType,
         analysis_version: "v1",
-        parameters: params.parameters ?? {},
+        parameters: normalizedParameters,
       });
 
       if (abortedRef.current) return;
@@ -178,7 +214,7 @@ export function useDerivedAnalysis(
         });
       }
     }
-  }, [sourceKind, sourceId, analysisType, params.study_id, params.parameters, pollUntilDone, state.status]);
+  }, [sourceKind, sourceId, analysisType, normalizedParameters, pollUntilDone, state.status, studyId]);
 
   // Cleanup on unmount
   useEffect(() => {

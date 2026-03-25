@@ -6,13 +6,21 @@ import { toErrorMessage } from "../lib/helpers";
 
 const POLL_INTERVAL_MS = 2000;
 const NETWORK_STALE_MS = POLL_INTERVAL_MS * 3;
-const PROGRESS_STALE_MS = Math.max(POLL_INTERVAL_MS * 15, 30000);
+const BASE_PROGRESS_STALE_MS = Math.max(POLL_INTERVAL_MS * 15, 30000);
+const FINALIZING_PROGRESS_STALE_MS = 180000;
+
+type StaleDetails = {
+  heartbeatAgeSeconds: number;
+  phase: RunProgressRecord["phase"];
+  statusLine: string | null;
+};
 
 type UseRunProgressResult = {
   progress: RunProgressRecord | null;
   loading: boolean;
   error: string | null;
   isStale: boolean;
+  staleDetails: StaleDetails | null;
 };
 
 export function useRunProgress(runId: string | null, enabled: boolean): UseRunProgressResult {
@@ -85,14 +93,24 @@ export function useRunProgress(runId: string | null, enabled: boolean): UseRunPr
     && enabled
     && lastSuccessfulPollAtRef.current != null
     && now - lastSuccessfulPollAtRef.current > NETWORK_STALE_MS;
+  const heartbeatAgeMs = progress != null && lastProgressChangeAtRef.current != null
+    ? now - lastProgressChangeAtRef.current
+    : null;
   const noRecentProgressChange = progress != null
     && enabled
     && progress.state === "running"
     && lastProgressChangeAtRef.current != null
-    && now - lastProgressChangeAtRef.current > PROGRESS_STALE_MS;
+    && now - lastProgressChangeAtRef.current > getProgressStaleThreshold(progress.phase);
   const isStale = noRecentSuccessfulPoll || noRecentProgressChange;
+  const staleDetails = isStale && progress != null && heartbeatAgeMs != null
+    ? {
+      heartbeatAgeSeconds: Math.max(0, Math.floor(heartbeatAgeMs / 1000)),
+      phase: progress.phase,
+      statusLine: progress.status_line ?? null,
+    }
+    : null;
 
-  return { progress, loading, error, isStale };
+  return { progress, loading, error, isStale, staleDetails };
 }
 
 function buildProgressSignature(progress: RunProgressRecord): string {
@@ -106,4 +124,11 @@ function buildProgressSignature(progress: RunProgressRecord): string {
     progress.physical_progress_fraction,
     progress.status_line ?? "",
   ].join("|");
+}
+
+function getProgressStaleThreshold(phase: RunProgressRecord["phase"]): number {
+  if (phase === "finalizing") {
+    return FINALIZING_PROGRESS_STALE_MS;
+  }
+  return BASE_PROGRESS_STALE_MS;
 }

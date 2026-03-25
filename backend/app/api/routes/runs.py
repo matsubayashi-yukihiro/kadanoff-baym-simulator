@@ -7,6 +7,8 @@ from backend.app.core.dependencies import get_run_service
 from backend.app.schemas import (
     GreenFunctionCatalogResponse,
     GreenFunctionSliceResponse,
+    KSpaceNativeCatalogResponse,
+    KSpaceNativeLesserSliceResponse,
     MixedGreenFunctionCatalogResponse,
     MixedGreenFunctionSliceResponse,
     ObservableCatalogResponse,
@@ -19,7 +21,7 @@ from backend.app.schemas import (
     ThermalBranchCatalogResponse,
     ThermalBranchSliceResponse,
 )
-from backend.app.services.run_service import RunService
+from backend.app.services.run_service import ArtifactContractConflictError, RunService
 
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -117,6 +119,8 @@ def list_green_functions(
 ) -> GreenFunctionCatalogResponse:
     try:
         return service.list_green_functions(run_id)
+    except ArtifactContractConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
     except FileNotFoundError as exc:
         _raise_missing_green_function_detail(run_id, service, exc)
 
@@ -144,6 +148,8 @@ def get_green_function_slice(
             nambu_start=nambu_start,
             nambu_stop=nambu_stop,
         )
+    except ArtifactContractConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
     except FileNotFoundError as exc:
         _raise_missing_green_function_detail(run_id, service, exc)
     except KeyError as exc:
@@ -159,6 +165,8 @@ def list_thermal_branch(
 ) -> ThermalBranchCatalogResponse:
     try:
         return service.list_thermal_branch(run_id)
+    except ArtifactContractConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
     except FileNotFoundError as exc:
         _raise_missing_thermal_branch_detail(run_id, service, exc)
 
@@ -182,6 +190,8 @@ def get_thermal_branch_slice(
             nambu_start=nambu_start,
             nambu_stop=nambu_stop,
         )
+    except ArtifactContractConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
     except FileNotFoundError as exc:
         _raise_missing_thermal_branch_detail(run_id, service, exc)
     except KeyError as exc:
@@ -197,6 +207,8 @@ def list_mixed_green_functions(
 ) -> MixedGreenFunctionCatalogResponse:
     try:
         return service.list_mixed_green_functions(run_id)
+    except ArtifactContractConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
     except FileNotFoundError as exc:
         _raise_missing_mixed_green_function_detail(run_id, service, exc)
 
@@ -224,10 +236,56 @@ def get_mixed_green_function_slice(
             nambu_start=nambu_start,
             nambu_stop=nambu_stop,
         )
+    except ArtifactContractConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.detail) from exc
     except FileNotFoundError as exc:
         _raise_missing_mixed_green_function_detail(run_id, service, exc)
     except KeyError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="mixed green function component not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.get("/{run_id}/kspace-native/catalog", response_model=KSpaceNativeCatalogResponse)
+def get_kspace_native_catalog(
+    run_id: str,
+    service: RunService = Depends(get_run_service),
+) -> KSpaceNativeCatalogResponse:
+    try:
+        return service.get_kspace_native_catalog(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="k-space native catalog not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@router.get("/{run_id}/kspace-native/lesser", response_model=KSpaceNativeLesserSliceResponse)
+def get_kspace_native_lesser_slice(
+    run_id: str,
+    row_start: int | None = Query(default=None, ge=0),
+    row_stop: int | None = Query(default=None, ge=1),
+    col_start: int | None = Query(default=None, ge=0),
+    col_stop: int | None = Query(default=None, ge=1),
+    k_start: int | None = Query(default=None, ge=0),
+    k_stop: int | None = Query(default=None, ge=1),
+    nambu_start: int | None = Query(default=None, ge=0),
+    nambu_stop: int | None = Query(default=None, ge=1),
+    service: RunService = Depends(get_run_service),
+) -> KSpaceNativeLesserSliceResponse:
+    try:
+        return service.get_kspace_native_lesser_slice(
+            run_id,
+            row_start=row_start,
+            row_stop=row_stop,
+            col_start=col_start,
+            col_stop=col_stop,
+            k_start=k_start,
+            k_stop=k_stop,
+            nambu_start=nambu_start,
+            nambu_stop=nambu_stop,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="k-space native lesser data not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 

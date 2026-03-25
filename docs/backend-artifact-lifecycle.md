@@ -3,7 +3,7 @@
 この文書は、research artifact 系 backend の現行運用を整理する補助文書である。  
 product / architecture の正本は [research-workbench-plan.md](./research-workbench-plan.md)、physics の正本は [theory.md](./theory.md)、validation label の正本は [validation-spec.md](./validation-spec.md) を参照する。
 
-ここで扱うのは 2026-03-20 時点の backend 実装事実であり、新しい product decision を追加するものではない。
+ここで扱うのは 2026-03-25 時点の backend / frontend 接続事実であり、新しい product decision を追加するものではない。
 
 ---
 
@@ -62,7 +62,7 @@ product / architecture の正本は [research-workbench-plan.md](./research-work
   - `GET /api/v1/job-groups`
   - `GET /api/v1/job-groups/{group_id}`
 - frontend 未接続部分:
-  - compare tab は planning surface のままで、backend result の fetch / re-read は未接続。
+  - study / bundle を横断する deep link や filter 導線は未完。
 
 ### `sweep`
 
@@ -77,7 +77,7 @@ product / architecture の正本は [research-workbench-plan.md](./research-work
   - `GET /api/v1/sweeps`
   - `GET /api/v1/sweeps/{sweep_id}`
 - frontend 未接続部分:
-  - sweep tab は planning surface が中心で、heatmap payload の durable fetch は未接続。
+  - study / bundle を横断する deep link や filter 導線は未完。
 
 ### `derived analysis artifact`
 
@@ -94,8 +94,7 @@ product / architecture の正本は [research-workbench-plan.md](./research-work
   - `GET /api/v1/derived-analyses/{analysis_id}`
   - `GET /api/v1/derived-analyses/{analysis_id}/result`
 - frontend 未接続部分:
-  - Single Job の local FFT preview はまだ backend 保存 artifact に置き換わっていない。
-  - compare / sweep での actual result surface 接続は未実装。
+  - result surface は `Single Job` / `Compare Jobs` / `Parameter Sweep` に接続済みだが、bundle provenance と一覧 filter 導線は薄い。
 
 ### `evidence bundle`
 
@@ -201,8 +200,6 @@ list query の現状:
 
 ## 6. Known Gaps For Frontend Integration
 
-- `Compare Jobs` / `Parameter Sweep` は backend artifact が存在する一方で、actual result fetch と re-read が未接続である。
-- `Single Job` の FFT preview は local preview のままで、backend 保存の `derived analysis artifact` に置き換わっていない。
 - `Single Job` の running telemetry は `progress.json` / progress API を正本とし、`run.log` は terminal 後の詳細出力面として維持する。
 - `study` / tab / run / group / sweep / bundle を横断する URL deep link は未実装である。
 - bundle 一覧、resolved provenance、analysis result の使い勝手は frontend 導線次第でまだ改善余地がある。
