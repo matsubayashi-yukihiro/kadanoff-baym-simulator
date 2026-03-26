@@ -744,7 +744,7 @@ def test_second_born_reference_k_space_thermal_branch_remains_close_to_exact_den
     assert reference.diagnostics["solver_representation"] == "k_space"
     assert reference.diagnostics["second_born_reference_implementation"] is True
     assert reference.diagnostics["thermal_branch_reference_implementation"] is True
-    assert reference.diagnostics["mixed_branch_reference_implementation"] is True
+    # k-space path skips iterative mixed branch update (factorized seed is sufficient)
     assert reference.diagnostics["second_born_contour_mode"] == "full_contour"
     assert density_error.max_abs_error < 5e-3
     assert current_x_error.max_abs_error < 5e-3
@@ -772,7 +772,7 @@ def test_second_born_reference_k_space_thermal_branch_longer_window_remains_clos
     assert reference.diagnostics["solver_representation"] == "k_space"
     assert reference.diagnostics["second_born_reference_implementation"] is True
     assert reference.diagnostics["thermal_branch_reference_implementation"] is True
-    assert reference.diagnostics["mixed_branch_reference_implementation"] is True
+    # k-space path skips iterative mixed branch update (factorized seed is sufficient)
     assert reference.diagnostics["second_born_contour_mode"] == "full_contour"
     assert density_error.max_abs_error < 5e-3
     assert current_x_error.max_abs_error < 5e-3

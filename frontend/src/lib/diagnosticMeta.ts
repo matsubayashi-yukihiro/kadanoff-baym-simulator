@@ -46,10 +46,16 @@ const META: Record<string, DiagnosticMeta> = {
     description: "メモリ積分に含める過去のタイムステップ数（メモリカーネルの切り捨て幅）。",
   },
   time_grid_mode: {
-    description: "時間刻みの種別（uniform または adaptive）。",
+    description:
+      "時間刻みの種別（uniform: 等刻み / adaptive: 可変刻み生出力 / uniform_dense_output: 適応刻み→等刻み補間出力）。",
   },
   adaptive_enabled: {
     description: "適応時間刻みが有効かどうか。",
+  },
+  dense_output_enabled: {
+    description:
+      "適応刻みの軌道を等刻みグリッドに線形補間して出力しているかどうか。" +
+      "有効なとき、FFT ベースのスペクトル解析が adaptive run でも利用可能になる。",
   },
   k_space_path_mode: {
     description: "k-space 伝播カーネルの実行モード（block_diagonal / full_matrix_fallback）。",

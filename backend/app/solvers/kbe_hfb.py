@@ -59,11 +59,7 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
     diagnostics["kbe_fixed_point_accelerator"] = "linear"
     diagnostics["kbe_reference_solver_available"] = config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE
 
-    hfb_green_functions = _build_hfb_green_functions(
-        config,
-        dynamics,
-        materialize_two_time_green=include_full_matrix_artifacts,
-    )
+    hfb_green_functions = _build_hfb_green_functions(config, dynamics)
     green_function_reference = hfb_green_functions
     matsubara_result, contour_seed_mixed = _build_contour_seed(config, dynamics, progress_callback=progress_callback)
     (
@@ -79,7 +75,6 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
         hfb_green_functions=hfb_green_functions,
         matsubara_result=matsubara_result,
         contour_seed_mixed=contour_seed_mixed,
-        materialize_two_time_green=include_full_matrix_artifacts,
         progress_callback=progress_callback,
     )
     diagnostics.update(second_born_diagnostics)
@@ -127,8 +122,6 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
     else:
         diagnostics.update(
             {
-                "kbe_two_time_reconstruction": "k_space_native_trajectory",
-                "two_time_grid_shape": None,
                 "max_equal_time_tdhfb_mismatch": 0.0,
                 "max_equal_time_density_reconstruction_error": 0.0,
                 "max_lesser_hermiticity_error": 0.0,
@@ -142,6 +135,7 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
         matsubara_result=matsubara_result,
         reference_densities=reference_densities,
         contour_seed_mixed=contour_seed_mixed,
+        materialize_iterative_update=include_full_matrix_artifacts,
         progress_callback=progress_callback,
     )
     diagnostics.update(matsubara_result.diagnostics)
@@ -167,10 +161,8 @@ def solve(config: SimulationConfig, progress_callback: ProgressCallback | None =
 def _build_hfb_green_functions(
     config: SimulationConfig,
     dynamics: HFBDynamicsResult,
-    *,
-    materialize_two_time_green: bool,
 ) -> TwoTimeGreenFunctionContainer | None:
-    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE or not materialize_two_time_green:
+    if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
         return None
     return build_two_time_green_functions(dynamics)
 
@@ -196,7 +188,6 @@ def _solve_second_born_path(
     hfb_green_functions: TwoTimeGreenFunctionContainer | None,
     matsubara_result: MatsubaraBranchBuildResult,
     contour_seed_mixed: MixedBranchContainer | None,
-    materialize_two_time_green: bool,
     progress_callback: ProgressCallback | None = None,
 ) -> tuple[
     list[ComplexMatrix],
@@ -246,7 +237,7 @@ def _solve_second_born_path(
                 dynamics=dynamics,
                 matsubara_branch=matsubara_result.branch,
                 mixed_branch=contour_seed_mixed,
-                materialize_two_time_green=materialize_two_time_green,
+
                 progress_callback=progress_callback,
             )
         else:
@@ -255,7 +246,7 @@ def _solve_second_born_path(
                 dynamics=dynamics,
                 matsubara_branch=matsubara_result.branch,
                 mixed_branch=contour_seed_mixed,
-                materialize_two_time_green=materialize_two_time_green,
+
                 progress_callback=progress_callback,
             )
         observables, trajectory_diagnostics, summary_excerpt = analyze_kbe_trajectory(
@@ -332,8 +323,21 @@ def _build_mixed_branch_result(
     matsubara_result: MatsubaraBranchBuildResult,
     reference_densities: list[ComplexMatrix],
     contour_seed_mixed: MixedBranchContainer | None,
+    materialize_iterative_update: bool = True,
     progress_callback: ProgressCallback | None = None,
 ) -> MixedBranchBuildResult:
+    if not materialize_iterative_update:
+        return MixedBranchBuildResult(
+            branch=contour_seed_mixed,
+            factorized_branch=contour_seed_mixed,
+            diagnostics={
+                "mixed_components_included": contour_seed_mixed is not None,
+                "mixed_branch_factorized_difference": 0.0,
+                "mixed_branch_reference_implementation": False,
+                "mixed_branch_implementation_kind": "factorized_seed_only",
+                "mixed_branch_applied_fallback": "kspace_native_skip_iterative",
+            },
+        )
     if config.kbe.self_energy == KBESelfEnergyMode.SECOND_BORN_REFERENCE:
         if progress_callback is not None:
             progress_callback(
@@ -406,7 +410,7 @@ def _build_simulation_artifacts(
                     "lesser": green_function_reference.lesser,
                 },
             )
-            if include_full_matrix_artifacts and green_function_reference is not None
+            if green_function_reference is not None
             else None
         ),
         thermal_branch_green_functions=(

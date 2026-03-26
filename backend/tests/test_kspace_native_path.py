@@ -188,13 +188,19 @@ def test_kbe_hfb_kspace_block_second_born_matches_real_space():
 
 
 @pytest.mark.physics_benchmark
-def test_kbe_hfb_kspace_block_second_born_is_not_significantly_slower_than_real_space():
+def test_kbe_hfb_kspace_block_second_born_is_faster_than_real_space():
+    """k-space block path should be significantly faster than real-space for kbe_hfb.
+
+    Uses hfb equilibrium to isolate the second-Born correction + propagation performance
+    (the second_born_reference equilibrium solver is not yet k-space-optimized and dominates
+    otherwise, making both paths appear equally slow).
+    """
     base = {
         **_native_kspace_config().model_dump(mode="json"),
         "solver": "kbe_hfb",
         "lattice": {"nx": 6, "ny": 6, "boundary": "periodic", "hopping": 1.0, "chemical_potential": 0.0},
-        "time": {"t_final": 0.3, "dt": 0.1},
-        "equilibrium": {"method": "second_born_reference"},
+        "time": {"t_final": 0.3, "dt": 0.05},
+        "equilibrium": {"method": "hfb", "allow_approximation_mismatch": True},
         "kbe": {"self_energy": "second_born_reference", "max_fixed_point_iterations": 8, "tolerance": 1e-5, "mixing": 0.5},
         "thermal_branch": {"enabled": True, "n_tau": 8, "max_iterations": 10, "mixing": 0.4},
         "observables": ["density", "energy"],
@@ -218,4 +224,4 @@ def test_kbe_hfb_kspace_block_second_born_is_not_significantly_slower_than_real_
 
     k_median = float(np.median(np.asarray(k_times, dtype=np.float64)))
     real_median = float(np.median(np.asarray(real_times, dtype=np.float64)))
-    assert real_median / k_median >= 0.9
+    assert real_median / k_median >= 2.0

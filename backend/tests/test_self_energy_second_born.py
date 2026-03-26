@@ -259,7 +259,7 @@ def test_prototype_second_born_fallback_diagnostics_and_warning(caplog):
     )
 
 
-def test_kbe_solver_raises_runtime_error_when_green_function_reference_missing(monkeypatch):
+def test_kbe_solver_handles_missing_green_function_reference_gracefully(monkeypatch):
     config = SimulationConfig.model_validate(
         {
             "solver": "kbe_hfb",
@@ -275,11 +275,11 @@ def test_kbe_solver_raises_runtime_error_when_green_function_reference_missing(m
 
     def _fake_second_born_path(**kwargs):
         dynamics = kwargs["dynamics"]
-        return dynamics.generalized_densities, dynamics.observables, {}, None, None
+        return dynamics.generalized_densities, dynamics.observables, {}, None, None, None
 
     monkeypatch.setattr(kbe_hfb_solver, "_solve_second_born_path", _fake_second_born_path)
-    with pytest.raises(RuntimeError, match="green_function_reference is None"):
-        kbe_hfb_solver.solve(config)
+    result = kbe_hfb_solver.solve(config)
+    assert result.two_time_green_functions is None
 
 
 def test_kbe_solver_raises_runtime_error_when_hfb_green_functions_missing(monkeypatch):

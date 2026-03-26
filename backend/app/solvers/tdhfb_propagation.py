@@ -194,22 +194,48 @@ def _propagate_generalized_densities(
             next_dt = max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config))
 
     times_array = np.asarray(times, dtype=np.float64)
+    adaptive_diagnostics = {
+        "requested_time_steps": config.time.n_steps,
+        "accepted_time_steps": int(len(times_array) - 1),
+        "rejected_time_steps": rejected_steps,
+        "adaptive_enabled": True,
+        "time_step_history": time_step_history,
+        "adaptive_error_estimate_history": error_estimates,
+        "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
+        "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
+        "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
+    }
+
+    if config.adaptive.dense_output:
+        n_uniform = config.time.n_steps + 1
+        uniform_times, uniform_densities = _resample_trajectory_to_uniform(
+            times_array, generalized_densities, n_uniform,
+        )
+        _, uniform_propagators = _resample_trajectory_to_uniform(
+            times_array, cumulative_propagators, n_uniform,
+        )
+        return (
+            uniform_times,
+            saved_step_indices(config),
+            uniform_densities,
+            uniform_propagators,
+            {
+                **adaptive_diagnostics,
+                "time_grid_mode": "uniform_dense_output",
+                "dense_output_enabled": True,
+                "adaptive_accepted_times": times,
+            },
+        )
+
     return (
         times_array,
         saved_step_indices_from_count(len(times_array), config.time.save_every),
         generalized_densities,
         cumulative_propagators,
         {
-            "requested_time_steps": config.time.n_steps,
-            "accepted_time_steps": int(len(times_array) - 1),
-            "rejected_time_steps": rejected_steps,
+            **adaptive_diagnostics,
             "time_grid_mode": "adaptive",
-            "adaptive_enabled": True,
-            "time_step_history": time_step_history,
-            "adaptive_error_estimate_history": error_estimates,
-            "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
-            "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
-            "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
+            "dense_output_enabled": False,
         },
     )
 
@@ -241,6 +267,49 @@ def _advance_generalized_density_step(
         equilibrium.effective_chemical_potential,
     )
     return propagate_generalized_density(current_density, midpoint_hamiltonian, dt)
+
+
+def _resample_trajectory_to_uniform(
+    adaptive_times: NDArray[np.float64],
+    adaptive_arrays: list[NDArray[np.complex128]],
+    n_uniform: int,
+) -> tuple[NDArray[np.float64], list[NDArray[np.complex128]]]:
+    """Linearly interpolate a trajectory of arrays from adaptive to uniform time grid.
+
+    Parameters
+    ----------
+    adaptive_times : array of accepted adaptive time points (monotonically increasing).
+    adaptive_arrays : list of arrays (one per adaptive time point, all same shape).
+    n_uniform : number of uniform output points (typically config.time.n_steps + 1).
+
+    Returns
+    -------
+    uniform_times : equally spaced time grid from 0 to adaptive_times[-1].
+    uniform_arrays : interpolated arrays on the uniform grid.
+    """
+    t_final = float(adaptive_times[-1])
+    uniform_times = np.linspace(0.0, t_final, n_uniform)
+
+    stacked = np.stack(adaptive_arrays)  # (T_adaptive, *shape)
+    original_shape = stacked.shape[1:]
+    flat = stacked.reshape(len(adaptive_times), -1)  # (T_adaptive, M)
+
+    # Bracket each uniform time within the adaptive grid
+    indices = np.searchsorted(adaptive_times, uniform_times, side="right") - 1
+    indices = np.clip(indices, 0, len(adaptive_times) - 2)
+
+    # Linear interpolation weights
+    t_lo = adaptive_times[indices]
+    t_hi = adaptive_times[indices + 1]
+    dt = t_hi - t_lo
+    dt = np.where(dt < 1e-20, 1.0, dt)
+    alpha = np.clip((uniform_times - t_lo) / dt, 0.0, 1.0)
+
+    # Vectorised interpolation
+    result = (1.0 - alpha[:, None]) * flat[indices] + alpha[:, None] * flat[indices + 1]
+
+    uniform_arrays = [result[i].reshape(original_shape).copy() for i in range(n_uniform)]
+    return uniform_times, uniform_arrays
 
 
 def _adaptive_step_factor(error_estimate: float, config: SimulationConfig) -> float:
@@ -508,6 +577,55 @@ def _propagate_generalized_densities_kspace(
                 next_dt = max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config))
 
         times_array = np.asarray(times, dtype=np.float64)
+        adaptive_kblock_diagnostics = {
+            "requested_time_steps": config.time.n_steps,
+            "accepted_time_steps": int(len(times_array) - 1),
+            "rejected_time_steps": rejected_steps,
+            "adaptive_enabled": True,
+            "time_step_history": time_step_history,
+            "adaptive_error_estimate_history": error_estimates,
+            "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
+            "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
+            "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
+            "k_space_path_mode": kspace_path_mode,
+            "k_space_path_fallback_reason": kspace_path_fallback_reason,
+            "k_space_initial_block_structure_error": initial_block_structure_error,
+        }
+
+        if config.adaptive.dense_output:
+            n_uniform = config.time.n_steps + 1
+            uniform_times, uniform_density_blocks = _resample_trajectory_to_uniform(
+                times_array, adaptive_density_blocks_list, n_uniform,
+            )
+            _, uniform_prop_blocks = _resample_trajectory_to_uniform(
+                times_array, adaptive_cumulative_prop_blocks, n_uniform,
+            )
+            si = saved_step_indices(config)
+            saved_density_blocks = [uniform_density_blocks[i] for i in si]
+            saved_cumulative_prop_blocks = [uniform_prop_blocks[i] for i in si]
+            generalized_densities_out: list[ComplexMatrix] = []
+            cumulative_propagators_out: list[ComplexMatrix] = []
+            for db, pb in zip(saved_density_blocks, saved_cumulative_prop_blocks, strict=True):
+                density_k = nambu_from_k_blocks(context, db)
+                generalized_densities_out.append(context.nambu_momentum_to_site @ density_k @ context.nambu_site_to_momentum)
+                prop_k = nambu_from_k_blocks(context, pb)
+                cumulative_propagators_out.append(context.nambu_momentum_to_site @ prop_k @ context.nambu_site_to_momentum)
+            return (
+                uniform_times[si],
+                np.arange(len(si), dtype=np.int64),
+                generalized_densities_out,
+                cumulative_propagators_out,
+                {
+                    **adaptive_kblock_diagnostics,
+                    "time_grid_mode": "uniform_dense_output",
+                    "dense_output_enabled": True,
+                    "adaptive_accepted_times": times,
+                },
+                saved_density_blocks,
+                saved_cumulative_prop_blocks,
+                context,
+            )
+
         si = saved_step_indices_from_count(len(times_array), config.time.save_every)
         saved_density_blocks = [adaptive_density_blocks_list[i] for i in si]
         saved_cumulative_prop_blocks = [adaptive_cumulative_prop_blocks[i] for i in si]
@@ -524,19 +642,9 @@ def _propagate_generalized_densities_kspace(
             generalized_densities,
             cumulative_propagators,
             {
-                "requested_time_steps": config.time.n_steps,
-                "accepted_time_steps": int(len(times_array) - 1),
-                "rejected_time_steps": rejected_steps,
+                **adaptive_kblock_diagnostics,
                 "time_grid_mode": "adaptive",
-                "adaptive_enabled": True,
-                "time_step_history": time_step_history,
-                "adaptive_error_estimate_history": error_estimates,
-                "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
-                "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
-                "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
-                "k_space_path_mode": kspace_path_mode,
-                "k_space_path_fallback_reason": kspace_path_fallback_reason,
-                "k_space_initial_block_structure_error": initial_block_structure_error,
+                "dense_output_enabled": False,
             },
             saved_density_blocks,
             saved_cumulative_prop_blocks,
@@ -632,25 +740,54 @@ def _propagate_generalized_densities_kspace(
             next_dt = max(min_dt, trial_dt * _adaptive_step_factor(error_estimate, config))
 
     times_array = np.asarray(times, dtype=np.float64)
+    adaptive_kfull_diagnostics = {
+        "requested_time_steps": config.time.n_steps,
+        "accepted_time_steps": int(len(times_array) - 1),
+        "rejected_time_steps": rejected_steps,
+        "adaptive_enabled": True,
+        "time_step_history": time_step_history,
+        "adaptive_error_estimate_history": error_estimates,
+        "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
+        "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
+        "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
+        "k_space_path_mode": kspace_path_mode,
+        "k_space_path_fallback_reason": kspace_path_fallback_reason,
+        "k_space_initial_block_structure_error": initial_block_structure_error,
+    }
+
+    if config.adaptive.dense_output:
+        n_uniform = config.time.n_steps + 1
+        uniform_times, uniform_densities = _resample_trajectory_to_uniform(
+            times_array, generalized_densities, n_uniform,
+        )
+        _, uniform_propagators = _resample_trajectory_to_uniform(
+            times_array, cumulative_propagators, n_uniform,
+        )
+        return (
+            uniform_times,
+            saved_step_indices(config),
+            uniform_densities,
+            uniform_propagators,
+            {
+                **adaptive_kfull_diagnostics,
+                "time_grid_mode": "uniform_dense_output",
+                "dense_output_enabled": True,
+                "adaptive_accepted_times": times,
+            },
+            None,
+            None,
+            None,
+        )
+
     return (
         times_array,
         saved_step_indices_from_count(len(times_array), config.time.save_every),
         generalized_densities,
         cumulative_propagators,
         {
-            "requested_time_steps": config.time.n_steps,
-            "accepted_time_steps": int(len(times_array) - 1),
-            "rejected_time_steps": rejected_steps,
+            **adaptive_kfull_diagnostics,
             "time_grid_mode": "adaptive",
-            "adaptive_enabled": True,
-            "time_step_history": time_step_history,
-            "adaptive_error_estimate_history": error_estimates,
-            "adaptive_max_error_estimate": float(max(error_estimates)) if error_estimates else 0.0,
-            "adaptive_min_dt_used": float(min(time_step_history)) if time_step_history else 0.0,
-            "adaptive_max_dt_used": float(max(time_step_history)) if time_step_history else 0.0,
-            "k_space_path_mode": kspace_path_mode,
-            "k_space_path_fallback_reason": kspace_path_fallback_reason,
-            "k_space_initial_block_structure_error": initial_block_structure_error,
+            "dense_output_enabled": False,
         },
         None,
         None,

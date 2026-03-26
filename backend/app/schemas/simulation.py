@@ -152,6 +152,11 @@ class AdaptiveConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
+    dense_output: bool = Field(
+        default=True,
+        description="When True, interpolate adaptive trajectory onto the uniform output grid defined by time.dt. "
+        "This enables FFT-based spectral analysis on adaptive runs.",
+    )
     atol: float = Field(default=1e-7, gt=0.0)
     rtol: float = Field(default=1e-5, gt=0.0)
     min_dt: float | None = Field(default=None, gt=0.0)
